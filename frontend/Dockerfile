@@ -10,8 +10,8 @@ RUN npm install
 # Copy the rest of the application code
 COPY . .
 
-# bump Node heap to 2 GB
-ENV NODE_OPTIONS="--max_old_space_size=2048"
+# bump Node heap to 4 GB
+ENV NODE_OPTIONS="--max_old_space_size=4096"
 
 RUN npm run build
 
