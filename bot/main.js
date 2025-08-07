@@ -33,9 +33,9 @@ app.post('/api/prepareShare', async (req, res) => {
                 body: JSON.stringify({
                     user_id,             // who will share
                     result: {            // <-- must be `result`, not `message`
-                        _: 'inputBotInlineMessageMediaAuto',
+                        type: 'inputBotInlineMessageMediaAuto',
                         media: {
-                            _: 'inputMediaPhoto',
+                            type: 'inputMediaPhoto',
                             media: mediaUrl
                         },
                         caption              // caption text
