@@ -34,10 +34,6 @@ export default defineConfig({
             if (id.match(/node_modules\/(vue|vue-router|pinia)\//)) {
               return 'vue-core'
             }
-            // TON & auth
-            if (id.match(/node_modules\/(@tonconnect|@ton\/core|@supabase|firebase)\//)) {
-              return 'auth-ton'
-            }
             // UI & animations
             if (id.match(/node_modules\/(lottie-web|canvas-confetti|vue3-toastify)\//)) {
               return 'ui-anim'
