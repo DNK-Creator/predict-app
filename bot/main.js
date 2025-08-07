@@ -12,13 +12,16 @@ bot.use(session())
 const effectIdTwo = "5046509860389126442"
 
 
-const app = express();
-app.use(express.json());
+const app = express()
+app.use(express.json())
 
 app.post('/api/prepareShare', async (req, res) => {
-    const { mediaUrl, caption, user_id } = req.body;
+    console.log('Api PrepareShare Got Hit');
+    const { mediaUrl, caption, user_id, peer_types } = req.body;
     if (!mediaUrl || !caption || !user_id) {
-        return res.status(400).json({ error: 'mediaUrl, caption & user_id required' });
+        return res
+            .status(400)
+            .json({ error: 'mediaUrl, caption & user_id required' });
     }
 
     try {
@@ -28,31 +31,33 @@ app.post('/api/prepareShare', async (req, res) => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    user_id,
-                    message: {
+                    user_id,             // who will share
+                    result: {            // <-- must be `result`, not `message`
                         _: 'inputBotInlineMessageMediaAuto',
                         media: {
                             _: 'inputMediaPhoto',
                             media: mediaUrl
                         },
-                        caption
+                        caption              // caption text
                     },
-                    // optional controls:
                     allow_user_chats: true,
                     allow_group_chats: true,
+                    peer_types           // optional array ['user','group']
                 })
             }
         );
 
-        const payload = await resp.json();
-        if (!payload.ok) throw new Error(`${payload.error_code}: ${payload.description}`);
-        res.json({ preparedMessageId: payload.result.id });
+        const payload = await resp.json()
+        if (!payload.ok) {
+            throw new Error(`${payload.error_code}: ${payload.description}`);
+        }
 
+        res.json({ preparedMessageId: payload.result.id })
     } catch (err) {
-        console.error('⛔ prepareShare failed:', err);
-        res.status(500).json({ error: err.message });
+        console.error('⛔ prepareShare failed:', err)
+        res.status(500).json({ error: err.message })
     }
-});
+})
 
 
 app.post("/api/invoice", async (req, res) => {
