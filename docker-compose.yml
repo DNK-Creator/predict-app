@@ -25,7 +25,5 @@ services:
   frontend:
     build:
       context: ./frontend
-    env_file:
-      - .env
     networks:
       - dev
