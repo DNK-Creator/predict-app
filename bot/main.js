@@ -14,7 +14,7 @@ const effectIdTwo = "5046509860389126442";
 
 const app = express();
 const corsOptions = {
-    origin: 'http://localhost:3000' // Allow requests only from this origin
+    origin: 'http://188.68.218.217' // Allow requests only from this origin
 };
 app.use(cors(corsOptions)); // Enable CORS with specific origin
 app.use(express.json());
