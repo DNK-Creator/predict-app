@@ -15,35 +15,26 @@ const effectIdTwo = "5046509860389126442"
 const app = express();
 app.use(express.json());
 
-// New: savePreparedInlineMessage
 app.post('/api/prepareShare', async (req, res) => {
-    console.log('Api PrepareShare Got Hit')
+    console.log('Api PrepareShare Got Hit');
     const { mediaUrl, caption } = req.body;
     if (!mediaUrl || !caption) {
         return res.status(400).json({ error: 'mediaUrl and caption required' });
     }
 
     try {
-        // Call the core method via Bot-API
-        const resp = await fetch(
-            `https://api.telegram.org/bot${token}/messages.savePreparedInlineMessage`,
+        // This invokes the MTProto method directly:
+        const result = await bot.telegram.callApi(
+            'messages.savePreparedInlineMessage',
             {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: {
-                        _: 'messageMediaPhoto',
-                        media: mediaUrl,
-                        caption: caption,
-                        parse_mode: 'HTML',
-                    }
-                })
+                message: {
+                    _: 'messageMediaPhoto',
+                    media: mediaUrl,
+                    caption: caption,
+                    parse_mode: 'HTML',
+                }
             }
         );
-        const { ok, result, error_code, description } = await resp.json();
-        if (!ok) {
-            throw new Error(`${error_code}: ${description}`);
-        }
 
         // result.id is the preparedMessageId
         res.json({ preparedMessageId: result.id });
