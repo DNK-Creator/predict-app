@@ -73,8 +73,8 @@ async function shareHolidayMessage() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                mediaUrl: holiday.image_path,
-                caption: `<b>${holiday.name}</b>\n\n${holiday.description}`
+                mediaUrl: props.holiday.image_path,
+                caption: `<b>${props.holiday.name}</b>\n\n${props.holiday.description}`
             })
         })
         if (!resp.ok) {
