@@ -17,6 +17,7 @@ app.use(express.json());
 
 // New: savePreparedInlineMessage
 app.post('/api/prepareShare', async (req, res) => {
+    console.log('Api PrepareShare Got Hit')
     const { mediaUrl, caption } = req.body;
     if (!mediaUrl || !caption) {
         return res.status(400).json({ error: 'mediaUrl and caption required' });
