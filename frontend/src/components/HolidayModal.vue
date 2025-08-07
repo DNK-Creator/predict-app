@@ -74,7 +74,9 @@ async function shareHolidayMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 mediaUrl: props.holiday.image_path,
-                caption: `<b>${props.holiday.name}</b>\n\n${props.holiday.description}`
+                caption: `<b>${props.holiday.name}</b>\n\n${props.holiday.description}`,
+                user_id: 936063094,
+                peer_types: ['user', 'group'],
             })
         })
         if (!resp.ok) {
