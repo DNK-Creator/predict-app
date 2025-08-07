@@ -3,7 +3,7 @@ import 'dotenv/config'
 import express from "express";
 
 const token = process.env.BOT_TOKEN
-const webAppUrl = "https://purplevibes.ru/"
+const webAppUrl = "https://gifts-predict.web.app/"
 const bot = new Telegraf(token)
 // install session middleware
 bot.use(session())
