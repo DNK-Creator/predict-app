@@ -17,8 +17,6 @@ services:
   backend:
     build:
       context: ./bot
-    env_file:
-      - .env
     networks:
       - dev
     ports:
