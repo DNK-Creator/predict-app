@@ -17,6 +17,8 @@ services:
   backend:
     build:
       context: ./bot
+    env_file:
+      - .env
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
       - PORT=${PORT}
@@ -28,13 +30,7 @@ services:
   frontend:
     build:
       context: ./frontend
-    environment:
-      - BASE_URL=${BASE_URL}
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-      - VITE_SUPABASE_API_KEY=${VITE_SUPABASE_API_KEY}
-      - VITE_WALLET_ADDRESS=${VITE_WALLET_ADDRESS}
-      - VITE_TONCENTER_URL=${VITE_TONCENTER_URL}
-      - VITE_HOT_WALLET=${VITE_HOT_WALLET}
-      - VITE_TONCENTER_API_KEY=${VITE_TONCENTER_API_KEY}
+    env_file:
+      - .env
     networks:
       - dev
