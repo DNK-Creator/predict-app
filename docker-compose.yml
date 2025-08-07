@@ -7,7 +7,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - './nginx.conf:/etc/nginx/conf.d/default.conf'
+      - './nginx.conf:/etc/nginx/nginx.conf'
     depends_on:
       - backend
       - frontend
@@ -17,6 +17,8 @@ services:
   backend:
     build:
       context: ./bot
+    env_file:
+      - .env
     networks:
       - dev
     ports:
@@ -25,5 +27,7 @@ services:
   frontend:
     build:
       context: ./frontend
+    env_file:
+      - .env
     networks:
       - dev
