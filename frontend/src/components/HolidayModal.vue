@@ -67,26 +67,44 @@ function close() {
 }
 
 async function shareHolidayMessage() {
-    // 1. Fetch your preparedMessageId from your server:
-    const { preparedMessageId } = await fetch('/api/getPreparedMessageId', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            mediaUrl: 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images//Maslenitsa.jpg',
-            caption: `Happy Holidays!`,
+    try {
+        // 1) Prepare the inline message on your server
+        const resp = await fetch('/api/prepareShare', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mediaUrl: holiday.image_path,
+                caption: `<b>${holiday.name}</b>\n\n${holiday.description}`
+            })
         })
-    }).then(r => r.json())
-    
-    console.log(preparedMessageId)
-    // 2. Guard: is sharing supported?
-    // if (webApp.shareMessage) {
-    //     try {
-    //         await webApp.shareMessage(preparedMessageId);
-    //         console.log('Share dialog opened!');
-    //     } catch (err) {
-    //         console.error('Share failed:', err);
-    //     }
-    // }
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}))
+            throw new Error(err.error || 'prepareShare failed')
+        }
+        const { preparedMessageId } = await resp.json()
+
+        // 2) Check support
+        if (typeof webApp.shareMessage !== 'function') {
+            return console.warn('shareMessage not supported')
+        }
+
+        // 3) Open Telegram share dialog
+        await webApp.shareMessage(preparedMessageId)
+        console.log('Share dialog opened!')
+
+        // 4) Optional: handle callbacks
+        webApp.onEvent('shareMessageSent', () => {
+            console.log('User shared successfully!')
+            // you could close the modal here
+            emit('close')
+        })
+        webApp.onEvent('shareMessageFailed', (e) => {
+            console.warn('Share failed or canceled', e)
+        })
+
+    } catch (err) {
+        console.error('Error in shareHolidayMessage:', err)
+    }
 }
 
 </script>

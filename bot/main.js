@@ -1,6 +1,7 @@
+import fetch from 'node-fetch'
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
-import express from "express";
+import express from "express"
 
 const token = process.env.BOT_TOKEN
 const webAppUrl = "https://gifts-predict.web.app/"
@@ -8,11 +9,48 @@ const bot = new Telegraf(token)
 // install session middleware
 bot.use(session())
 
-const effectIdTwo = "5046509860389126442";
+const effectIdTwo = "5046509860389126442"
 
 
 const app = express();
 app.use(express.json());
+
+// New: savePreparedInlineMessage
+app.post('/api/prepareShare', async (req, res) => {
+    const { mediaUrl, caption } = req.body;
+    if (!mediaUrl || !caption) {
+        return res.status(400).json({ error: 'mediaUrl and caption required' });
+    }
+
+    try {
+        // Call the core method via Bot-API
+        const resp = await fetch(
+            `https://api.telegram.org/bot${token}/messages.savePreparedInlineMessage`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    message: {
+                        _: 'messageMediaPhoto',
+                        media: mediaUrl,
+                        caption: caption,
+                        parse_mode: 'HTML',
+                    }
+                })
+            }
+        );
+        const { ok, result, error_code, description } = await resp.json();
+        if (!ok) {
+            throw new Error(`${error_code}: ${description}`);
+        }
+
+        // result.id is the preparedMessageId
+        res.json({ preparedMessageId: result.id });
+    } catch (err) {
+        console.error('⛔ prepareShare failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
 
 app.post("/api/invoice", async (req, res) => {
     console.log('Hit /api/invoice')
