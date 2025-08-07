@@ -67,46 +67,7 @@ function close() {
 }
 
 async function shareHolidayMessage() {
-    try {
-        // 1) Prepare the inline message on your server
-        const resp = await fetch('/api/prepareShare', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                mediaUrl: props.holiday.image_path,
-                caption: `<b>${props.holiday.name}</b>\n\n${props.holiday.description}`,
-                user_id: 936063094,
-                peer_types: ['user', 'group']
-            })
-        })
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => ({}))
-            throw new Error(err.error || 'prepareShare failed')
-        }
-        const { preparedMessageId } = await resp.json()
-
-        // 2) Check support
-        if (typeof webApp.shareMessage !== 'function') {
-            return console.warn('shareMessage not supported')
-        }
-
-        // 3) Open Telegram share dialog
-        await webApp.shareMessage(preparedMessageId)
-        console.log('Share dialog opened!')
-
-        // 4) Optional: handle callbacks
-        webApp.onEvent('shareMessageSent', () => {
-            console.log('User shared successfully!')
-            // you could close the modal here
-            emit('close')
-        })
-        webApp.onEvent('shareMessageFailed', (e) => {
-            console.warn('Share failed or canceled', e)
-        })
-
-    } catch (err) {
-        console.error('Error in shareHolidayMessage:', err)
-    }
+    
 }
 
 </script>
