@@ -19,9 +19,6 @@ services:
       context: ./bot
     env_file:
       - .env
-    environment:
-      - BOT_TOKEN=${BOT_TOKEN}
-      - PORT=${PORT}
     networks:
       - dev
     ports:
@@ -32,8 +29,5 @@ services:
       context: ./frontend
     env_file:
       - .env
-    environment:
-      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
-      - VITE_SUPABASE_API_KEY=${VITE_SUPABASE_API_KEY}
     networks:
       - dev

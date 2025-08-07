@@ -13,5 +13,7 @@ RUN npm install --production
 # Copy the rest of the application code
 COPY . .
 
+EXPOSE 8000
+
 # Define the command to run your application
 CMD ["node", "main.js"]

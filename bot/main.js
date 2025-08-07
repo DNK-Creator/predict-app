@@ -15,7 +15,7 @@ const app = express();
 app.use(express.json());
 
 app.post("/api/invoice", async (req, res) => {
-    console.log('Hit localhost://8000/api/invoice')
+    console.log('Hit /api/invoice')
     try {
         const { amount } = req.body;
         const link = await createInvoiceLink(amount);
