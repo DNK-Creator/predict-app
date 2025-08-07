@@ -16,33 +16,49 @@ const app = express();
 app.use(express.json());
 
 app.post('/api/prepareShare', async (req, res) => {
-    console.log('Api PrepareShare Got Hit');
-    const { mediaUrl, caption } = req.body;
+    console.log('Api PrepareShare Got Hit')
+    const { mediaUrl, caption } = req.body
     if (!mediaUrl || !caption) {
-        return res.status(400).json({ error: 'mediaUrl and caption required' });
+        return res.status(400).json({ error: 'mediaUrl and caption required' })
     }
 
     try {
-        // This invokes the MTProto method directly:
-        const result = await bot.telegram.callApi(
-            'messages.savePreparedInlineMessage',
+        // 1) Upload your photo & caption as a *prepared* inline message
+        // Note: this is the Bot-API HTTP wrapper, not MTProto
+        const resp = await fetch(
+            `https://api.telegram.org/bot${token}/savePreparedInlineMessage`,
             {
-                message: {
-                    _: 'messageMediaPhoto',
-                    media: mediaUrl,
-                    caption: caption,
-                    parse_mode: 'HTML',
-                }
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    // we don't need a user_id for Mini App shares
+                    // the "result" needs to be an InputBotInlineMessage:
+                    result: {
+                        _: 'inputBotInlineMessageMediaAuto',
+                        caption: caption,
+                        // supply the URL of your image
+                        thumb_url: mediaUrl,
+                    },
+                    allow_user_chats: true,
+                    allow_bot_chats: false,
+                    allow_group_chats: true,
+                    allow_channel_chats: false
+                })
             }
-        );
+        )
+        const payload = await resp.json()
+        if (!payload.ok) {
+            throw new Error(`${payload.error_code}: ${payload.description}`)
+        }
 
-        // result.id is the preparedMessageId
-        res.json({ preparedMessageId: result.id });
+        // the API returns a PreparedInlineMessage object with .id
+        const preparedMessageId = payload.result.id
+        res.json({ preparedMessageId })
     } catch (err) {
-        console.error('⛔ prepareShare failed:', err);
-        res.status(500).json({ error: err.message });
+        console.error('⛔ prepareShare failed:', err)
+        res.status(500).json({ error: err.message })
     }
-});
+})
 
 app.post("/api/invoice", async (req, res) => {
     console.log('Hit /api/invoice')
