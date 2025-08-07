@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   dev:
 
@@ -9,7 +7,7 @@ services:
     ports:
       - "80:80"
     volumes:
-      - './nginx.conf:/etc/nginx/nginx.conf'
+      - './nginx.conf:/etc/nginx/conf.d/default.conf'
     depends_on:
       - backend
       - frontend
@@ -21,6 +19,8 @@ services:
       context: ./bot
     networks:
       - dev
+    ports:
+      - "3000:3000"
 
   frontend:
     build:

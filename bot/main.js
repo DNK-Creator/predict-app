@@ -1,7 +1,6 @@
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express";
-import { cors } from 'cors'
 
 const token = process.env.BOT_TOKEN
 const webAppUrl = "https://purplevibes.ru/"
@@ -13,10 +12,6 @@ const effectIdTwo = "5046509860389126442";
 
 
 const app = express();
-const corsOptions = {
-    origin: 'http://188.68.218.217' // Allow requests only from this origin
-};
-app.use(cors(corsOptions)); // Enable CORS with specific origin
 app.use(express.json());
 
 app.post("/api/invoice", async (req, res) => {
