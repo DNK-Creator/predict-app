@@ -1,0 +1,40 @@
+{
+  "name": "gifts-predict",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.6",
+    "@supabase/supabase-js": "^2.52.0",
+    "@ton/core": "^0.61.0",
+    "@tonconnect/sdk": "^3.2.0",
+    "@tonconnect/ui": "^2.2.0",
+    "canvas-confetti": "^1.9.3",
+    "chart.js": "^4.5.0",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.1",
+    "firebase": "^12.0.0",
+    "js-sha256": "^0.11.1",
+    "lottie-web": "^5.13.0",
+    "pako": "^2.1.0",
+    "pinia": "^3.0.3",
+    "telegraf": "^4.16.3",
+    "uuid": "^11.1.0",
+    "vite-plugin-compression": "^0.5.1",
+    "vite-plugin-node-polyfills": "^0.24.0",
+    "vue": "^3.5.17",
+    "vue-router": "^4.5.1",
+    "vue3-toastify": "^0.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.32",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "npm-run-all2": "^8.0.4",
+    "vite": "^7.0.0"
+  }
+}
