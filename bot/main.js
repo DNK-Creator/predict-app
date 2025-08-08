@@ -2,18 +2,25 @@ import fetch from 'node-fetch'
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express"
+import cors from "cors"
 
 const token = process.env.BOT_TOKEN
-const webAppUrl = "https://gifts-predict.web.app/"
+const webAppUrl = "https://giftspredict.ru/"
 const bot = new Telegraf(token)
 // install session middleware
 bot.use(session())
 
 const effectIdTwo = "5046509860389126442"
-
+// ADD CORS AND CHANGE THE SERVER PROXY REQUESTS TO SUBDOMAIN AT API.DOMAIN WITH HTTPS 
 
 const app = express()
 app.use(express.json())
+// 2) Enable CORS *only* from your front-end domain
+app.use(cors({
+    origin: 'https://giftspredict.ru',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true
+}))
 
 
 app.post("/api/invoice", async (req, res) => {
