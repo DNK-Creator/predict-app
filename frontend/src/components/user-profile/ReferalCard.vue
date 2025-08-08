@@ -31,7 +31,7 @@
         </ul>
         <button class="invite-button" @click="$emit('invite')">Invite friends</button>
     </div>
-    <div class="follow-card">
+    <div class="follow-card" @click="openChannel">
         <h3 class="card-title">
             FOLLOW OUR CHANNEL, LETS CONNECT!
             <img :src="tonWhiteIcon" alt="TON Icon" class="ton-white-icon" />
@@ -42,8 +42,20 @@
 
 <script setup>
 import { defineEmits } from 'vue'
+import { useTelegram } from '@/services/telegram'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
+
 const emit = defineEmits(['invite'])
+const channelLink = 'https://t.me/giftspredict'
+const { tg } = useTelegram()
+
+function openChannel() {
+    if (channelLink.includes('t.me')) {
+        tg.openTelegramLink(channelLink)
+    } else {
+        tg.openLink(channelLink)
+    }
+}
 </script>
 
 <style scoped>

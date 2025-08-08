@@ -2,7 +2,7 @@
     <div class="comment-item">
         <div class="header">
             <div class="user-info">
-                <span class="username">{{ comment.user || 'Anonymous' }}</span>
+                <span class="username">{{ comment.username || 'Anonymous' }}</span>
                 <span class="timestamp">{{ formattedTime }}</span>
             </div>
             <button v-if="canDelete" class="delete-btn" @click="$emit('delete-comment', comment.id)">
@@ -45,7 +45,7 @@ const canDelete = computed(() => {
     background: var(--color-bg);
     border: 1px solid var(--color-border);
     border-radius: 12px;
-    padding: 1rem;
+    padding: 0.1rem;
     box-shadow: var(--shadow-md);
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
@@ -66,10 +66,11 @@ const canDelete = computed(() => {
     display: flex;
     gap: 0.5rem;
     align-items: center;
+    justify-content: center;
 }
 
 .username {
-    font-weight: 600;
+    font-weight: 400;
     font-size: 0.875rem;
     color: white;
     font-family: "Inter", sans-serif;
@@ -77,7 +78,7 @@ const canDelete = computed(() => {
 }
 
 .timestamp {
-    font-size: 0.85rem;
+    font-size: 0.875rem;
     color: gray;
     font-family: "Inter", sans-serif;
     font-weight: 400;

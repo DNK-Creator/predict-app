@@ -41,9 +41,9 @@ const fgStyle = computed(() => {
 <style scoped>
 .gauge {
     position: relative;
-    width: 4rem;
-    height: 2rem;
-    margin-bottom: 0.8rem;
+    width: 5rem;
+    height: 2.5rem;
+    margin-bottom: 0.75rem;
     margin-right: 1.5rem;
 }
 
@@ -78,14 +78,14 @@ const fgStyle = computed(() => {
 }
 
 .gauge__value {
-    font-size: 1rem;
+    font-size: 1.1rem;
     font-weight: 700;
     color: #fff;
-    margin-top: 1.65rem;
+    margin-top: 2.25rem;
 }
 
 .gauge__label {
-    font-size: 0.7rem;
+    font-size: 0.8rem;
     color: #9ca3af;
     text-transform: lowercase;
 }

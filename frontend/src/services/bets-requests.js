@@ -161,7 +161,7 @@ export async function placeBetRequest(betId, side, stake) {
     if (fetchErr) throw fetchErr
 
     // 2) Ensure enough points
-    if ((profile.points || 0) < stake) {
+    if ((profile.points || 0) < +stake) {
         throw new Error('Insufficient points for this bet')
     }
 
@@ -179,18 +179,19 @@ export async function placeBetRequest(betId, side, stake) {
         updatedBets = [...existing]
         updatedBets[idx] = {
             ...existing[idx],
-            stake: existing[idx].stake + stake,
+            stake: existing[idx].stake + Number(stake),
             placed_at: new Date().toISOString()
         }
     } else {
+        let numStake = +stake
         updatedBets = [
             ...existing,
-            { bet_id: betId, side, stake, placed_at: new Date().toISOString() }
+            { bet_id: betId, side, stake: numStake, placed_at: new Date().toISOString() }
         ]
     }
 
     // 4) Deduct points
-    const updatedPoints = (profile.points || 0) - stake
+    const updatedPoints = (profile.points || 0) - Number(stake)
 
     // 4) Now bump the bets.volume JSON
     // 4a) fetch current volume
@@ -204,7 +205,7 @@ export async function placeBetRequest(betId, side, stake) {
     const currentVol = betRow.volume || { Yes: 0, No: 0 }
     const newVol = {
         ...currentVol,
-        [side]: (currentVol[side] || 0) + stake
+        [side]: (currentVol[side] || 0) + Number(stake)
     }
 
     // 4b) write it back
@@ -300,6 +301,7 @@ export async function postNewComment(betId, text, commentId) {
         bet_id: betId,
         text,
         ...(currentUserId ? { user_id: currentUserId } : {}),
+        username: user?.firstName ?? 'Anonymous',
         created_at: new Date().toISOString(),
         id: commentId
     }
@@ -326,7 +328,7 @@ export async function getComments(betId, page = 0, pageSize = 10) {
     const to = from + pageSize - 1
     const { data, error } = await supabase
         .from('comments')
-        .select('id, text, user_id, created_at')
+        .select('id, text, user_id, username, created_at')
         .eq('bet_id', betId)
         .order('created_at', { ascending: false })
         .range(from, to)

@@ -96,6 +96,11 @@ function onDepositClick() {
     padding: 10px;
 }
 
+.profile-pic img {
+    height: 100%;
+    width: 100%;
+}
+
 .icon-button {
     background: none;
     border: none;

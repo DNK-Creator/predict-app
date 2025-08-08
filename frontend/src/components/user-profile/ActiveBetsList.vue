@@ -52,7 +52,8 @@ function formatDate(dateString, opts) {
     max-width: 480px;
     width: 89.5vw;
     margin: 0 auto;
-    padding: 12px;
+    padding: 14px;
+    padding-top: 0px;
     display: flex;
     flex-direction: column;
     gap: 12px;

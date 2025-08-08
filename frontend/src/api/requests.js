@@ -58,24 +58,6 @@ export async function getUsersPoints() {
     return data.points;
 }
 
-export async function getUsersBetsCount() {
-    const { data, error } = await supabase
-        .from('users')
-        .select('placed_bets')
-        .eq('telegram', MY_ID)
-        .single();
-
-    if (error) {
-        console.error('Error fetching points:', error);
-        return null;
-    }
-
-    const countBets = data.placed_bets.length
-
-    // data is like { points: 42 }
-    return countBets;
-}
-
 export async function getUsersBetsSummary() {
     const { data, error } = await supabase
         .from('users')
@@ -93,7 +75,6 @@ export async function getUsersBetsSummary() {
 
     const countBets = bets.length;
     const totalVolume = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
-
 
     return { countBets, totalVolume };
 }

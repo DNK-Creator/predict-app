@@ -1,12 +1,16 @@
 <template>
     <LoaderPepe v-if="spinnerShow" />
+
+    <ShowBetModal :visible="showBetModal" :bet="bet" :side="betSide" @close="showBetModal = false"
+        @placed="onBetPlaced" />
+
     <div v-show="!spinnerShow" class="bet-details">
         <!-- Header -->
-        <header class="header" :class="{ 'header--scrolled': scrolled }">
+        <div class="header">
             <h1 class="header__text">{{ bet.name }}</h1>
             <!-- CircleGauge instead of image -->
             <CircleGauge :percent="Math.round(currentOdds * 100)" />
-        </header>
+        </div>
 
         <!-- Main content -->
         <main ref="scrollArea" class="content" @scroll.passive="handleScroll">
@@ -22,32 +26,55 @@
                 <Chart :data="history" />
             </section>
 
-            <section class="card">
-                <h2 class="card__title">Информация</h2>
-                <p class="card__text">{{ bet.description }}</p>
+            <section class="card info-card">
+                <div class="info-header">
+                    <h2 class="card__title">Информация</h2>
+                    <button class="info-toggle" @click="showInfo = !showInfo">
+                        {{ showInfo ? 'Скрыть' : 'Раскрыть' }}
+                        <span :class="['arrow', showInfo ? 'up' : 'down']"></span>
+                    </button>
+                </div>
+
+                <!-- Always show first sentence -->
+                <p class="card__text first-sentence">
+                    {{ firstSentence }}
+                </p>
+
+                <!-- Collapsible remainder -->
+                <div class="info-body" :class="{ 'info-body--collapsed': !showInfo }">
+                    <!-- the rest of the description -->
+                    <p v-if="restDescription" class="card__text">
+                        {{ restDescription }}
+                    </p>
+
+                    <!-- your other info fields -->
+                    <div class="volume_info">
+                        <span>Время закрытия:</span>
+                        <span>{{ formattedDate }}</span>
+                    </div>
+                    <div class="volume_info">
+                        <span>Статус:</span>
+                        <span v-if="betStatus !== '000' && betStatus !== '111'">{{ betStatus }}</span>
+                        <span v-else-if="betStatus === '111'">Открыта</span>
+                        <span v-else>Ожидание разрешения ставки..</span>
+                    </div>
+                    <div class="volume_info">
+                        <span>Объём:</span>
+                        <span v-if="volume.Yes && volume.No">{{ volume.Yes + volume.No }} TON</span>
+                        <span v-else-if="volume.Yes">{{ volume.Yes }} TON</span>
+                        <span v-else-if="volume.No">{{ volume.No }} TON</span>
+                        <span v-else>0 TON</span>
+                    </div>
+                </div>
             </section>
 
             <section class="grid">
-                <div class="card grid__item">
-                    <span>Объем ставок:</span>
-                    <span>${{ volume.Yes + volume.No }}</span>
-                </div>
-                <div class="card grid__item">
-                    <span>Дата окончания:</span>
-                    <span>{{ formattedDate }}</span>
-                </div>
-                <div v-if="userBetAmount.stake > 0" class="card grid__item">
+                <div v-if="userBetAmount.stake > 0" class="card grid__item grid__full">
                     <span>Ваша ставка: </span>
-                    <span> ${{ userBetAmount.stake }} на {{ userBetAmount.result }}</span>
+                    <span> {{ userBetAmount.stake }} TON на {{ userBetAmount.result }}</span>
                 </div>
-                <div v-else class="card grid__item">
+                <div v-else class="card grid__item grid__full">
                     <span>Вы еще не поставили ставку.</span>
-                </div>
-                <div class="card grid__item">
-                    <span>Статус ставки: </span>
-                    <span v-if="betStatus !== '000' && betStatus !== '111'">{{ betStatus }}</span>
-                    <span v-else-if="betStatus === '111'">Открыта</span>
-                    <span v-else>Ожидание разрешения ставки..</span>
                 </div>
             </section>
 
@@ -57,7 +84,7 @@
                     <input v-model="newComment" placeholder="Add a comment" class="comments__input" />
                     <button class="comments__post" @click="postComment">Post</button>
                 </div>
-                <div class="comments__warning">
+                <div v-if="!canComment" class="comments__warning">
                     Only people who bet on the event can comment.
                 </div>
                 <div class="comments__list">
@@ -72,9 +99,6 @@
             <button class="footer__yes" @click="openBetModal('Yes')">Buy Yes</button>
             <button class="footer__no" @click="openBetModal('No')">Buy No</button>
         </div>
-
-        <ShowBetModal :visible="showBetModal" :bet="bet" :side="betSide" @close="showBetModal = false"
-            @placed="onBetPlaced" />
     </div>
 </template>
 
@@ -93,7 +117,7 @@ import {
 } from '@/services/bets-requests.js'
 import Chart from '@/components/bet-details/BetChart.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
-import ShowBetModal from '@/components/ShowBetModal.vue'
+import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
 import CircleGauge from '@/components/bet-details/CircleGauge.vue'
 import { format } from 'date-fns'
@@ -101,18 +125,18 @@ import { useTelegram } from '@/services/telegram'
 import confetti from 'canvas-confetti'
 import { v4 as uuidv4 } from 'uuid'
 
-// declare that we expect an `id` prop (string or number)
 const props = defineProps({
     id: {
         type: [String, Number],
         required: true,
-    },
-    // …any other props you already have…
+    }
 })
 
 const route = useRoute()
 const router = useRouter()
 const betId = route.params.id
+
+const showInfo = ref(false)
 
 const spinnerShow = ref(true)
 
@@ -127,7 +151,6 @@ const comments = ref([])
 const newComment = ref('')
 const scrollArea = ref(null)
 const commentsAnchor = ref(null)
-const scrolled = ref(false)
 const volume = ref(0)
 const userBetAmount = ref({ stake: 0, result: "0" })
 const canComment = ref(false)
@@ -138,12 +161,21 @@ const betSide = ref('Yes')
 
 const { user } = useTelegram()
 
-function goBack() {
-    router.back()
-}
-function handleScroll() {
-    scrolled.value = scrollArea.value.scrollTop > 20
-}
+// split out the first sentence (up to the first period+space, or the whole text)
+const firstSentence = computed(() => {
+    const text = bet.value.description || ''
+    const matched = text.match(/^(.+?[.!?])(\s|$)/)
+    return matched ? matched[1] : text
+})
+
+// the rest of the description, if any
+const restDescription = computed(() => {
+    const text = bet.value.description || ''
+    const fs = firstSentence.value
+    return text.length > fs.length
+        ? text.slice(fs.length).trim()
+        : ''
+})
 
 const formattedDate = computed(() =>
     bet.value.date
@@ -168,10 +200,9 @@ async function loadData() {
     volume.value = bet.value.volume
     currentOdds.value = bet.value.current_odds
     history.value = await getHistory(betId)
-    comments.value = await getComments(betId, commentsPage)
     userBetAmount.value = await getUserBetAmount(betId)
+    comments.value = await getComments(betId, commentsPage)
     canComment.value = await availableComments(betId)
-
 
     // if bet is resolved and user won, trigger celebration
     if (bet.value.result !== 'undefined' &&
@@ -183,8 +214,11 @@ async function loadData() {
     }
 }
 
-function onBetPlaced() {
-    loadData()
+async function onBetPlaced() {
+    canComment.value = true
+    bet.value = await getBetById(betId)
+    volume.value = bet.value.volume
+    userBetAmount.value = await getUserBetAmount(betId)
 }
 
 onMounted(async () => {
@@ -257,6 +291,7 @@ function openBetModal(side) {
     flex-direction: column;
     height: 100vh;
     position: relative;
+    margin-top: 1.25rem;
 }
 
 /* Header */
@@ -264,36 +299,15 @@ function openBetModal(side) {
     /* position: sticky; */
     display: flex;
     top: 0;
-    background: #313131;
+    background: #292a2a;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 80px;
+    height: 6rem;
     width: 100vw;
     gap: 1rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-}
-
-.header__back {
-    font-size: 28px;
-    line-height: 1;
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: white;
-}
-
-.header__title {
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    width: 100%;
-}
-
-.header__logo {
-    width: 4rem;
-    height: 4rem;
-    border-radius: 10px;
+    flex-shrink: 0;
 }
 
 .header__text {
@@ -301,24 +315,21 @@ function openBetModal(side) {
     margin-left: 1.5rem;
     font-weight: 600;
     white-space: nowrap;
-    color: white;
+    color: #F7F9FB;
     font-family: "Inter", sans-serif;
-}
-
-.header__spacer {
-    width: 32px;
 }
 
 /* Main */
 .content {
     flex: 1;
-    padding: 16px;
+    padding-left: 16px;
+    padding-right: 16px;
     /* leave space for footer + navbar */
     padding-bottom: 180px;
 }
 
 .content__chart {
-    margin: 24px 0;
+    margin: 20px 0;
 }
 
 /* Card */
@@ -326,7 +337,7 @@ function openBetModal(side) {
     background: #313131;
     border-radius: 12px;
     padding: 16px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
@@ -334,11 +345,12 @@ function openBetModal(side) {
     font-size: 1.1rem;
     font-weight: 600;
     margin-bottom: 8px;
-    color: white;
+    color: #F7F9FB;
     font-family: "Inter", sans-serif;
     font-weight: 600;
 }
 
+.volume_info,
 .card__text {
     font-size: 0.95rem;
     color: #9ca3af;
@@ -347,24 +359,99 @@ function openBetModal(side) {
     font-weight: 400;
 }
 
+.grid .card {
+    margin-bottom: 0;
+}
+
+.volume_info {
+    display: flex;
+    justify-content: space-between;
+}
+
 /* Grid */
 .grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 15px;
-    margin-bottom: 16px;
+    margin-bottom: 20px;
 }
 
 .grid__item {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
     text-align: center;
-    color: white;
+    color: #F7F9FB;
     font-family: "Inter", sans-serif;
     font-size: 1rem;
     font-weight: 400;
     gap: 10px;
+}
+
+/* but any .grid__full should span both columns */
+.grid__full {
+    background: linear-gradient(to right, #2D83EC, #1AC9FF);
+    grid-column: 1 / -1;
+}
+
+.info-card {
+    position: relative;
+    overflow: hidden;
+}
+
+.info-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.info-toggle {
+    background: none;
+    border: none;
+    color: #F7F9FB;
+    font-size: 0.95rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    font-family: "Inter", sans-serif;
+}
+
+.arrow {
+    display: inline-block;
+    margin-left: 4px;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    transition: transform 0.2s ease;
+}
+
+.arrow.down {
+    border-top: 6px solid #F7F9FB;
+}
+
+.arrow.up {
+    border-bottom: 6px solid #F7F9FB;
+}
+
+/* The collapsible container */
+.info-body {
+    transition: max-height 0.3s ease, opacity 0.3s ease;
+    max-height: 1000px;
+    /* big enough to show all content */
+    opacity: 1;
+    overflow: hidden;
+}
+
+/* When collapsed, shrink to zero height */
+.info-body--collapsed {
+    max-height: 0;
+    opacity: 0;
+}
+
+/* style the always-visible first sentence if you like */
+.first-sentence {
+    margin-bottom: 8px;
 }
 
 /* Comments */
@@ -396,9 +483,10 @@ function openBetModal(side) {
     background: #f0f0f0;
     color: #666;
     font-size: 0.75rem;
-    padding: 8px;
-    border-radius: 8px;
-    margin-bottom: 16px;
+    padding: 12px;
+    border-radius: 12px;
+    margin-bottom: 1rem;
+    margin-top: 1rem;
     text-align: center;
     font-family: "Inter", sans-serif;
     font-weight: 600;
@@ -454,7 +542,7 @@ function openBetModal(side) {
     margin: 16px 0;
     padding: 16px;
     background: linear-gradient(135deg, #22c55e, #10b981);
-    color: white;
+    color: #F7F9FB;
     border-radius: 12px;
     text-align: center;
     animation: fadeInDown 0.5s ease-out;

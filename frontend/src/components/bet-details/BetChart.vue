@@ -1,16 +1,16 @@
 <template>
     <div class="bet-chart">
+        <!-- Chart Canvas -->
+        <div class="chart-container">
+            <canvas ref="canvasRef"></canvas>
+        </div>
+
         <!-- Range Selector -->
         <div class="range-selector">
             <button v-for="opt in options" :key="opt.value"
                 :class="['range-btn', { active: selectedRange === opt.value }]" @click="selectRange(opt.value)">
                 {{ opt.label }}
             </button>
-        </div>
-
-        <!-- Chart Canvas -->
-        <div class="chart-container">
-            <canvas ref="canvasRef"></canvas>
         </div>
     </div>
 </template>
@@ -124,7 +124,7 @@ watch(filteredData, renderChart)
     display: flex;
     justify-content: center;
     gap: 1rem;
-    margin-bottom: 1rem;
+    margin-top: 1rem;
 }
 
 .range-btn {
