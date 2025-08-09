@@ -8,7 +8,7 @@
         </svg>
         <div class="gauge__text">
             <div class="gauge__value">{{ percent }}%</div>
-            <div class="gauge__label">chance</div>
+            <div class="gauge__label">шанс</div>
         </div>
     </div>
 </template>
@@ -41,8 +41,8 @@ const fgStyle = computed(() => {
 <style scoped>
 .gauge {
     position: relative;
-    width: 5rem;
-    height: 2.5rem;
+    width: 4.8rem;
+    height: 2.3rem;
     margin-bottom: 0.75rem;
     margin-right: 1.5rem;
 }
@@ -82,11 +82,13 @@ const fgStyle = computed(() => {
     font-weight: 700;
     color: #fff;
     margin-top: 2.25rem;
+    font-family: "Inter";
 }
 
 .gauge__label {
     font-size: 0.8rem;
     color: #9ca3af;
     text-transform: lowercase;
+    font-family: "Inter";
 }
 </style>

@@ -28,7 +28,8 @@ defineEmits(['click'])
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 /* Hover / focus feedback */
@@ -88,18 +89,22 @@ defineEmits(['click'])
     right: 12px;
     color: #fff;
     z-index: 1;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .card-title {
     margin: 0;
     font-size: 1.1rem;
-    font-weight: bold;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .card-desc {
     margin: 4px 0 0;
     font-size: 0.9rem;
     line-height: 1.2;
-    font-weight: 300;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 </style>

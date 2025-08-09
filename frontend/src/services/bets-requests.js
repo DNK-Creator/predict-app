@@ -104,16 +104,7 @@ export function computeBetStatus(closeTimeIso) {
         return '000'
     }
 
-    if (diffMs >= 48 * 60 * 60 * 1000) {
-        return '111'
-    }
-
-    const totalMins = Math.floor(diffMs / 60000)
-    const hours = Math.floor(totalMins / 60)
-    const mins = totalMins % 60
-
-    // e.g. "3 h 27 m left"
-    return `${hours} h ${mins} m left`
+    return '111'
 }
 
 // Fetch the JSON and transform into [{ timestamp, value }, …]
@@ -301,7 +292,7 @@ export async function postNewComment(betId, text, commentId) {
         bet_id: betId,
         text,
         ...(currentUserId ? { user_id: currentUserId } : {}),
-        username: user?.firstName ?? 'Anonymous',
+        username: user?.username ?? 'Anonymous',
         created_at: new Date().toISOString(),
         id: commentId
     }

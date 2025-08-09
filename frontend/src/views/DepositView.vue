@@ -1,15 +1,15 @@
 <template>
     <LoaderPepe v-if="spinnerShow" />
-    <div v-show="!spinnerShow" class="bet-details">
-         <!-- WITHDRAWAL MODAL  -->
+    <div v-show="!spinnerShow" class="deposit-details">
+        <!-- WITHDRAWAL MODAL  -->
         <WithdrawModal v-model="showWithdrawalModal" :address="parseWalletAddress(walletAddress)"
             :balance="walletBalance" @withdraw="handleWithdraw" @max="setMax" />
 
-         <!-- DEPOSIT MODAL -->
+        <!-- DEPOSIT MODAL -->
         <DepositModal v-model="showDepositModal" :address="parseWalletAddress(walletAddress)" :balance="walletBalance"
             @deposit="handleDeposit" @deposit-stars="handleDepositStars" />
 
-         <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
+        <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
         <YourWalletModal :show="showWalletInfo" :balance="walletBalance" :address="parseWalletAddress(walletAddress)"
             @reconnect-wallet="reconnectWallet" @close="closeWalletInfo" />
 
@@ -17,18 +17,18 @@
             <div class="wallet-top-header" @click="openWalletInfo">
                 <div class="wallet-status-text"> {{ walletStatus }} </div>
                 <div class="wallet-action-text" v-if="walletBalance"> {{ walletBalance }} TON </div>
-                <div class="wallet-action-text" v-else> Connect + </div>
+                <div class="wallet-action-text" v-else> Подключить + </div>
             </div>
             <div class="wallet">
-                <h3 class="wallet-balance-hint">Gifts Predict balance</h3>
+                <h3 class="wallet-balance-hint">Баланс Gifts Predict</h3>
                 <h1 class="wallet-balance">{{ app.points }} TON</h1>
                 <div class="wallet-buttons">
-                    <button class="wallet-button-deposit" @click="openDepositModal">Deposit +</button>
-                    <button class="wallet-button-withdraw" @click="openWithdrawalModal">Withdraw ↑</button>
+                    <button class="wallet-button-deposit" @click="openDepositModal">Пополнить +</button>
+                    <button class="wallet-button-withdraw" @click="openWithdrawalModal">Вывод ↑</button>
                 </div>
             </div>
         </div>
-        <h1 class="actions-top">Recent Actions</h1>
+        <h1 class="actions-top">История</h1>
         <TransactionsTable :transactions="transactions" />
     </div>
 </template>
@@ -37,7 +37,7 @@
 import { ref, onMounted, onActivated } from 'vue'
 import { useTelegram } from '@/services/telegram'
 import { getLastWithdrawalTime } from '@/api/requests'
- import { getTonConnect } from '@/services/ton-connect-ui'
+import { getTonConnect } from '@/services/ton-connect-ui'
 import { v4 as uuidv4 } from 'uuid'
 import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
@@ -78,7 +78,7 @@ function parseWalletAddress(addr) {
 
 const showWithdrawalModal = ref(false)
 const showDepositModal = ref(false)
-const walletStatus = ref('Connect your wallet')
+const walletStatus = ref('Подключите свой кошелек')
 const walletBalance = ref(null)
 
 const TONCENTER = import.meta.env.VITE_TONCENTER_URL
@@ -137,7 +137,6 @@ async function handleWithdraw(amount) {
         return;
     }
     else {
-        console.log(amount)
         onWithdraw(amount)
     }
 }
@@ -153,7 +152,6 @@ async function handleDeposit(amount) {
         return;
     }
     else {
-        console.log(amount)
         onDeposit(amount)
     }
 }
@@ -190,7 +188,7 @@ async function reconnectWallet() {
         walletAddress.value = null
         await ton.value.disconnect();
     }
-    walletStatus.value = 'Connect your wallet'
+    walletStatus.value = 'Подключите свой кошелек'
     walletBalance.value = null
     // Then always open the wallet selector
     await ton.value.connectWallet();
@@ -272,7 +270,6 @@ async function onDeposit(amount) {
     }
     if (!ton.value) return
     // if (!ton.value || !user) return
-    console.log('NOOOO')
 
     const amountTON = amount
     const txId = uuidv4()
@@ -545,12 +542,12 @@ function setupTonConnectListener() {
             if (walletAddress.value !== null) {
                 parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
                 console.log('Мразь ' + parsedAddress)
-                walletStatus.value = `Your wallet ${parsedAddress.slice(0, 4)}...${parsedAddress.slice(-3)}`
+                walletStatus.value = `Ваш кошелёк ${parsedAddress.slice(0, 4)}...${parsedAddress.slice(-3)}`
                 const tonBal = await fetchTonBalance(walletAddress.value);
                 walletBalance.value = +`${tonBal.toFixed(2)}`;
             }
             else {
-                walletStatus.value = 'Connect your wallet'
+                walletStatus.value = 'Подключите свой кошелёк'
                 walletBalance.value = null
             }
 
@@ -560,15 +557,11 @@ function setupTonConnectListener() {
                     .from('users')
                     .update({ wallet_address: parsedAddress })
                     .eq('telegram', user?.id ?? 99)
-                console.log(parseWalletAddress(walletAddress.value) + ' Hey')
                 if (error) {
                     console.error('Error updating wallet_address:', error)
                 }
             }
         })
-    }
-    else {
-        console.log('Wtf' + parseWalletAddress(walletAddress.value))
     }
 }
 
@@ -581,7 +574,8 @@ function setupTonConnectListener() {
     width: 90vw;
     font-size: 1.5rem;
     margin: 1.5rem auto 0.75vh auto;
-    font-family: 'Inter Variable', sans-serif;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .wallet-wrapper {
@@ -628,22 +622,22 @@ function setupTonConnectListener() {
 
 .wallet-status-text {
     color: #7d7d7d;
-    padding: 4px 0px 0px 25px;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    padding: 2px 0px 0px 25px;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .wallet-action-text {
     color: #ffffff;
-    padding: 4px 25px 0px 0px;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    padding: 2px 25px 0px 0px;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .wallet-balance-hint {
     color: white;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     opacity: 0.5;
     font-size: 1rem;
     align-self: center;
@@ -654,8 +648,8 @@ function setupTonConnectListener() {
     color: white;
     margin: 0;
     font-size: 2.25rem;
-    font-family: 'Inter Variable', sans-serif;
     font-weight: 600;
+    font-family: "Inter", sans-serif;
     align-self: center;
     text-align: center;
 }
@@ -681,7 +675,8 @@ function setupTonConnectListener() {
     border: none;
     margin-right: 0.5rem;
     font-size: 1.05rem;
-    font-family: 'Inter Variable', sans-serif;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     background-color: white;
 }
 
@@ -693,7 +688,8 @@ function setupTonConnectListener() {
     border: none;
     margin-right: 0.5rem;
     font-size: 1.05rem;
-    font-family: 'Inter Variable', sans-serif;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     color: white;
     background-color: rgb(255, 255, 255, 0.3);
 }

@@ -7,7 +7,21 @@ body {
   height: 100%;
   /* prevents double scroll */
   overflow: hidden;
-  font-family: 'Inter Variable', sans-serif;
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial;
+  font-display: swap;
+}
+
+body.keyboard-open .menu {
+  transform: translateY(120%);
+  /* push off screen */
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
+body.keyboard-open .modal-container {
+  transform: translate(-50%, calc(-50% - 8vh));
+  /* tweak 8vh as needed so input isn't behind browser chrome */
 }
 
 #app,

@@ -3,8 +3,8 @@
         <!-- Group transactions by date -->
         <div v-if="transactions.length < 1" class="empty-transactions">
             <div ref="svgContainer" class="empty-media"></div>
-            <span class="empty-text">Make first transaction</span>
-            <span class="empty-text-two">and start predicting</span>
+            <span class="empty-text">Соверши первую транзакцию</span>
+            <span class="empty-text-two">и начни предсказывать</span>
         </div>
         <div v-for="(group, date) in groupedTransactions" :key="date" class="day-group">
             <!-- Day header -->
@@ -201,14 +201,16 @@ onMounted(async () => {
 }
 
 .empty-text {
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     font-size: 2.25vh;
     margin-bottom: 0;
     margin-top: 2vh;
 }
 
 .empty-text-two {
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     font-size: 2vh;
     opacity: 0.5;
     margin-top: 0.25vh;

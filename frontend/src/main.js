@@ -3,11 +3,14 @@ import { createPinia } from 'pinia'
 import Toast from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 
+import "@fontsource/inter/200.css"; // thin
+import "@fontsource/inter/400.css"; // regular
+import "@fontsource/inter/600.css"; // bold
+
+import "@fontsource/montserrat/400.css"; // regular
+
 import App from './App.vue'
 import router from './router'
-
-import "@fontsource-variable/inter";       // defaults to the wght axis (100–900)
-import "@fontsource-variable/inter/wght.css";  // explicit wght axis
 
 import './assets/main.css'
 

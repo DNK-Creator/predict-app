@@ -9,7 +9,7 @@
         <div class="header">
             <h1 class="header__text">{{ bet.name }}</h1>
             <!-- CircleGauge instead of image -->
-            <CircleGauge :percent="Math.round(currentOdds * 100)" />
+            <CircleGauge :percent="currentBetPercent" />
         </div>
 
         <!-- Main content -->
@@ -49,14 +49,14 @@
 
                     <!-- your other info fields -->
                     <div class="volume_info">
-                        <span>Время закрытия:</span>
-                        <span>{{ formattedDate }}</span>
+                        <span>До закрытия:</span>
+                        <span>{{ timeRemaining }}</span>
                     </div>
                     <div class="volume_info">
                         <span>Статус:</span>
                         <span v-if="betStatus !== '000' && betStatus !== '111'">{{ betStatus }}</span>
                         <span v-else-if="betStatus === '111'">Открыта</span>
-                        <span v-else>Ожидание разрешения ставки..</span>
+                        <span v-else>Ожидание разрешения ставки</span>
                     </div>
                     <div class="volume_info">
                         <span>Объём:</span>
@@ -70,8 +70,8 @@
 
             <section class="grid">
                 <div v-if="userBetAmount.stake > 0" class="card grid__item grid__full">
-                    <span>Ваша ставка: </span>
-                    <span> {{ userBetAmount.stake }} TON на {{ userBetAmount.result }}</span>
+                    <span> Ваша ставка: {{ userBetAmount.stake }} TON на {{ formatUsersSide(userBetAmount.result) }}
+                    </span>
                 </div>
                 <div v-else class="card grid__item grid__full">
                     <span>Вы еще не поставили ставку.</span>
@@ -79,10 +79,10 @@
             </section>
 
             <section class="card comments">
-                <h2 class="card__title">Comments</h2>
+                <h2 class="card__title">Обсуждения</h2>
                 <div v-if="canComment" class="comments__input-row">
-                    <input v-model="newComment" placeholder="Add a comment" class="comments__input" />
-                    <button class="comments__post" @click="postComment">Post</button>
+                    <input v-model="newComment" placeholder="Напишите комментарий" class="comments__input" />
+                    <button class="comments__post" @click="postComment">Отправить</button>
                 </div>
                 <div v-if="!canComment" class="comments__warning">
                     Only people who bet on the event can comment.
@@ -96,14 +96,14 @@
 
         <!-- Buy buttons -->
         <div v-if="betStatus !== '000'" class="footer">
-            <button class="footer__yes" @click="openBetModal('Yes')">Buy Yes</button>
-            <button class="footer__no" @click="openBetModal('No')">Buy No</button>
+            <button class="footer__yes" @click="openBetModal('Yes')">Купить Да</button>
+            <button class="footer__no" @click="openBetModal('No')">Купить Нет</button>
         </div>
     </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
     getBetById,
@@ -120,7 +120,7 @@ import CommentItem from '@/components/bet-details/CommentItem.vue'
 import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
 import CircleGauge from '@/components/bet-details/CircleGauge.vue'
-import { format } from 'date-fns'
+import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
 import confetti from 'canvas-confetti'
 import { v4 as uuidv4 } from 'uuid'
@@ -161,6 +161,72 @@ const betSide = ref('Yes')
 
 const { user } = useTelegram()
 
+function formatUsersSide(side) {
+    if (side === 'Yes') {
+        return "Да"
+    }
+    return "Нет"
+}
+
+/**
+ * Read yes/no volumes from various possible shapes of props.bet.volume.
+ * Returns { yes: number, no: number }.
+ */
+function readVolumeObject(vol) {
+    let yes = 0
+    let no = 0
+
+    if (vol == null) return { Yes: 0, No: 0 }
+
+    // If it's a Map-like or Proxy object with .get, attempt that first (rare).
+    // Many backends return plain objects (possibly Proxy-wrapped) with keys "Yes"/"No".
+    try {
+        // handle Map
+        if (typeof vol.get === 'function') {
+            yes = Number(vol.get('Yes') ?? vol.get('yes') ?? vol.get('YES') ?? 0) || 0
+            no = Number(vol.get('No') ?? vol.get('no') ?? vol.get('NO') ?? 0) || 0
+            return { yes, no }
+        }
+    } catch (e) { /* ignore and continue */ }
+
+    if (typeof vol === 'object') {
+        yes = Number(vol.Yes ?? vol.yes ?? vol['YES'] ?? vol['yes'] ?? vol?.YesAmount ?? 0) || 0
+        no = Number(vol.No ?? vol.no ?? vol['NO'] ?? vol['no'] ?? vol?.NoAmount ?? 0) || 0
+
+        // If both are zero but the object itself is numeric-like (rare), fall through
+        return { yes, no }
+    }
+
+    // If it's numeric total, split by current_odds (fallback)
+    const total = Number(vol) || 0
+    const p = Number(bet.current_odds)
+    const prob = isFinite(p) ? Math.max(0, Math.min(1, p)) : 0
+    yes = total * prob
+    no = total - yes
+    return { yes, no }
+}
+
+/* Derived volumes (reactive) */
+const volParts = computed(() => readVolumeObject(bet.value.volume))
+
+/* Compute current Yes probability from volumes when possible,
+   else fall back to props.bet.current_odds. Result is 0..1 */
+const calculatedOdds = computed(() => {
+    const yes = Number(volParts.value.yes) || 0
+    const no = Number(volParts.value.no) || 0
+    const total = yes + no
+
+    if (total > 0) {
+        return yes / total
+    }
+
+    const p = Number(bet.current_odds)
+    return isFinite(p) ? Math.max(0, Math.min(1, p)) : 0
+})
+
+/* Percent (0-100 integer) for CircleGauge */
+const currentBetPercent = computed(() => Math.round(calculatedOdds.value * 100))
+
 // split out the first sentence (up to the first period+space, or the whole text)
 const firstSentence = computed(() => {
     const text = bet.value.description || ''
@@ -177,11 +243,79 @@ const restDescription = computed(() => {
         : ''
 })
 
-const formattedDate = computed(() =>
-    bet.value.date
-        ? format(new Date(bet.value.date), 'LLLL d, yyyy')
-        : ''
-)
+// assume `bet` is already defined in your setup (ref or reactive)
+const now = ref(Date.now())
+let timer = null
+
+// small helper: russian plural selection
+function ruPlural(n, [one, few, many]) {
+    const mod10 = n % 10
+    const mod100 = n % 100
+    if (mod10 === 1 && mod100 !== 11) return one
+    if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
+    return many
+}
+
+function formatUnit(n, type) {
+    if (type === 'day') {
+        return `${n} ${ruPlural(n, ['день', 'дня', 'дней'])}`
+    } else if (type === 'hour') {
+        return `${n} ${ruPlural(n, ['час', 'часа', 'часов'])}`
+    } else if (type === 'minute') {
+        return `${n} ${ruPlural(n, ['минута', 'минуты', 'минут'])}`
+    }
+    return `${n}`
+}
+
+const timeRemaining = computed(() => {
+    const raw = bet?.value?.close_time
+    if (!raw) return ''
+
+    // parse timestamptz-like strings and timestamps robustly
+    let closeDate
+    try {
+        if (typeof raw === 'string') {
+            // parse ISO (handles timezone offsets)
+            closeDate = parseISO(raw)
+        } else if (typeof raw === 'number') {
+            closeDate = new Date(raw)
+        } else if (raw instanceof Date) {
+            closeDate = raw
+        } else {
+            closeDate = new Date(String(raw))
+        }
+    } catch (e) {
+        closeDate = new Date(raw)
+    }
+
+    if (Number.isNaN(closeDate.getTime())) return ''
+
+    const diffMs = closeDate.getTime() - now.value
+
+    if (diffMs <= 0) return 'Закрыто'
+
+    const totalMinutes = Math.floor(diffMs / 60000) // full minutes left
+    if (totalMinutes < 1) return 'меньше 1 минуты'
+
+    const days = Math.floor(totalMinutes / (60 * 24))
+    const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
+    const minutes = totalMinutes % 60
+
+    const parts = []
+    if (days > 0) {
+        parts.push(formatUnit(days, 'day'))
+        if (hours > 0) parts.push(formatUnit(hours, 'hour'))
+        if (minutes > 0) parts.push(formatUnit(minutes, 'minute'))
+    } else if (hours > 0) {
+        parts.push(formatUnit(hours, 'hour'))
+        if (minutes > 0) parts.push(formatUnit(minutes, 'minute'))
+    } else {
+        // less than one hour
+        parts.push(formatUnit(minutes, 'minute'))
+    }
+
+    return parts.join(' ')
+})
 
 // confetti helper
 function runConfetti() {
@@ -242,7 +376,16 @@ onMounted(async () => {
         }
     }
 
+    // update every second so minutes/hours roll over cleanly
+    timer = setInterval(() => {
+        now.value = Date.now()
+    }, 1000)
+
     spinnerShow.value = false;
+})
+
+onUnmounted(() => {
+    if (timer) clearInterval(timer)
 })
 
 async function loadMoreComments() {
@@ -262,7 +405,7 @@ async function postComment() {
         id: commentId,
 
         user_id: user?.id ?? 99,
-        user: user?.firstName ?? 'Anonymous'
+        username: user?.username ?? 'Anonymous'
     })
 
     newComment.value = ''
@@ -303,7 +446,7 @@ function openBetModal(side) {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 6rem;
+    height: 5rem;
     width: 100vw;
     gap: 1rem;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
@@ -337,6 +480,7 @@ function openBetModal(side) {
     background: #313131;
     border-radius: 12px;
     padding: 16px;
+    padding-top: 10px;
     margin-bottom: 20px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
@@ -457,7 +601,8 @@ function openBetModal(side) {
 /* Comments */
 .comments__input-row {
     display: flex;
-    margin-bottom: 12px;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
 }
 
 .comments__input {

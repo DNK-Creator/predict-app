@@ -10,7 +10,7 @@
             <header class="modal-header">
                 <div class="modal-header-description">
                     <h2>Вывести</h2>
-                    <span>Через TON Connect</span>
+                    <span>Обработка в течение 12 часов</span>
                 </div>
                 <button class="close-btn" @click="close">×</button>
             </header>
@@ -20,14 +20,17 @@
 
                 <!-- CENTERED FLEX GROUP -->
                 <div class="amount-wrapper">
-                    <div class="amount-group">
-                        <div class="amount-values-group">
+                    <div class="input-warnings">
+                        <div class="amount-group">
                             <input ref="amountInput" v-model="amount" type="text" inputmode="decimal" placeholder="0"
-                                class="amount-input" @input="onAmountInput"
-                                :size="amount.length > 0 ? amount.length : 1" />
+                                class="amount-input" @input="onAmountInput" @focus="onAmountFocus" @blur="onAmountBlur"
+                                :size="amount.length > 0 ? amount.length : 1"
+                                :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
                             <span class="amount-currency" @click="focusAmountInput">TON</span>
                         </div>
-                        <span v-if="showWarning" class="warning-text">Максимум 1000 TON за транзакцию</span>
+                        <span v-if="showWarning" class="warning-text" role="alert" aria-live="polite">
+                            Максимум 1000 TON за транзакцию
+                        </span>
                     </div>
                 </div>
 
@@ -36,11 +39,11 @@
             <footer class="modal-footer">
                 <div class="limits-group">
                     <div class="limit-line">
-                        <span class="limit-description-item-one">Лимит за транзакцию</span>
+                        <span class="limit-description-item-one">Лимит за транзакцию:</span>
                         <span class="limit-description-item-two">1000 TON</span>
                     </div>
                     <div class="limit-line">
-                        <span class="limit-description-item-one">Выводов в день</span>
+                        <span class="limit-description-item-one">Выводов в день:</span>
                         <span class="limit-description-item-two">1</span>
                     </div>
                 </div>
@@ -85,6 +88,42 @@ function focusAmountInput() {
     // focus the input so the keyboard appears & the cursor is active
     if (amountInput.value) {
         amountInput.value.focus()
+    }
+}
+
+// keyboard handlers for mobile
+function onAmountFocus() {
+    // add class to body so Navbar can be hidden via CSS
+    document.body.classList.add('keyboard-open');
+
+    // make sure input is visible (centered)
+    // small timeout helps on some Android browsers
+    setTimeout(() => {
+        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
+    }, 50);
+
+    // visualViewport: update CSS var for keyboard height (optional)
+    if (window.visualViewport) {
+        const update = () => {
+            const kv = window.visualViewport;
+            const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
+            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+        };
+        // store on element so we can remove later
+        amountInput._vvListener = update;
+        window.visualViewport.addEventListener('resize', update);
+        update();
+    }
+}
+
+function onAmountBlur() {
+    document.body.classList.remove('keyboard-open');
+
+    // remove visualViewport listener
+    if (window.visualViewport && amountInput._vvListener) {
+        window.visualViewport.removeEventListener('resize', amountInput._vvListener);
+        delete amountInput._vvListener;
+        document.documentElement.style.removeProperty('--keyboard-height');
     }
 }
 
@@ -231,12 +270,13 @@ function onMax() {
     align-items: center;
     padding: 1rem 1rem 0 1rem;
     font-size: 1.25rem;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .modal-header-description {
     display: block;
-    font-size: 1rem;
+    font-size: 1.2rem;
     font-weight: 400;
 }
 
@@ -248,15 +288,15 @@ function onMax() {
 }
 
 .modal-header-description span {
-    opacity: 0.5;
+    opacity: 0.4;
     color: gray;
-    font-size: 0.9rem;
+    font-size: 1.1rem;
 }
 
 .close-btn {
     background: transparent;
     border: none;
-    font-size: 2.25rem;
+    font-size: 2.5rem;
     margin-top: -0.75rem;
     cursor: pointer;
     color: white;
@@ -265,18 +305,53 @@ function onMax() {
 .modal-body {
     padding: 0.75rem 0.5rem 0.25rem 0.5rem;
     text-align: center;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .connected-wallet {
-    font-size: 0.85rem;
+    font-size: 1.2rem;
     color: #888;
 }
 
 .wallet-address {
     margin: 0.5rem 0;
-    font-size: 1rem;
+    font-size: 1.3rem;
     font-weight: bold;
+}
+
+/* wrapper that contains input + absolute warning */
+.input-warnings {
+    position: relative;
+    /* container for absolutely-positioned warning */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* center amount-group horizontally */
+    margin-bottom: 1rem;
+}
+
+/* warning pops up below the amount-group but does NOT affect layout */
+.warning-text {
+    position: absolute;
+    top: 100%;
+    /* just below the input group */
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    /* keep it on one line; remove if you want wrapping */
+    max-width: calc(140%);
+    text-align: center;
+    font-size: 1rem;
+    color: rgb(171, 68, 68, 0.7);
+    background: transparent;
+    /* change to semi-opaque for contrast if needed */
+    padding: 0;
+    /* optional small padding if you add background */
+    z-index: 1;
+    pointer-events: none;
+    /* prevents it from affecting clicks — remove if interactive */
+    transition: opacity 0.12s ease, transform 0.12s ease;
 }
 
 /* Wrapper ensures group is centered */
@@ -287,30 +362,26 @@ function onMax() {
     margin: 1rem 0;
 }
 
-/* Inline-flex so input + TON sit side by side */
+/* keep input group normal flow (centred by wrapper) */
 .amount-group {
     display: flex;
-    flex-direction: column;
     align-items: center;
+    gap: 0.5rem;
+    white-space: nowrap;
+    z-index: 2;
+    /* keep on top of warning if overlap happens */
 }
 
-.warning-text {
-    color: rgb(171, 68, 68);
-    font-size: 0.8rem;
-}
-
-.amount-values-group {
-    display: inline-flex;
-    align-items: center;
-}
-
-/* Auto-sizing, no max-width → grows/shrinks around content */
+/* Input width now based on number of characters */
 .amount-input {
-    display: inline-block;
-    width: fit-content;
-    min-width: 1ch;
-    /* always at least room for “0” */
-    padding: 0.5rem;
+    /* compute width = number-of-chars * 1ch + extra space for padding */
+    width: calc(var(--chars, 1) * 1ch + 1rem);
+
+    /* padding and box model */
+    padding: 0.35rem 0.5rem;
+    box-sizing: content-box;
+    /* width above excludes padding (we added +1rem) */
+
     font-size: 2.25rem;
     color: white;
     background: #292a2a;
@@ -319,7 +390,25 @@ function onMax() {
     outline: none;
     appearance: textfield;
     font-family: inherit;
-    margin-left: -2rem;
+
+    flex: 0 0 auto;
+    /* don't grow/shrink */
+    min-width: 1ch;
+    /* at least one character */
+    max-width: 70vw;
+    /* prevent overflow on tiny screens */
+}
+
+/* Optional: scale down fonts on narrow screens so they fit */
+@media (max-width: 420px) {
+    .amount-input {
+        font-size: 1.6rem;
+        padding: 0.35rem;
+    }
+
+    .amount-currency {
+        font-size: 1.15rem;
+    }
 }
 
 /* remove spin buttons */
@@ -329,16 +418,17 @@ function onMax() {
     margin: 0;
 }
 
+/* Currency label stays fixed beside input */
 .amount-currency {
-    margin-left: -2.5rem;
     font-size: 1.5rem;
     color: #aaa;
     opacity: 0.7;
+    cursor: pointer;
+    flex: 0 0 auto;
 }
 
 .limits-group {
-    margin-top: -0.25rem;
-    margin-bottom: 0.45rem;
+    margin-bottom: 0.75rem;
 }
 
 .limit-line {
@@ -347,8 +437,10 @@ function onMax() {
     margin: auto auto;
     justify-content: space-between;
     padding: 3px;
-    font-family: Inter;
-    font-weight: 200;
+    font-size: 1.2rem;
+    /* Descriptions inside for fonts */
+    font-weight: 400;
+    font-family: "Inter", sans-serif;
 }
 
 .limit-description-item-one {
@@ -378,7 +470,8 @@ function onMax() {
     background-color: #0098EA;
     color: #ffffff;
     cursor: pointer;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     transition: background-color 0.2s ease;
 }
 
