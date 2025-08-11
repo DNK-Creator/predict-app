@@ -29,7 +29,8 @@ defineEmits(['click'])
     border-radius: 12px;
     overflow: hidden;
     cursor: pointer;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 /* Hover / focus feedback */
@@ -79,7 +80,7 @@ defineEmits(['click'])
 .card-overlay {
     position: absolute;
     inset: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.6), transparent);
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.65), transparent);
 }
 
 .card-content {

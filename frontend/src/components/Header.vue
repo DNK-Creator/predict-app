@@ -46,7 +46,7 @@ const route = useRoute()
 const { user } = useTelegram()
 
 const settingsRoutes = ['deposit', 'bets-history', 'profile']
-const headerHideRoutes = ['deposit']
+const headerHideRoutes = ['deposit', 'privacy', 'bets-history']
 
 const showSettings = computed(() =>
     settingsRoutes.includes(route.name)
@@ -74,26 +74,41 @@ function onDepositClick() {
     color: #ffffff;
 }
 
+/* wrapper for letter-avatar fallback (keeps same size as image) */
 .profile-avatar {
-    width: 1.3rem;
-    height: 1.3rem;
-    font-size: 1rem;
-    text-align: center;
-    text-justify: center;
+    width: 2.3rem;
+    height: 2.3rem;
+    font-size: 0.95rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     border-radius: 40%;
-    object-fit: cover;
+    background: #111827;
+    color: #fff;
+    box-sizing: border-box;
     border: 2px solid #374151;
-    padding: 10px;
-    font-family: Inter;
+    padding: 0;
+    /* no internal padding — so text centers correctly */
+    flex-shrink: 0;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
+/* actual profile image */
 .profile-pic {
-    width: 1.3rem;
-    height: 1.3rem;
-    border-radius: 40%;
+    width: 2.3rem;
+    height: 2.3rem;
+    display: block;
+    /* prevents baseline whitespace */
     object-fit: cover;
+    /* crop and fill the box */
+    border-radius: 40%;
+    box-sizing: border-box;
+    /* so border doesn't change content size */
     border: 2px solid #374151;
-    padding: 10px;
+    padding: 0;
+    /* remove padding so image fills the box */
+    flex-shrink: 0;
 }
 
 .profile-pic img {

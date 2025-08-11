@@ -1,59 +1,62 @@
 <template>
-    <!-- Global loader for first full-page load -->
-    <LoaderPepe v-if="spinnerShow" />
+    <!-- single root so attrs can be inherited if needed -->
+    <div class="bets-root">
+        <!-- Global loader for first full-page load -->
+        <LoaderPepe v-if="spinnerShow" />
 
-    <div v-show="!spinnerShow" class="bets-container">
-        <!-- Catalogue (Active / Archived) -->
-        <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
-            <button class="catalog-btn" :class="{ active: selectedTab === 'active' }" @click="switchTab('active')"
-                role="tab" :aria-selected="selectedTab === 'active'">
-                Активные
-            </button>
-            <button class="catalog-btn" :class="{ active: selectedTab === 'archived' }" @click="switchTab('archived')"
-                role="tab" :aria-selected="selectedTab === 'archived'">
-                Архив
-            </button>
-        </div>
-
-        <!-- Loading first page for the selected tab -->
-        <div v-if="isLoadingFirstPage" class="inline-loader">
-            <LoaderPepe />
-        </div>
-
-        <!-- Empty state when there are no bets in the selected tab -->
-        <div v-else-if="isEmpty" class="empty-state" role="status" aria-live="polite">
-            <svg class="empty-icon" viewBox="0 0 64 64" width="92" height="92" aria-hidden="true">
-                <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
-                    opacity="0.9">
-                    <path d="M8 20h48v28a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V20z" />
-                    <path d="M20 16a6 6 0 1 1 24 0" />
-                    <path d="M22 36h20" />
-                </g>
-            </svg>
-
-            <h3 class="empty-title">Здесь пока нет событий</h3>
-            <p class="empty-desc">Попробуйте перейти в другой раздел или обновить
-                список.</p>
-
-            <div class="empty-actions">
-                <button class="catalog-btn" @click="resetAndLoad"
-                    aria-label="Перезагрузить список">Перезагрузить</button>
-                <button class="catalog-btn" @click="switchTab(selectedTab === 'active' ? 'archived' : 'active')"
-                    aria-label="Переключиться на другой раздел">
-                    Перейти
+        <div v-show="!spinnerShow" class="bets-container">
+            <!-- Catalogue (Active / Archived) -->
+            <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
+                <button class="catalog-btn" :class="{ active: selectedTab === 'active' }" @click="switchTab('active')"
+                    role="tab" :aria-selected="selectedTab === 'active'">
+                    Активные
+                </button>
+                <button class="catalog-btn" :class="{ active: selectedTab === 'archived' }"
+                    @click="switchTab('archived')" role="tab" :aria-selected="selectedTab === 'archived'">
+                    Архив
                 </button>
             </div>
+
+            <!-- Loading first page for the selected tab -->
+            <div v-if="isLoadingFirstPage" class="inline-loader">
+                <LoaderPepe />
+            </div>
+
+            <!-- Empty state when there are no bets in the selected tab -->
+            <div v-else-if="isEmpty" class="empty-state" role="status" aria-live="polite">
+                <svg class="empty-icon" viewBox="0 0 64 64" width="92" height="92" aria-hidden="true">
+                    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
+                        stroke-linejoin="round" opacity="0.9">
+                        <path d="M8 20h48v28a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V20z" />
+                        <path d="M20 16a6 6 0 1 1 24 0" />
+                        <path d="M22 36h20" />
+                    </g>
+                </svg>
+
+                <h3 class="empty-title">Здесь пока нет событий</h3>
+                <p class="empty-desc">Попробуйте перейти в другой раздел или обновить
+                    список.</p>
+
+                <div class="empty-actions">
+                    <button class="catalog-btn" @click="resetAndLoad"
+                        aria-label="Перезагрузить список">Перезагрузить</button>
+                    <button class="catalog-btn" @click="switchTab(selectedTab === 'active' ? 'archived' : 'active')"
+                        aria-label="Переключиться на другой раздел">
+                        Перейти
+                    </button>
+                </div>
+            </div>
+
+            <!-- Bets list (normal) -->
+            <TransitionGroup v-else name="card" tag="div" class="bets-list" aria-live="polite">
+                <BetsCard v-for="bet in bets" :key="bet.id" :title="bet.name"
+                    :short-desc="getShortDescription(bet.description)" :bg-image="bet.image_path"
+                    @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
+            </TransitionGroup>
+
+            <!-- Sentinel for IntersectionObserver (only show when not empty) -->
+            <div v-if="!isEmpty" ref="scrollAnchor" class="scroll-anchor"></div>
         </div>
-
-        <!-- Bets list (normal) -->
-        <TransitionGroup v-else name="card" tag="div" class="bets-list" aria-live="polite">
-            <BetsCard v-for="bet in bets" :key="bet.id" :title="bet.name"
-                :short-desc="getShortDescription(bet.description)" :bg-image="bet.image_path"
-                @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
-        </TransitionGroup>
-
-        <!-- Sentinel for IntersectionObserver (only show when not empty) -->
-        <div v-if="!isEmpty" ref="scrollAnchor" class="scroll-anchor"></div>
     </div>
 </template>
 
@@ -62,7 +65,7 @@
 import { ref, onMounted, watch, computed } from 'vue'
 
 // Components
-import BetsCard from '@/components/BetsCard.vue'
+import BetsCard from '@/components/bet-details/BetsCard.vue'
 import LoaderPepe from '@/components/LoaderPepe.vue'
 
 // Supabase client
@@ -179,7 +182,6 @@ function switchTab(tab) {
     margin: 0 auto;
     padding: 12px;
     flex-shrink: 0;
-    padding-bottom: 95px;
 }
 
 /* Catalogue buttons row */
@@ -210,6 +212,11 @@ function switchTab(tab) {
     background: #fff;
     color: #000;
     border-color: #fff;
+}
+
+/* Small hover active */
+.catalog-btn.active:hover {
+    background: rgba(255, 255, 255, 0.96);
 }
 
 /* Small hover */

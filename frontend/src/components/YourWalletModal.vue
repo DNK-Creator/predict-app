@@ -9,11 +9,11 @@
         <transition name="slide-up">
             <div v-if="show" class="wallet-info-modal">
                 <div class="footer">
-                    <h2>Your Wallet</h2>
+                    <h2>Ваш кошелек</h2>
                     <button class="close-btn" @click="close">✖</button>
                 </div>
                 <div class="items-group">
-                    <h2 class="item-header">BALANCE</h2>
+                    <h2 class="item-header">БАЛАНС</h2>
                     <h1 class="item-balance">
                         {{ balance }} TON
                     </h1>
@@ -33,7 +33,7 @@
                 <div class="items-group">
                     <div class="buttons-group">
                         <button class="action-btn-two" @click="reconnectWallet">
-                            Reconnect
+                            Переподключить
                         </button>
                     </div>
                 </div>
@@ -110,12 +110,13 @@ async function copyAddress() {
     height: 38vh;
     background: #292a2a;
     color: White;
-    font-family: Inter;
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     padding: 1.25rem;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
     z-index: 12;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .wallet-info-modal h2 {
@@ -127,6 +128,7 @@ async function copyAddress() {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 3.5vh;
+    font-size: 1.5rem;
 }
 
 .items-group {
@@ -151,7 +153,8 @@ async function copyAddress() {
     border-radius: 30px;
     border: none;
     color: white;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
     font-size: 1rem;
     align-items: center;
     justify-content: center;
@@ -193,7 +196,8 @@ async function copyAddress() {
     border-radius: 16px;
     font-size: 1.25rem;
     padding: 15px;
-    font-family: Inter;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 /* full-width button with spacing & truncation */
@@ -224,8 +228,8 @@ async function copyAddress() {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-family: Inter;
-    font-weight: 400;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 /* right “copy” icon */
@@ -245,10 +249,11 @@ async function copyAddress() {
 
 .item-header {
     opacity: 0.5;
-    font-size: 1rem;
+    font-size: 1.3rem;
     color: rgb(209, 209, 209);
-    font-weight: 200;
     margin-bottom: 0;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
 }
 
 .item-balance {

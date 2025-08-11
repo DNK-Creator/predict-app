@@ -35,6 +35,8 @@
 
 <script setup>
 import { ref, onMounted, onActivated } from 'vue'
+import { toast } from 'vue3-toastify'
+import 'vue3-toastify/dist/index.css'
 import { useTelegram } from '@/services/telegram'
 import { getLastWithdrawalTime } from '@/api/requests'
 import { getTonConnect } from '@/services/ton-connect-ui'
@@ -78,7 +80,7 @@ function parseWalletAddress(addr) {
 
 const showWithdrawalModal = ref(false)
 const showDepositModal = ref(false)
-const walletStatus = ref('Подключите свой кошелек')
+const walletStatus = ref('Подключите кошелек')
 const walletBalance = ref(null)
 
 const TONCENTER = import.meta.env.VITE_TONCENTER_URL
@@ -88,7 +90,10 @@ const HOT_WALLET = import.meta.env.VITE_HOT_WALLET
 async function openWithdrawalModal() {
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet()
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e)
         }
@@ -102,7 +107,10 @@ async function openWithdrawalModal() {
 async function openDepositModal() {
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet()
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e)
         }
@@ -118,7 +126,10 @@ async function openWalletInfo() {
         showWalletInfo.value = true
     }
     else {
-        await ton.value.connectWallet();
+        const wallet = await ton.value.connectWallet()
+        if (wallet) {
+            await handleConnected(wallet)
+        }
     }
 }
 
@@ -130,7 +141,10 @@ async function closeWalletInfo() {
 async function handleWithdraw(amount) {
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet();
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e);
         }
@@ -145,7 +159,10 @@ async function handleWithdraw(amount) {
 async function handleDeposit(amount) {
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet();
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e);
         }
@@ -182,16 +199,59 @@ async function loadTransactions() {
     }
 }
 
+// add this helper near the other functions
+async function handleConnected(wallet) {
+    // normalize address
+    walletAddress.value = wallet?.account?.address || null
+
+    let parsedAddress = null
+    if (walletAddress.value !== null) {
+        try {
+            parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
+            walletStatus.value = `Ваш кошелёк ${parsedAddress.slice(0, 4)}...${parsedAddress.slice(-3)}`
+        } catch (err) {
+            console.warn('Failed to parse address', err)
+            walletStatus.value = 'Подключите кошелёк'
+        }
+
+        // fetch balance (guard with try/catch)
+        try {
+            const tonBal = await fetchTonBalance(walletAddress.value)
+            walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
+        } catch (err) {
+            console.warn('Failed to fetch TON balance', err)
+            walletBalance.value = null
+        }
+    } else {
+        walletStatus.value = 'Подключите кошелёк'
+        walletBalance.value = null
+    }
+
+    // update Supabase users.wallet_address (keep your previous logic)
+    if (user || !user) {
+        const { error } = await supabase
+            .from('users')
+            .update({ wallet_address: parsedAddress })
+            .eq('telegram', user?.id ?? 99)
+        if (error) {
+            console.error('Error updating wallet_address:', error)
+        }
+    }
+}
+
 async function reconnectWallet() {
     // If already connected, drop the session
     if (ton.value.connected) {
         walletAddress.value = null
         await ton.value.disconnect();
     }
-    walletStatus.value = 'Подключите свой кошелек'
+    walletStatus.value = 'Подключите кошелек'
     walletBalance.value = null
     // Then always open the wallet selector
-    await ton.value.connectWallet();
+    const wallet = await ton.value.connectWallet()
+    if (wallet) {
+        await handleConnected(wallet)
+    }
 }
 
 /**
@@ -262,7 +322,10 @@ async function onDeposit(amount) {
     // 1) If no wallet yet, open selector
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet();   // :contentReference[oaicite:4]{index=4}
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e);
         }
@@ -286,7 +349,7 @@ async function onDeposit(amount) {
         uuid: txId,
         user_id: user?.id ?? 99,
         amount: amountTON,
-        status: 'Payment Pending',
+        status: 'Ожидание пополнения',
         type: 'Deposit',
         deposit_address: parsedAddress,
         created_at: new Date().toISOString()
@@ -324,16 +387,16 @@ async function onDeposit(amount) {
             // Transaction failed on chain
             await supabase
                 .from('transactions')
-                .update({ status: 'Failed' })
+                .update({ status: 'Невыполненное пополнение' })
                 .eq('uuid', txId)
-            alert('Transaction failed on‑chain; no points awarded.')
+            toast.error('Транзакция не прошла на блокчейне; средства не зачислены.')
             return
         }
 
         // 6) on‑chain success → mark Completed
         await supabase
             .from('transactions')
-            .update({ status: 'Payment Completed' })
+            .update({ status: 'Успешное пополнение' })
             .eq('uuid', txId)
 
         let newPoints = app.points + 10
@@ -352,7 +415,7 @@ async function onDeposit(amount) {
             // user cancelled
             await supabase
                 .from('transactions')
-                .update({ status: 'Payment Cancelled' })
+                .update({ status: 'Отмененное пополнение' })
                 .eq('uuid', txId)
             console.warn('[deposit] user rejected tx')
         } else {
@@ -398,19 +461,19 @@ function canRequestWithdrawal(lastWithdrawalRequest) {
         (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
     );
 
-    alert(
-        `You may request a new withdrawal in ${remainingHours}h ${remainingMinutes}m.`
-    );
+    toast.error(`Вывод доступен через ${remainingHours} ч. ${remainingMinutes} мин.`)
     return false;
 }
 
 // ——— Withdraw flow ———
 async function onWithdraw(amount) {
     // 1) If no wallet yet, open selector
-    console.log('Hello??' + parseWalletAddress(walletAddress.value))
     if (!walletAddress.value) {
         try {
-            await ton.value.connectWallet();   // :contentReference[oaicite:5]{index=5}
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
         } catch (e) {
             console.error("Could not connect:", e);
         }
@@ -418,7 +481,7 @@ async function onWithdraw(amount) {
     }
 
     if (app.points < amount) {
-        alert(`Insufficient points (need ≥ ${amount})`)
+        toast.error(`Недостаточно средств (нужно ≥ ${amount})`)
         return
     }
 
@@ -426,13 +489,13 @@ async function onWithdraw(amount) {
     if (!canRequestWithdrawal(lastWithdrawalRequest.value)) {
         return;
     }
+    
+    lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
 
     const parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
 
     const txId = uuidv4()
     const amountTON = amount
-
-    lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
 
     await supabase
         .from('users')
@@ -444,7 +507,7 @@ async function onWithdraw(amount) {
         uuid: txId,
         user_id: user?.id ?? 99,
         amount: amountTON,
-        status: 'Withdrawal Pending',
+        status: 'Ожидание вывода',
         type: 'Withdrawal',
         withdrawal_pending: true,
         withdrawal_address: parsedAddress,
@@ -520,8 +583,6 @@ onMounted(async () => {
 
 onActivated(async () => {
     // every time DepositView is shown again…
-    console.log(ton.value)
-    console.log(walletAddress.value)
     if (ton.value?.connected && walletAddress.value) {
         const freshBal = await fetchTonBalance(walletAddress.value)
         walletBalance.value = +freshBal.toFixed(2)
@@ -536,30 +597,10 @@ function setupTonConnectListener() {
     if (!ton.value._statusListenerRegistered) {
         ton.value._statusListenerRegistered = true
         ton.value.onStatusChange(async (wallet) => {
-            walletAddress.value = wallet?.account.address || null
-            let parsedAddress
-            console.log(parseWalletAddress(walletAddress.value))
-            if (walletAddress.value !== null) {
-                parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
-                console.log('Мразь ' + parsedAddress)
-                walletStatus.value = `Ваш кошелёк ${parsedAddress.slice(0, 4)}...${parsedAddress.slice(-3)}`
-                const tonBal = await fetchTonBalance(walletAddress.value);
-                walletBalance.value = +`${tonBal.toFixed(2)}`;
-            }
-            else {
-                walletStatus.value = 'Подключите свой кошелёк'
-                walletBalance.value = null
-            }
-
-            // update Supabase users.wallet_address
-            if (user || !user) {
-                const { error } = await supabase
-                    .from('users')
-                    .update({ wallet_address: parsedAddress })
-                    .eq('telegram', user?.id ?? 99)
-                if (error) {
-                    console.error('Error updating wallet_address:', error)
-                }
+            try {
+                await handleConnected(wallet)
+            } catch (err) {
+                console.error('onStatusChange handler failed', err)
             }
         })
     }
@@ -573,13 +614,14 @@ function setupTonConnectListener() {
     color: white;
     width: 90vw;
     font-size: 1.5rem;
-    margin: 1.5rem auto 0.75vh auto;
+    margin: 1.25rem auto 2.25vh auto;
     font-weight: 600;
     font-family: "Inter", sans-serif;
 }
 
 .wallet-wrapper {
     position: relative;
+    max-width: 480px;
     width: 90vw;
     margin: 0.8rem auto 0;
     overflow: hidden;

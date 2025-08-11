@@ -5,6 +5,7 @@ import BetsView from '@/views/BetsView.vue'
 import BetDetails from '@/components/bet-details/BetDetails.vue'
 import DepositView from '@/views/DepositView.vue'
 import BetsHistoryList from '@/components/BetsHistoryList.vue'
+import PrivacyView from '@/views/PrivacyView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -40,6 +41,11 @@ const router = createRouter({
       name: 'BetDetails',
       component: BetDetails,
       props: true
+    },
+    {
+      path: '/privacy',
+      name: 'privacy',
+      component: PrivacyView,
     },
   ],
 })

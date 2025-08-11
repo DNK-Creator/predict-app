@@ -38,7 +38,7 @@ import { computed, onMounted, ref } from 'vue'
 import { defineProps } from 'vue'
 import lottie from 'lottie-web';
 import pako from 'pako';
-import EmptyGift from '@/assets/EmptyGift.tgs'
+import EmptyGift from '@/assets/EmptyGift2.tgs'
 import depositImg from '@/assets/icons/Deposit_Icon.png'
 import withdrawalImg from '@/assets/icons/Withdrawal_Icon.png'
 
@@ -61,19 +61,54 @@ const groupedTransactions = computed(() => {
     }, {})
 })
 
-// Format header: 7 JULY 2025
+// Format header: 5 АВГУСТА 2025 (month in genitive, uppercase)
 function formatDateHeader(dateString) {
     const date = new Date(dateString)
+
+    // Preferred: use Intl to get Russian genitive month (when day present, Intl uses genitive)
+    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+        // This usually returns "5 августа 2025" (lowercase month, genitive)
+        const formatted = new Intl.DateTimeFormat('ru-RU', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric'
+        }).format(date)
+
+        // Replace the month word with uppercase (keep day and year as-is)
+        // Handles regular and non-breaking spaces
+        return formatted.replace(/(\d{1,2})\s+([^\s]+)\s+(\d{4})/, (m, d, month, y) => {
+            return `${d} ${month.toUpperCase()} ${y}`
+        })
+    }
+
+    // Fallback: manual genitive month names (uppercase)
+    const monthsGenitive = [
+        'ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ',
+        'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ'
+    ]
     const day = date.getDate()
-    const month = date.toLocaleString('en-US', { month: 'long' }).toUpperCase()
+    const month = monthsGenitive[date.getMonth()]
     const year = date.getFullYear()
     return `${day} ${month} ${year}`
 }
 
-// Format time: 16:30
+// Format time: "17:42" (24-hour, leading zeros)
 function formatTime(iso) {
     const date = new Date(iso)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+
+    // Use Intl for consistent 24-hour format in ru-RU
+    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+        return new Intl.DateTimeFormat('ru-RU', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        }).format(date)
+    }
+
+    // Fallback
+    const hh = String(date.getHours()).padStart(2, '0')
+    const mm = String(date.getMinutes()).padStart(2, '0')
+    return `${hh}:${mm}`
 }
 
 // Return icon path based on transaction type

@@ -29,7 +29,7 @@
                             <span class="amount-currency" @click="focusAmountInput">TON</span>
                         </div>
                         <span v-if="showWarning" class="warning-text" role="alert" aria-live="polite">
-                            Максимум 1000 TON за транзакцию
+                            Максимум 2000 TON за транзакцию
                         </span>
                     </div>
                 </div>
@@ -40,7 +40,7 @@
                 <div class="limits-group">
                     <div class="limit-line">
                         <span class="limit-description-item-one">Лимит за транзакцию:</span>
-                        <span class="limit-description-item-two">1000 TON</span>
+                        <span class="limit-description-item-two">2000 TON</span>
                     </div>
                     <div class="limit-line">
                         <span class="limit-description-item-one">Выводов в день:</span>
@@ -154,8 +154,8 @@ function onAmountInput(e) {
     }
 
     const num = parseFloat(v)
-    if (!isNaN(num) && num > 1000) {
-        v = '1000'
+    if (!isNaN(num) && num > 2000) {
+        v = '2000'
         showWarning.value = true
     } else {
         showWarning.value = false

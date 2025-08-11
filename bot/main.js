@@ -11,7 +11,6 @@ const bot = new Telegraf(token)
 bot.use(session())
 
 const effectIdTwo = "5046509860389126442"
-// ADD CORS AND CHANGE THE SERVER PROXY REQUESTS TO SUBDOMAIN AT API.DOMAIN WITH HTTPS 
 
 const app = express()
 app.use(express.json())
@@ -93,26 +92,21 @@ async function handleStart(ctx) {
         }
 
         return ctx.replyWithPhoto(
-            { url: "https://i.postimg.cc/Hkww4N89/Main-Menu-Bot.png" },
+            { url: "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png" },
             {
-                caption: "Добро пожаловать в <b>Gifts Predict! 🔮 </b> Здесь ты можешь использовать свои знания, " +
-                    "чтобы предсказывать результаты будущих событий и зарабатывать.",
+                caption: "Добро пожаловать в <b>Gifts Predict! 🔮 </b> Предсказывай всевозможные события, используя свои знания, и зарабатывай призы!",
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([
                     [Markup.button.webApp(
-                        "✨ ОТКРЫТЬ СТАВКИ ✨",
+                        "Открыть приложение",
                         `${webAppUrl}?ref=${ctx.session.ref || ""}`
                     )],
                     [Markup.button.url(
-                        "Отзывы",
-                        `https://t.me/purplevibes_reviews`
-                    ),
-                    Markup.button.url(
-                        "Поддержка",
-                        `https://t.me/purplevibes_support?text=Здравствуйте! `
-                    )
-                    ]]),
+                        "Комьюнити",
+                        `https://t.me/giftspredict`
+                    )]
+                ]),
                 message_effect_id: effectIdTwo,
             });
     }

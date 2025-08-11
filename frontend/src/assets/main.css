@@ -24,22 +24,35 @@ body.keyboard-open .modal-container {
   /* tweak 8vh as needed so input isn't behind browser chrome */
 }
 
+/* Give the app the real visible height the WebApp exposes (fallback to 100vh) */
 #app,
 .app {
-  width: 100vw;
-  height: 100vh;
-  background-color: black;
-
+  height: var(--tg-viewport-stable-height, 100vh);
   display: flex;
+  background-color: black;
   flex-direction: column;
   overflow: hidden;
+  padding-top: var(--app-top-offset, env(safe-area-inset-top, 0px));
+  box-sizing: border-box;
 }
 
-/* Scrollable app content */
+/* expose header height + safe area at the top so content isn't under Telegram header */
+:root {
+  /* dynamically set by JS at runtime */
+  --app-header-height: 56px;
+  /* fallback */
+}
+
+
+/* scroll container: ensure content clears header and bottom nav */
 .app-scroll-container {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  padding-bottom: 110px;
-  /* space for fixed navbar */
+
+  /* space under the header so first content is not underneath it */
+  padding-top: calc(var(--app-header-height, 56px));
+  /* var --app-bottom-space is the measured menu+gap; --keyboard-height is set on focus */
+  padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
+  box-sizing: border-box;
 }

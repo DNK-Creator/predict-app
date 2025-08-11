@@ -12,7 +12,7 @@
                     <span>{{ totalVolume }}</span>
                     <img :src="tonWhiteIcon" class="icon-diamond">
                 </div>
-                <div class="stat-label">Total volume</div>
+                <div class="stat-label">Общий объем</div>
             </div>
 
             <div class="divider"></div>
@@ -22,7 +22,7 @@
                     <span>{{ betsMade }}</span>
                     <img :src="betIcon" class="icon-box">
                 </div>
-                <div class="stat-label">Bets made ></div>
+                <div class="stat-label">Предсказано всего ></div>
             </div>
 
             <div class="divider"></div>
@@ -32,7 +32,7 @@
                     <span>{{ betsWon }}</span>
                     <img :src="wonIcon" class="icon-box">
                 </div>
-                <div class="stat-label">Bets won ></div>
+                <div class="stat-label">Предсказано правильно ></div>
             </div>
         </div>
     </div>
@@ -133,8 +133,8 @@ function viewWonPreviousBets() {
     display: flex;
     align-items: center;
     font-size: 1.3rem;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     gap: 0.25rem;
 }
 
@@ -147,8 +147,8 @@ function viewWonPreviousBets() {
 .stat-label {
     margin-top: 4px;
     font-size: 0.875rem;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     color: #9ca3af;
 }
 </style>

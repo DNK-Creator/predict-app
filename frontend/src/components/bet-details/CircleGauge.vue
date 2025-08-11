@@ -39,20 +39,26 @@ const fgStyle = computed(() => {
 </script>
 
 <style scoped>
+/* Gauge: fixed width, reserve space below the arc for the value/label */
 .gauge {
     position: relative;
+    flex: 0 0 auto;
+    /* don't shrink */
     width: 4.8rem;
-    height: 2.3rem;
-    margin-bottom: 0.75rem;
+    box-sizing: border-box;
     margin-right: 1.5rem;
 }
 
+/* keep the svg height strictly for the half-circle */
 .gauge__svg {
+    display: block;
     width: 100%;
-    height: 100%;
+    height: 2.3rem;
+    /* arc area height */
     overflow: visible;
 }
 
+/* arc styling (unchanged) */
 .gauge__arc {
     fill: none;
     stroke-width: 10;
@@ -69,26 +75,36 @@ const fgStyle = computed(() => {
     transition: stroke-dashoffset 0.6s ease;
 }
 
+/* place text centered horizontally, just BELOW the SVG (top:100%) */
 .gauge__text {
     position: absolute;
-    top: 50%;
     left: 50%;
-    transform: translate(-50%, -50%);
+    top: 50%;
+    /* immediately below the svg */
+    transform: translateX(-50%);
+    /* center horizontally */
     text-align: center;
+    width: 100%;
+    pointer-events: none;
 }
 
+/* value sits directly under the half circle (no extra margin pushing it up) */
 .gauge__value {
-    font-size: 1.1rem;
+    font-size: 1rem;
     font-weight: 700;
     color: #fff;
-    margin-top: 2.25rem;
-    font-family: "Inter";
+    line-height: 1;
+    margin: 2px 0 0;
+    /* small gap from the arc */
+    font-family: "Inter", sans-serif;
 }
 
+/* small label under the value */
 .gauge__label {
-    font-size: 0.8rem;
+    font-size: 0.72rem;
     color: #9ca3af;
+    margin-top: 2px;
     text-transform: lowercase;
-    font-family: "Inter";
+    font-family: "Inter", sans-serif;
 }
 </style>

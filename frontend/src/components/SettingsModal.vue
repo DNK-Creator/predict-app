@@ -9,17 +9,17 @@
         <transition name="slide-up">
             <div v-if="show" class="settings-modal">
                 <div class="footer">
-                    <h2>Settings</h2>
+                    <h2>Настройки</h2>
                     <button class="close-btn" @click="$emit('close')">✖</button>
                 </div>
                 <div class="items-group">
-                    <h2 class="item-header">LANGUAGE</h2>
+                    <h2 class="item-header">ЯЗЫК</h2>
                     <div class="options-grid">
-                        <button class="option" :class="{ active: selectedLanguage === 'EN' }"
+                        <!-- <button class="option" :class="{ active: selectedLanguage === 'EN' }"
                             @click="selectLanguage('EN')">
                             <img :src="EnIcon" alt="">
                             <span>EN</span>
-                        </button>
+                        </button> -->
                         <button class="option" :class="{ active: selectedLanguage === 'RU' }"
                             @click="selectLanguage('RU')">
                             <img :src="RuIcon" alt="">
@@ -28,27 +28,27 @@
                     </div>
                 </div>
                 <div class="items-group">
-                    <h2 class="item-header">BETS RESULT NOTIFICATIONS</h2>
+                    <h2 class="item-header">УВЕДОМЛЕНИЯ ПО СОБЫТИЯМ</h2>
                     <div class="options-grid">
                         <button class="option" :class="{ active: selectedNotifyBets === 'yes' }"
                             @click="selectNotifyBets('yes')">
-                            <span>on</span>
+                            <span>ВКЛ</span>
                         </button>
                         <button class="option" :class="{ active: selectedNotifyBets === 'no' }"
                             @click="selectNotifyBets('no')">
-                            <span>off</span>
+                            <span>ВЫКЛ</span>
                         </button>
                     </div>
                 </div>
                 <div class="items-group">
                     <div class="buttons-group">
-                        <button class="action-btn-one">
+                        <button class="action-btn-one" @click="$emit('open-privacy')">
                             <img :src="PrivacyIcon">
-                            Privacy
+                            Соглашение
                         </button>
-                        <button class="action-btn-two">
+                        <button class="action-btn-two" @click="$emit('open-support')">
                             <img :src="ContactIcon">
-                            Contact the Team
+                            Поддержка
                         </button>
                     </div>
                 </div>
@@ -59,7 +59,7 @@
 
 <script setup>
 import RuIcon from '@/assets/icons/Ru_Icon.png'
-import EnIcon from '@/assets/icons/En_Icon.png'
+// import EnIcon from '@/assets/icons/En_Icon.png'
 import ContactIcon from '@/assets/icons/Contact_Icon.png'
 import PrivacyIcon from '@/assets/icons/Privacy_Icon.png'
 import { ref } from 'vue'
@@ -68,10 +68,10 @@ defineProps({
     /** whether the modal is visible */
     show: Boolean,
 })
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'open-privacy', 'open-support'])
 
 // track selected
-const selectedLanguage = ref('EN')
+const selectedLanguage = ref('RU')
 
 // handler
 function selectLanguage(code) {
@@ -114,7 +114,8 @@ function selectNotifyBets(option) {
     height: 42vh;
     background: #292a2a;
     color: White;
-    font-family: Inter;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     border-top-left-radius: 20px;
     border-top-right-radius: 20px;
     padding: 1.25rem;
@@ -131,6 +132,7 @@ function selectNotifyBets(option) {
     align-items: center;
     justify-content: space-between;
     margin-bottom: 3.5vh;
+    font-size: 1.5rem;
 }
 
 .items-group {
@@ -155,7 +157,8 @@ function selectNotifyBets(option) {
     border-radius: 30px;
     border: none;
     color: white;
-    font-family: Inter;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     font-size: 1rem;
     align-items: center;
     justify-content: center;
@@ -195,7 +198,8 @@ function selectNotifyBets(option) {
     border-radius: 16px;
     font-size: 1.25rem;
     padding: 15px;
-    font-family: Inter;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .action-btn-one {
@@ -224,7 +228,8 @@ function selectNotifyBets(option) {
     opacity: 0.5;
     font-size: 1rem;
     color: rgb(209, 209, 209);
-    font-weight: 200;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 /* FADE TRANSITION FOR OVERLAY OPACITY */

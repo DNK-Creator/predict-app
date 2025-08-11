@@ -17,7 +17,7 @@
                     {{ bet.name }}
                 </div>
                 <div class="bet-meta">
-                    Placed {{ bet.stake }} TON on {{ bet.side }}
+                    Поставлено {{ bet.stake }} TON на {{ formattedSide(bet.side) }}
                 </div>
             </router-link>
         </div>
@@ -29,23 +29,58 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
 import { getUsersActiveBets } from '@/services/bets-requests.js'
 
 const activeBets = ref([])
+const loading = ref(false)
 
-onMounted(async () => {
+async function loadActiveBets() {
     try {
+        loading.value = true
+        // always fetch fresh data from the API
         activeBets.value = await getUsersActiveBets()
     } catch (e) {
         console.error('Failed to load active bets', e)
+        // optional: keep previous data instead of clearing on error
+    } finally {
+        loading.value = false
     }
+}
+
+// initial load when component first mounts
+onMounted(() => {
+    loadActiveBets()
 })
 
+// also refresh when component is re-activated (useful if you wrap the view in <keep-alive>)
+onActivated(() => {
+    loadActiveBets()
+})
+
+// refresh when the user returns to the tab (optional but useful)
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        loadActiveBets()
+    }
+}
+document.addEventListener('visibilitychange', handleVisibilityChange)
+
+// cleanup listener when component unmounts
+onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
+
+// helper date/label utilities (unchanged)
 function formatDate(dateString, opts) {
-    return new Date(dateString).toLocaleDateString('en-US', opts)
+    return new Date(dateString).toLocaleDateString('ru-RU', opts)
+}
+
+function formattedSide(side) {
+    return side === 'Yes' ? 'Да' : 'Нет'
 }
 </script>
+
 
 <style scoped>
 .active-bets-list {
@@ -83,7 +118,7 @@ function formatDate(dateString, opts) {
     align-items: center;
     justify-content: center;
     padding: 8px 0;
-    font-family: 'Inter Variable', sans-serif;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
 }
 
@@ -93,8 +128,8 @@ function formatDate(dateString, opts) {
     color: #9ca3af;
     text-transform: uppercase;
     line-height: 1;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .date-day {
@@ -103,8 +138,8 @@ function formatDate(dateString, opts) {
     color: #f9fafb;
     margin-top: 2px;
     line-height: 1;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 /* Main clickable content */
@@ -115,8 +150,8 @@ function formatDate(dateString, opts) {
     padding: 12px;
     text-decoration: none;
     flex: 1;
-    font-family: 'Inter Variable', sans-serif;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .bet-name {
@@ -136,7 +171,8 @@ function formatDate(dateString, opts) {
 .empty-state {
     text-align: center;
     font-size: 0.95rem;
-    font-family: 'Inter Variable', sans-serif;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     color: #9ca3af;
     padding: 16px;
     background-color: #292a2a;

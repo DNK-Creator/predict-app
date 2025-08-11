@@ -5,15 +5,20 @@
                 <div class="modal">
                     <header class="modal-header">
                         <h2 class="modal-title">{{ holiday.name }}</h2>
-                        <button class="modal-close" @click="close">✖</button>
+                        <button class="modal-close" @click="close" aria-label="Close">✖</button>
                     </header>
+
                     <div v-if="holiday.image_path" class="modal-image"
                         :style="{ backgroundImage: `url(${holiday.image_path})` }" />
+
                     <section class="modal-body">
                         <span class="date-text"> {{ holidayDateTransform(holiday.date) }} </span>
                         <p>{{ holiday.description }}</p>
                     </section>
-                    <button class="action-btn" @click="shareHolidayMessage"> Поделиться праздником </button>
+
+                    <button class="action-btn" @click="shareHolidayMessage">
+                        Поделиться праздником
+                    </button>
                 </div>
             </div>
         </Transition>
@@ -23,51 +28,66 @@
 <script setup>
 import { useTelegram } from '@/services/telegram.js'
 
-const webApp = useTelegram().tg
+const { user } = useTelegram()
+const { tg } = useTelegram()
 
 const props = defineProps({
     visible: Boolean,
     holiday: {
         type: Object,
-        required: true,
-        // expected shape: { name, description, image_path }
+        required: true
+        // expected shape: { name, description, image_path, date }
     }
 })
 const emit = defineEmits(['close'])
 
+/**
+ * Format a holiday date into Russian short form: "23 июля", "15 августа", "1 декабря"
+ * Accepts Date objects, numeric timestamps, or date strings (ISO). Returns empty string for invalid input.
+ */
 function holidayDateTransform(holDate) {
-    // 1) Normalize to a Date object
-    const date = (holDate instanceof Date)
-        ? holDate
-        : new Date(holDate);
+    if (holDate == null) return ''
 
-    // 2) Month names lookup
-    const monthNames = [
-        'January', 'February', 'March', 'April', 'May', 'June',
-        'July', 'August', 'September', 'October', 'November', 'December',
-    ];
-    const month = monthNames[date.getUTCMonth()];
+    // normalize to a Date object
+    let d
+    if (holDate instanceof Date) {
+        d = holDate
+    } else if (typeof holDate === 'number') {
+        d = new Date(holDate)
+    } else if (typeof holDate === 'string') {
+        // try ISO / standard parsing
+        d = new Date(holDate)
+    } else {
+        // fallback: attempt coercion
+        d = new Date(String(holDate))
+    }
 
-    // 3) Day of month
-    const day = date.getUTCDate();
+    if (Number.isNaN(d.getTime())) return ''
 
-    // 4) Ordinal suffix logic
-    let suffix = 'th';
-    if (day % 10 === 1 && day % 100 !== 11) suffix = 'st';
-    else if (day % 10 === 2 && day % 100 !== 12) suffix = 'nd';
-    else if (day % 10 === 3 && day % 100 !== 13) suffix = 'rd';
-
-    // 5) Build result
-    return `${month} ${day}${suffix}`;
+    // Intl provides proper Russian month in genitive ("июля"), and respects locale
+    try {
+        return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(d)
+    } catch (e) {
+        // fallback to manual small lookup (shouldn't be needed in modern environments)
+        const months = [
+            'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+            'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+        ]
+        const day = d.getDate()
+        const month = months[d.getMonth()]
+        return `${day} ${month}`
+    }
 }
-
 
 function close() {
     emit('close')
 }
 
-async function shareHolidayMessage() {
-    
+function shareHolidayMessage() {
+    let ref = user?.id ?? ""
+    let shareLink = 'https://t.me/GiftsPredict_Bot/holidays?startapp=' + ref
+    let messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет **${props.holiday.name}** 🎉 %0A%0A**ПОДАРКИ В 03:00 ❗❗❗**`
+    tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
 }
 
 </script>
@@ -123,24 +143,32 @@ async function shareHolidayMessage() {
 .modal-title {
     margin: 0;
     font-size: 1.2rem;
-    color: White;
-    font-family: Inter;
+    color: #ffffff;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-weight: 600;
 }
 
 .date-text {
-    opacity: 0.8;
-    color: rgb(255, 255, 255);
-    font-family: Inter;
-    font-weight: 400;
+    display: block;
+    margin-bottom: 8px;
+    color: rgba(255, 255, 255, 0.9);
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-weight: 500;
 }
 
 .modal-close {
     background: none;
     border: none;
-    font-size: 1.7rem;
+    font-size: 1.4rem;
     line-height: 1;
     cursor: pointer;
-    color: White;
+    color: #ffffff;
+    padding: 6px;
+    border-radius: 6px;
+}
+
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.03);
 }
 
 .modal-image {
@@ -155,14 +183,14 @@ async function shareHolidayMessage() {
     overflow-y: auto;
     font-size: 0.95rem;
     line-height: 1.5;
-    color: White;
-    font-family: Inter;
+    color: #ffffff;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 }
 
 .action-btn {
-    margin-bottom: 1.25rem;
+    margin: 16px auto 20px;
     width: 75%;
-    padding: 16px 0;
+    padding: 12px 0;
     background-color: #0098EA;
     color: #ffffff;
     font-size: 1rem;
@@ -171,7 +199,7 @@ async function shareHolidayMessage() {
     border-radius: 10px;
     cursor: pointer;
     align-self: center;
-    font-family: Inter;
+    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
 }
 
 .action-btn:hover {

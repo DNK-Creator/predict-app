@@ -10,7 +10,7 @@
 
 <script setup>
 // Vue & reactivity
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 
 // Your services
@@ -32,6 +32,7 @@ const betsWon = ref(0)
 const volume = ref(0)
 
 const spinnerShow = ref(true)
+const loading = ref(false)
 
 function previousBetsHistory() {
     router.push({ name: 'bets-history', query: { filter: 'all' } })
@@ -41,16 +42,53 @@ function wonBetsHistory() {
     router.push({ name: 'bets-history', query: { filter: 'won' } })
 }
 
-onMounted(async () => {
-    // Destructure the object your RPC returns:
-    const { countBets, totalVolume } = await getUsersBetsSummary()
-    betsWon.value = await getUsersWonBetsCount()
+async function loadProfileSummary() {
+    // guard against concurrent loads
+    if (loading.value) return
+    loading.value = true
 
-    // Now assign each one separately
-    betsMade.value = countBets
-    volume.value = totalVolume
+    try {
+        // If both endpoints are independent, fetch in parallel for speed
+        const [summary, wonCount] = await Promise.all([
+            getUsersBetsSummary(),
+            getUsersWonBetsCount()
+        ])
 
-    spinnerShow.value = false;
+        // summary shape assumed: { countBets, totalVolume }
+        const { countBets = 0, totalVolume = 0 } = summary || {}
+
+        betsMade.value = countBets
+        volume.value = totalVolume
+        betsWon.value = wonCount ?? 0
+    } catch (err) {
+        console.error('Failed to load profile summary', err)
+        // keep previous values rather than clearing on error
+    } finally {
+        loading.value = false
+        spinnerShow.value = false
+    }
+}
+
+// initial load when component mounts
+onMounted(() => {
+    loadProfileSummary()
 })
 
+// also refresh when component is re-activated (useful for <keep-alive>)
+onActivated(() => {
+    loadProfileSummary()
+})
+
+// refresh when the user returns to the tab (optional but useful)
+function handleVisibilityChange() {
+    if (document.visibilityState === 'visible') {
+        loadProfileSummary()
+    }
+}
+document.addEventListener('visibilitychange', handleVisibilityChange)
+
+// cleanup listener when component unmounts
+onBeforeUnmount(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
+})
 </script>

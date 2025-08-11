@@ -33,7 +33,6 @@
             </section>
             <footer class="modal-footer">
                 <button class="action-btn" :disabled="!validAmount" @click="onDepositTon">Пополнить</button>
-                <button class="action-btn" :disabled="!validAmount" @click="onDepositStars">Пополнить Stars</button>
             </footer>
         </div>
     </transition>
@@ -155,6 +154,7 @@ function close() {
 function onDepositTon() {
     // pass amount back to parent
     emit('deposit', amount.value)
+    close()
 }
 
 function onDepositStars() {

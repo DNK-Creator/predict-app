@@ -56,20 +56,15 @@
                                     <div class="arrow">→</div>
                                     <div class="new">{{ fmtPct(newYesProb) }}</div>
                                 </div>
-                                <div class="sub">({{ sideText }} — {{ chosenSideLabel }})</div>
                             </div>
 
                             <div class="potential-right">
                                 <div class="lbl">При выигрыше</div>
                                 <div class="big">{{ fmtTon(potentialPayout) }}</div>
-                                <div class="sub">прибыль {{ fmtTon(potentialProfit) }}</div>
+                                <div class="sub-profit">Прибыль {{ fmtTon(potentialProfit) }}</div>
                             </div>
                         </div>
 
-                        <div class="muted">
-                            Полный объем: {{ fmtTon(totalVolume) }} — Да: {{ fmtTon(yesVolume) }}, Нет: {{
-                                fmtTon(noVolume) }}
-                        </div>
                     </div>
 
                     <!-- quick add -->
@@ -237,12 +232,12 @@ async function placeBet() {
     loading.value = true
     try {
         await placeBetRequest(props.bet.id, props.side, +amount.value)
-        toast.success('Bet placed successfully!')
+        toast.success('Ставка успешно поставлена!')
         emit('placed', { side: props.side, amount: +amount.value })
         app.points -= Number(amount.value)
         close()
     } catch (err) {
-        toast.error(err.message || 'Failed to place bet')
+        toast.error(err.message || 'Не удалось поставить ставку.')
     } finally {
         loading.value = false
     }
@@ -768,19 +763,14 @@ function fmtTon(x) {
 }
 
 .potential-right .big {
-    font-size: 1.05rem;
+    font-size: 1.2rem;
     font-weight: 700;
     color: #fff;
 }
 
-.potential-right .sub {
-    font-size: 0.85rem;
-    color: #acc4d9;
-}
-
-.sub {
+.sub-profit {
     font-size: 0.75rem;
-    color: #9fb2c8;
+    color: #ffffff;
     margin-top: 0.1rem;
 }
 
