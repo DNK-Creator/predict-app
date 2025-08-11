@@ -239,6 +239,15 @@ function shareReferal() {
     }
 }
 
+function openChannel() {
+    try {
+        tg.openTelegramLink('https://t.me/giftspredict')
+    } catch (e) {
+        // fallback: open share link in new tab
+        window.open('https://t.me/giftspredict', '_blank')
+    }
+}
+
 /* formatting helper */
 function formatTon(val) {
     const n = Number(val ?? 0)
@@ -298,36 +307,65 @@ watch(
     margin-bottom: 1rem;
 }
 
+/* Parent: don't force a small vh height on mobile; use padding + optional min-height */
 .follow-card {
     max-width: 480px;
-    width: 85vw;
-    height: 12vh;
+    width: 89vw;
+    /* remove fixed height: 12vh; use padding so content defines height naturally */
+    padding: 18px;
+    padding-top: 14px;
+    padding-bottom: 14px;
     margin: 0 auto;
-    padding: 12px;
     background-color: #292a2a;
     border-radius: 12px;
     color: #f9fafb;
     display: flex;
     flex-direction: column;
+    gap: 8px;
+    /* ensure it doesn't shrink too small on tiny screens */
+    min-height: 72px;
+    /* optional */
+    box-sizing: border-box;
 }
 
+/* Button: use padding, min-height and align-self to center horizontally */
 .follow-button {
-    margin-top: 2rem;
-    width: 70%;
-    height: 50%;
+    /* drop percent height */
+    height: auto;
+    padding: 18px 60px;
+    width: 80%;
+    /* vertical + horizontal padding — controls visible size */
+    min-height: 44px;
+    /* mobile touch-friendly */
     border-radius: 20px;
     border: none;
-    margin: auto auto;
+    margin: 0 auto;
+    margin-top: 0.5rem;
+    /* center horizontally only */
     background-color: #3b82f6;
     color: #ffffff;
     font-size: 1rem;
     cursor: pointer;
     font-family: "Inter", sans-serif;
     font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
 }
 
+/* Hover */
 .follow-button:hover {
     background-color: #2563eb;
+}
+
+/* Mobile tweak (if you still want a slightly larger button on small screens) */
+@media (max-width: 420px) {
+    .follow-button {
+        padding: 12px 20px;
+        min-height: 48px;
+        font-size: 1rem;
+    }
 }
 
 .card-title {
