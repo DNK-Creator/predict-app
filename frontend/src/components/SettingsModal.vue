@@ -48,7 +48,7 @@
                         </button>
                         <button class="action-btn-two" @click="$emit('open-support')">
                             <img :src="ContactIcon">
-                            Поддержка
+                            <span>Поддержка</span>
                         </button>
                     </div>
                 </div>
@@ -214,6 +214,11 @@ function selectNotifyBets(option) {
     flex: 1 1 auto;
     /* grow to fill remaining space */
     gap: 8px;
+}
+
+.action-btn-two span {
+    color: black;
+    outline: none;
 }
 
 .close-btn {

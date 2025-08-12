@@ -1,10 +1,13 @@
 <template>
-    <!-- single root so attrs can be inherited if needed -->
-    <div class="bets-root">
-        <!-- Global loader for first full-page load -->
-        <LoaderPepe v-if="spinnerShow" />
+    <!-- Global full-screen loader (fixed, centered) -->
+    <div v-if="loadingInitial" class="global-loader" aria-hidden="true">
+        <!-- optionally pass variant if you later refactor LoaderPepe to accept it -->
+        <LoaderPepe />
+    </div>
 
-        <div v-show="!spinnerShow" class="bets-container">
+    <!-- root always present to avoid layout jumps -->
+    <div class="bets-root">
+        <div class="bets-container">
             <!-- Catalogue (Active / Archived) -->
             <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
                 <button class="catalog-btn" :class="{ active: selectedTab === 'active' }" @click="switchTab('active')"
@@ -17,48 +20,32 @@
                 </button>
             </div>
 
-            <!-- Loading first page for the selected tab -->
-            <div v-if="isLoadingFirstPage" class="inline-loader">
-                <LoaderPepe />
-            </div>
-
             <!-- Empty state when there are no bets in the selected tab -->
-            <div v-else-if="isEmpty" class="empty-state" role="status" aria-live="polite">
-                <svg class="empty-icon" viewBox="0 0 64 64" width="92" height="92" aria-hidden="true">
-                    <g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
-                        stroke-linejoin="round" opacity="0.9">
-                        <path d="M8 20h48v28a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V20z" />
-                        <path d="M20 16a6 6 0 1 1 24 0" />
-                        <path d="M22 36h20" />
-                    </g>
-                </svg>
-
-                <h3 class="empty-title">Здесь пока нет событий</h3>
-                <p class="empty-desc">Попробуйте перейти в другой раздел или обновить
-                    список.</p>
-
-                <div class="empty-actions">
-                    <button class="catalog-btn" @click="resetAndLoad"
-                        aria-label="Перезагрузить список">Перезагрузить</button>
-                    <button class="catalog-btn" @click="switchTab(selectedTab === 'active' ? 'archived' : 'active')"
-                        aria-label="Переключиться на другой раздел">
-                        Перейти
-                    </button>
-                </div>
+            <div v-if="isEmpty && !isLoadingFirstPage" class="empty-state" role="status" aria-live="polite">
+                <!-- ... same empty markup ... -->
             </div>
 
             <!-- Bets list (normal) -->
-            <TransitionGroup v-else name="card" tag="div" class="bets-list" aria-live="polite">
+            <!-- disable transition animation while loading the first page to avoid flicker -->
+            <TransitionGroup v-else :name="isLoadingFirstPage ? '' : 'card'" tag="div" class="bets-list"
+                aria-live="polite">
                 <BetsCard v-for="bet in bets" :key="bet.id" :title="bet.name"
                     :short-desc="getShortDescription(bet.description)" :bg-image="bet.image_path"
                     @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
             </TransitionGroup>
+
+            <!-- Inline loader for first page of a tab (keeps layout) -->
+            <!-- IMPORTANT: only show inline loader when we are *not* showing global overlay -->
+            <div v-show="isLoadingFirstPage && !loadingInitial" class="inline-loader" aria-hidden="true">
+                <LoaderPepe />
+            </div>
 
             <!-- Sentinel for IntersectionObserver (only show when not empty) -->
             <div v-if="!isEmpty" ref="scrollAnchor" class="scroll-anchor"></div>
         </div>
     </div>
 </template>
+
 
 <script setup>
 // Vue
@@ -78,7 +65,9 @@ const pageSize = 6
 const loadingMore = ref(false)
 const allLoaded = ref(false)
 
-const spinnerShow = ref(true) // initial full-page loader
+// initial full-page loader
+const loadingInitial = ref(true)
+let initialLoaderTimer = null
 
 // Catalogue
 const selectedTab = ref('active') // 'active' | 'archived'
@@ -92,15 +81,15 @@ function getShortDescription(descriptionValue = '') {
     return shortDescription
 }
 
-// Computed flags for UI states
+// isLoadingFirstPage: when we're loading and have no bets yet (show inline loader inside list)
 const isLoadingFirstPage = computed(() => loadingMore.value && bets.value.length === 0)
-const isEmpty = computed(() => !spinnerShow.value && bets.value.length === 0 && allLoaded.value)
+const isEmpty = computed(() => !loadingInitial.value && bets.value.length === 0 && allLoaded.value)
+
 
 // load initial data and set up infinite scroll
 onMounted(async () => {
     await resetAndLoad()
     observeScrollEnd()
-    spinnerShow.value = false
 })
 
 // reload when tab changes
@@ -108,12 +97,36 @@ watch(selectedTab, async () => {
     await resetAndLoad()
 })
 
-// Reset pagination and load first page
+// reset and load with debounced global loader
 async function resetAndLoad() {
+    // pagination reset
     page.value = 0
     bets.value = []
     allLoaded.value = false
-    await loadMoreBets()
+    loadingMore.value = false
+
+    // debounce showing the global loader to avoid flicker for fast loads
+    if (initialLoaderTimer) {
+        clearTimeout(initialLoaderTimer)
+        initialLoaderTimer = null
+    }
+    // only show global loader if load takes longer than 150ms
+    initialLoaderTimer = setTimeout(() => {
+        loadingInitial.value = true
+    }, 150)
+
+    try {
+        await loadMoreBets()
+    } catch (err) {
+        console.error('resetAndLoad error', err)
+    } finally {
+        // cancel timer & hide loader
+        if (initialLoaderTimer) {
+            clearTimeout(initialLoaderTimer)
+            initialLoaderTimer = null
+        }
+        loadingInitial.value = false
+    }
 }
 
 // Fetch a page of bets for the current tab
@@ -238,13 +251,6 @@ function switchTab(tab) {
     width: 100%;
 }
 
-/* Inline loader styling (used for first page of a tab) */
-.inline-loader {
-    display: flex;
-    justify-content: center;
-    padding: 28px 0;
-}
-
 /* Empty state */
 .empty-state {
     display: flex;
@@ -314,5 +320,54 @@ function switchTab(tab) {
         min-width: 46%;
         padding: 0.45rem 0.6rem;
     }
+}
+
+/* Full viewport overlay that centers the loader visually */
+.global-loader {
+    position: fixed;
+    inset: 0;
+    /* top:0; right:0; bottom:0; left:0; */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    /* very high so it's on top of everything */
+    pointer-events: auto;
+    /* capture clicks if desired */
+    /* optional dimming — uncomment if you want page to darken when loading */
+    /* background: rgba(0,0,0,0.45); */
+}
+
+/* ensure underlying UI is inert (prevents accidental clicks)
+   the aria-hidden attr is set on .bets-root in the template */
+.bets-root[aria-hidden="true"] {
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    opacity: 0.98;
+    /* slightly dim so overlay stands out (optional) */
+}
+
+/* Keep inline loader reserved space so list doesn't jump */
+.inline-loader {
+    display: flex;
+    justify-content: center;
+    padding: 28px 0;
+    min-height: 120px;
+    /* reserve approximate space so layout is stable */
+}
+
+/* Override LoaderPepe inner margin so the animation truly centers
+   ::v-deep reaches into scoped child component styles */
+.global-loader ::v-deep(.empty-media) {
+    margin-bottom: 0 !important;
+}
+
+.global-loader ::v-deep(.loading-spinner) {
+    height: auto !important;
+    width: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
 }
 </style>

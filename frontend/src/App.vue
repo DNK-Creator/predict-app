@@ -113,7 +113,7 @@ let __menuMo = null
 let _removeBackHandler = null
 let _backHandler = null
 // routes where we want Telegram's back button visible
-const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy'])
+const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy', 'bets-history'])
 
 function enableTelegramBackButton() {
   if (!tg?.BackButton) return
@@ -165,32 +165,59 @@ function updateBackButtonForRoute(route) {
 const urlParams = new URLSearchParams(window.location.search)
 
 onMounted(async () => {
-  window.addEventListener('menu-toggled', handleMenuToggled)
+  window.addEventListener('menu-toggled', handleMenuToggled);
+  const appEl = document.querySelector('.app') || document.documentElement;
+  const mo = new MutationObserver((mutations) => { handleMenuToggled(); });
+  mo.observe(appEl, { childList: true, subtree: true });
+  __menuMo = mo;
 
-  // optional: mutation observer fallback — watches for .menu being added/removed
-  const appEl = document.querySelector('.app') || document.documentElement
-  const mo = new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.type === 'childList') {
-        handleMenuToggled()
-        break
-      }
+  // Wait for Telegram to be ready and attempt to expand BEFORE initial layout measurement
+  try { await tg?.ready?.(); } catch (e) { /* ignore */ }
+  try { await tg?.expand?.(); } catch (e) { /* ignore */ }
+
+  // Wait for visualViewport to settle OR fallback to short timeout
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; cleanup(); resolve(); } };
+    const cleanup = () => {
+      if (window.visualViewport) window.visualViewport.removeEventListener('resize', finish);
+      window.removeEventListener('orientationchange', finish);
+      clearTimeout(timer);
+    };
+
+    // prefer the visualViewport resize event (fires when host UI changes)
+    if (window.visualViewport && typeof window.visualViewport.addEventListener === 'function') {
+      window.visualViewport.addEventListener('resize', finish);
+      window.addEventListener('orientationchange', finish);
     }
-  })
-  mo.observe(appEl, { childList: true, subtree: true })
 
-  // store in module-scoped var
-  __menuMo = mo
-  // initialize layout subsystem (this wires listeners etc.)
-  initLayout({ telegram: tg })
+    // always fallback if no event or it doesn't fire quickly
+    const timer = setTimeout(finish, 180); // 120-250ms is a good sweet spot
+  });
+
+  // Now initialise layout (listeners etc.) and do the first measurement
+  initLayout({ telegram: tg });
+  try { updateLayoutVars(); } catch (e) { /* ignore */ }
+
+  // make visualViewport trigger layout recalcs going forward
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateLayoutVars);
+  }
+  window.addEventListener('orientationchange', updateLayoutVars);
 
   try { await tg?.ready?.() } catch (e) { }
   try { tg?.expand?.() } catch (e) { }
 
-  const referral = getReferralFromUrl()
-  await app.init(urlParams.get(referral)).then(() => {
+  const referral = getReferralFromUrl() // returns Number or null
+  console.info('[App] referral detected:', referral)
+
+  try {
+    // pass referral (number or null) directly
+    await app.init(referral)
     loaded.value = true
-  })
+  } catch (err) {
+    console.error('[App] app.init failed', err)
+  }
 
   // set initial state for current route
   updateBackButtonForRoute(router.currentRoute.value)
@@ -233,6 +260,11 @@ onBeforeUnmount(() => {
   disableTelegramBackButton()   // ensure Telegram button state cleaned up
 
   disposeLayout()
+
+  if (window.visualViewport) {
+    window.visualViewport.removeEventListener('resize', updateLayoutVars);
+  }
+  window.removeEventListener('orientationchange', updateLayoutVars);
 
   window.removeEventListener('menu-toggled', handleMenuToggled)
   try {

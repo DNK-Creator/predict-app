@@ -16,6 +16,9 @@
                 <CircleGauge :percent="currentBetPercent" />
             </div>
 
+            <!-- overlay that sits under header but above content when keyboard open -->
+            <div v-if="isKeyboardOpen" class="keyboard-backdrop" @click="onKeyboardBackdropClick" />
+
             <!-- Main content -->
             <main ref="scrollArea" class="content" @scroll.passive="handleScroll">
                 <!-- 🎉 Celebration Banner -->
@@ -157,6 +160,38 @@ const props = defineProps({
 const route = useRoute()
 
 const commentsInput = ref(null)
+
+// create a reactive boolean the template can use
+const isKeyboardOpen = ref(false)
+
+let bodyClassObserver = null
+
+function updateIsKeyboardOpen() {
+    // guard for SSR / tests
+    if (typeof document === 'undefined' || !document.body) {
+        isKeyboardOpen.value = false
+        return
+    }
+    isKeyboardOpen.value = document.body.classList.contains('keyboard-open')
+}
+
+function onKeyboardBackdropClick(e) {
+    // blur the input if present (must be a user gesture)
+    const inputEl = commentsInput?.value
+    try {
+        if (inputEl && (document.activeElement === inputEl || inputEl === document.activeElement)) {
+            inputEl.blur()
+        }
+    } catch (err) { /* ignore */ }
+
+    // keep our local state & CSS vars consistent
+    document.body.classList.remove('keyboard-open')
+    setKeyboardHeight(0)
+    updateLayoutVars()
+
+    // also update reactive flag right away
+    isKeyboardOpen.value = false
+}
 
 // Use prop id when provided, otherwise fall back to route.params.id.
 // This computed updates reactively when route param or prop changes.
@@ -523,6 +558,22 @@ onMounted(async () => {
         }
     }
 
+    // set initial value when component mounts
+    updateIsKeyboardOpen()
+
+    // watch for body.class changes in case other code toggles keyboard-open
+    if (typeof MutationObserver !== 'undefined' && document?.body) {
+        bodyClassObserver = new MutationObserver((mutations) => {
+            for (const m of mutations) {
+                if (m.attributeName === 'class') {
+                    updateIsKeyboardOpen()
+                    break
+                }
+            }
+        })
+        bodyClassObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] })
+    }
+
     timer = setInterval(() => {
         now.value = Date.now()
     }, 1000)
@@ -552,6 +603,13 @@ onBeforeUnmount(() => {
         window.visualViewport.removeEventListener('scroll', vvResizeListener)
         vvResizeListener = null
     }
+
+    // cleanup observer
+    if (bodyClassObserver) {
+        bodyClassObserver.disconnect()
+        bodyClassObserver = null
+    }
+
     // also ensure you reset the CSS var (optional)
     document.documentElement.style.setProperty('--keyboard-height', '0px')
 })
@@ -584,15 +642,26 @@ async function postComment() {
         // call server-side function which enforces cooldown and inserts
         const inserted = await postNewComment(betId.value, newComment.value, commentId, usersStake)
 
-        // optimistic UI insert
-        comments.value.unshift({
+        const finalPhoto = (inserted && inserted.photo_url) ? inserted.photo_url : user?.photo_url
+
+        const newObj = {
             text: newComment.value,
             created_at: new Date().toISOString(),
             id: inserted?.id ?? commentId,
             user_id: user?.id ?? 99,
             username: user?.username ?? 'Anonymous',
             users_stake: usersStake,
-        })
+            photo_url: finalPhoto,
+            optimistic: !inserted?.id
+        }
+
+        comments.value.unshift(newObj)
+
+        // if server returned different/extra fields, patch the optimistic entry:
+        if (inserted) {
+            const i = comments.value.findIndex(c => c.id === newObj.id)
+            if (i !== -1) comments.value[i] = { ...comments.value[i], ...inserted, optimistic: false }
+        }
 
         // reset input
         newComment.value = ''
@@ -1064,5 +1133,15 @@ watch(betId, async (newId, oldId) => {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* put overlay below footer so footer remains clickable */
+.keyboard-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    /* below footer (3) but above content with default stacking */
+    background: transparent;
+    touch-action: manipulation;
 }
 </style>

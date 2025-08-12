@@ -9,44 +9,137 @@ let _tgListener = null
 let _initialized = false
 let _tgInstance = null
 
-export function updateLayoutVars({ appSelector = '.app', headerSelector = '.app-header', menuSelector = '.menu', safety = 8 } = {}) {
-    const appEl = document.querySelector(appSelector) || document.documentElement
-    const headerEl = document.querySelector(headerSelector)
-    const menuEl = document.querySelector(menuSelector)
-
-    // header height
-    const headerH = headerEl ? headerEl.offsetHeight : 56
-    document.documentElement.style.setProperty('--app-header-height', `${headerH}px`)
-
-    // compute bottom space required by measuring geometry
-    if (menuEl && appEl) {
-        const appRect = appEl.getBoundingClientRect()
-        const menuRect = menuEl.getBoundingClientRect()
-        let requiredBottom = Math.max(0, Math.round(appRect.bottom - menuRect.top))
-
-        if (document.body.classList.contains('keyboard-open')) {
-            requiredBottom = 0
-        }
-
-        requiredBottom += safety
-        document.documentElement.style.setProperty('--app-bottom-space', `${requiredBottom}px`)
-    } else {
-        // no visible floating menu — reserve just the device safe-area bottom + a tiny safety margin
-        document.documentElement.style.setProperty('--app-bottom-space', 'calc(env(safe-area-inset-bottom, 0px) + 12px)')
-    }
-
-    // Try to set Telegram viewport var too (non-fatal)
+/**
+ * Robust layout var updater for Telegram WebApp + keyboard handling.
+ *
+ * @param {Object} opts
+ * @param {string} opts.appSelector
+ * @param {string} opts.headerSelector
+ * @param {string} opts.menuSelector
+ * @param {number} opts.safety  extra px of safety padding to add to bottom space
+ * @param {object} [tgInstance] optional Telegram webapp instance (used to read viewportStableHeight)
+ * @returns {Object} measured values (useful for debugging)
+ */
+export function updateLayoutVars(
+    { appSelector = '.app', headerSelector = '.app-header', menuSelector = '.menu', safety = 8 } = {},
+    tgInstance = undefined
+) {
     try {
-        const stable = (_tgInstance?.viewportStableHeight) ?? (_tgInstance?.viewportHeight)
-        if (typeof stable === 'number') {
-            document.documentElement.style.setProperty('--tg-viewport-stable-height', `${stable}px`)
-        } else {
-            document.documentElement.style.setProperty('--tg-viewport-stable-height', `${window.innerHeight}px`)
+        const docEl = document.documentElement
+        const appEl = document.querySelector(appSelector) || document.documentElement
+        const headerEl = document.querySelector(headerSelector)
+        const menuEl = document.querySelector(menuSelector)
+
+        // --- header height (keep previous fallback of 56) ---
+        const headerH = headerEl ? Math.round(headerEl.offsetHeight) : 56
+        docEl.style.setProperty('--app-header-height', `${headerH}px`)
+
+        // --- visual viewport & insets ---
+        const visual = window.visualViewport
+        const topInset = (visual && typeof visual.offsetTop === 'number') ? Math.round(visual.offsetTop) : 0
+        docEl.style.setProperty('--app-top-offset', `${topInset}px`)
+
+        // --- keyboard height (when visualViewport exists, this is the simplest reliable calc) ---
+        // keyboardHeight = window.innerHeight - visualViewport.height - visualViewport.offsetTop (if any)
+        let keyboardHeight = 0
+        if (visual && typeof visual.height === 'number') {
+            keyboardHeight = Math.max(0, Math.round(window.innerHeight - visual.height - (visual.offsetTop || 0)))
         }
-    } catch (e) {
-        document.documentElement.style.setProperty('--tg-viewport-stable-height', `${window.innerHeight}px`)
+        // expose keyboard height as CSS var (default 0)
+        docEl.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+
+        // --- compute bottom space required (account for menu + keyboard) ---
+        let bottomSpaceValue = null
+
+        if (menuEl && appEl) {
+            const menuRect = menuEl.getBoundingClientRect()
+
+            // space from menu top to bottom of viewport
+            // (use window.innerHeight so this reflects the actual visible chrome; visualViewport.height is used for keyboard)
+            let requiredBottom = Math.max(0, Math.round(window.innerHeight - menuRect.top))
+
+            // if keyboard open (based on body class), ensure keyboardHeight is respected
+            // otherwise prefer the measured requiredBottom (menu) but include keyboard height if larger
+            if (document.body.classList.contains('keyboard-open')) {
+                // when keyboard is open we want to ensure content can scroll above it:
+                // prefer keyboardHeight when it's available, else fallback to requiredBottom
+                requiredBottom = Math.max(requiredBottom, keyboardHeight)
+            } else {
+                // keyboard not reported open: still ensure bottom padding covers keyboard if it's unexpectedly present
+                requiredBottom = Math.max(requiredBottom, keyboardHeight)
+            }
+
+            requiredBottom = Math.max(0, requiredBottom + Math.round(safety))
+            bottomSpaceValue = `${requiredBottom}px`
+            docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
+        } else {
+            // no floating menu visible — reserve just the device safe-area bottom + a tiny safety margin
+            bottomSpaceValue = `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px)`
+            docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
+        }
+
+        // --- try to set Telegram viewport var too (non-fatal) ---
+        // prefer explicit Telegram-provided value, then visualViewport.height, then window.innerHeight
+        try {
+            const stableFromTg =
+                (tgInstance && (typeof tgInstance.viewportStableHeight === 'number' ? tgInstance.viewportStableHeight : undefined)) ??
+                (tgInstance && (typeof tgInstance.viewportHeight === 'number' ? tgInstance.viewportHeight : undefined))
+            const stable = (typeof stableFromTg === 'number') ? Math.round(stableFromTg)
+                : (visual && typeof visual.height === 'number') ? Math.round(visual.height)
+                    : Math.round(window.innerHeight)
+
+            docEl.style.setProperty('--tg-viewport-stable-height', `${stable}px`)
+        } catch (e) {
+            // fallback if something inside tgInstance threw
+            docEl.style.setProperty('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
+        }
+
+        // at the end of updateLayoutVars()
+        applyToastTopInset()
+
+        // return useful values for debugging/testing
+        return {
+            headerH,
+            topInset,
+            keyboardHeight,
+            bottomSpace: bottomSpaceValue,
+            tgViewportStable: getComputedStyle(docEl).getPropertyValue('--tg-viewport-stable-height')?.trim()
+        }
+    } catch (err) {
+        // safe fallback in case of unexpected DOM errors
+        try {
+            document.documentElement.style.setProperty('--app-bottom-space', `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px)`)
+            document.documentElement.style.setProperty('--app-header-height', `56px`)
+            document.documentElement.style.setProperty('--app-top-offset', `0px`)
+            document.documentElement.style.setProperty('--keyboard-height', `0px`)
+            document.documentElement.style.setProperty('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
+        } catch (e) { /* ignore */ }
+        return null
     }
 }
+
+function applyToastTopInset() {
+    const top = getComputedStyle(document.documentElement).getPropertyValue('--app-top-offset').trim() || '0px'
+    const header = getComputedStyle(document.documentElement).getPropertyValue('--app-header-height').trim() || '56px'
+    // parse numbers (in px) and compute numeric sum, fallback to calc string
+    try {
+        const pxTop = parseInt(top, 10) || 0
+        const pxHeader = parseInt(header, 10) || 56
+        const topPx = pxTop + pxHeader + 8
+        document.querySelectorAll('.Toastify__toast-container').forEach(el => {
+            el.style.top = `${topPx}px`  // directly set inline style
+            el.style.zIndex = '1200'
+        })
+    } catch (e) {
+        // fallback: set CSS calc string
+        document.querySelectorAll('.Toastify__toast-container').forEach(el => {
+            el.style.top = `calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 8px)`
+            el.style.zIndex = '1200'
+        })
+    }
+}
+
+
 
 // optionally expose simple setter for keyboard height CSS var
 export function setKeyboardHeight(px) {

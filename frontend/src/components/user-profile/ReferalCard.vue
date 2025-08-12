@@ -220,8 +220,15 @@ async function loadFriendsDetails() {
     }
 }
 
+function copyLink() {
+    const ref = tgUser?.id ?? ''
+    const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
+    navigator.clipboard.writeText(shareLink)
+}
+
 /* Invite / share */
 function inviteFriends() {
+    copyLink()
     inviteText.value = 'Ссылка скопирована!'
     shareReferal()
     setTimeout(() => (inviteText.value = 'Пригласить друзей'), 1800)

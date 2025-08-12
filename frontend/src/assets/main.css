@@ -19,8 +19,16 @@ body.keyboard-open .menu {
   transition: transform 160ms ease, opacity 160ms ease;
 }
 
+body.keyboard-open .footer {
+  transform: translateY(120%);
+  /* push off screen */
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 160ms ease, opacity 160ms ease;
+}
+
 body.keyboard-open .modal-container {
-  transform: translate(-50%, calc(-50% - 8vh));
+  transform: translate(-50%, calc(-50% - 1vh));
   /* tweak 8vh as needed so input isn't behind browser chrome */
 }
 
@@ -37,10 +45,27 @@ body.keyboard-open .modal-container {
 }
 
 /* expose header height + safe area at the top so content isn't under Telegram header */
+/* Ensure toasts sit below your app header and safe-area inset */
 :root {
   /* dynamically set by JS at runtime */
   --app-header-height: 56px;
   /* fallback */
+
+  /* keep the lib's default offset var */
+  --toastify-toast-offset: 12px;
+
+  /* make top use your app vars so toast sits below native chrome + header */
+  --toastify-toast-top: max(var(--toastify-toast-offset),
+      calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 8px));
+
+  /* optionally increase z-index so toasts appear above your header/modal */
+  --toastify-toast-zindex: 1100;
+}
+
+/* make sure the container uses our z-index override (library uses vars internally,
+   but some builds set z-index on the class — keep both to be safe) */
+.Toastify__toast-container {
+  z-index: var(--toastify-toast-zindex, 1100) !important;
 }
 
 
@@ -51,8 +76,7 @@ body.keyboard-open .modal-container {
   -webkit-overflow-scrolling: touch;
 
   /* space under the header so first content is not underneath it */
-  padding-top: calc(var(--app-header-height, 56px));
-  /* var --app-bottom-space is the measured menu+gap; --keyboard-height is set on focus */
+  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)));
   padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
   box-sizing: border-box;
 }

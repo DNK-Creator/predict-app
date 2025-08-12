@@ -86,9 +86,11 @@ function close() {
 function shareHolidayMessage() {
     let ref = user?.id ?? ""
     let shareLink = 'https://t.me/GiftsPredict_Bot/holidays?startapp=' + ref
-    let messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет **${props.holiday.name}** 🎉 %0A%0A**ПОДАРКИ В 03:00 ❗❗❗**`
+    let messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет ${props.holiday.name} 🔔%0A%0AПОДАРКИ В 03:00 ❓❓❓`
     tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
+    close()
 }
+
 
 </script>
 

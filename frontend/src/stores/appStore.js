@@ -34,17 +34,17 @@ export const useAppStore = defineStore('app', {
       }
 
       // If there's an inviter param, register ref (only if not same user)
-      const inviterId = refParam ? Number(refParam) : null
-      if (inviterId && inviterId !== telegramId) {
+      const inviterId = refParam == null ? null : Number(refParam)
+      if (inviterId && Number.isFinite(inviterId) && inviterId !== telegramId) {
+        console.log('[app.init] registering referral', inviterId, 'for', telegramId)
         try {
-          await registerRef(inviterId, null, telegramId, tgUser?.username ?? '')
-          // refresh local user row (it may have referred_by set)
+          await registerRef(inviterId, null, telegramId, tgUser?.username ?? 'Anonymous')
           this.user = await getOrCreateUser(telegramId)
         } catch (err) {
           console.error('registerRef failed', err)
-          // continue anyway
         }
       }
+
 
       // load referrals data (either from user.friends or by querying referred_by)
       await this.loadReferrals()

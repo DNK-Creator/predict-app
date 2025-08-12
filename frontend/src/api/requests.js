@@ -37,9 +37,9 @@ export async function registerRef(inviterTelegram, inviterUsername, inviteeTeleg
 
     const { data, error } = await supabase.rpc('register_ref', {
         inviter_telegram: Number(inviterTelegram),
-        inviter_username: inviterUsername ?? '',
+        inviter_username: inviterUsername ?? 'Anonymous',
         invitee_telegram: Number(inviteeTelegram),
-        invitee_username: inviteeUsername ?? ''
+        invitee_username: inviteeUsername ?? 'Anonymous'
     });
 
     if (error) {

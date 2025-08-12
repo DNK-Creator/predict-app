@@ -600,6 +600,7 @@ function fmtTon(x) {
 .connected-wallet {
     font-size: 1.5rem;
     color: #888;
+    margin: 0;
 }
 
 .amount-wrapper {
@@ -607,7 +608,7 @@ function fmtTon(x) {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin: 1rem 0;
+    margin: 0.5rem 0;
 }
 
 .amount-row {

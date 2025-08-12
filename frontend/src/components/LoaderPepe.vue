@@ -46,6 +46,6 @@ onMounted(async () => {
 .empty-media {
     width: 10rem;
     height: 10rem;
-    margin-bottom: 5rem;
+    margin-bottom: 10rem;
 }
 </style>

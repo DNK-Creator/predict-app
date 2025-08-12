@@ -5,7 +5,6 @@ import express from "express"
 import cors from "cors"
 
 const token = process.env.BOT_TOKEN
-const webAppUrl = "https://giftspredict.ru/"
 const bot = new Telegraf(token)
 // install session middleware
 bot.use(session())
@@ -94,16 +93,16 @@ async function handleStart(ctx) {
         return ctx.replyWithPhoto(
             { url: "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png" },
             {
-                caption: "Добро пожаловать в <b>Gifts Predict! 🔮 </b> Предсказывай всевозможные события, используя свои знания, и зарабатывай призы!",
+                caption: "Ты попал в <b>Gifts Predict! 🔮 </b> Предсказывай всевозможные события в Телеграме и зарабатывай призы!",
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([
                     [Markup.button.webApp(
-                        "Открыть приложение",
-                        `${webAppUrl}?ref=${ctx.session.ref || ""}`
+                        "🕹️ Открыть приложение",
+                        `https://t.me/giftspredict_bot?startapp=${ctx.session.ref || ""}`
                     )],
                     [Markup.button.url(
-                        "Комьюнити",
+                        "📢 Комьюнити",
                         `https://t.me/giftspredict`
                     )]
                 ]),
