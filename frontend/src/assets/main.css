@@ -40,7 +40,8 @@ body.keyboard-open .modal-container {
   background-color: black;
   flex-direction: column;
   overflow: hidden;
-  padding-top: var(--app-top-offset, env(safe-area-inset-top, 0px));
+  /* include the extra top offset here */
+  padding-top: calc(var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
   box-sizing: border-box;
 }
 
@@ -50,6 +51,9 @@ body.keyboard-open .modal-container {
   /* dynamically set by JS at runtime */
   --app-header-height: 56px;
   /* fallback */
+
+  /* extra top spacing applied globally (default 20px) */
+  --app-top-extra: 20px;
 
   /* keep the lib's default offset var */
   --toastify-toast-offset: 12px;
@@ -76,7 +80,7 @@ body.keyboard-open .modal-container {
   -webkit-overflow-scrolling: touch;
 
   /* space under the header so first content is not underneath it */
-  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)));
+  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
   padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
   box-sizing: border-box;
 }

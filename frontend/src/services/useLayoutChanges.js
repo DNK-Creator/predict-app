@@ -39,6 +39,9 @@ export function updateLayoutVars(
         const topInset = (visual && typeof visual.offsetTop === 'number') ? Math.round(visual.offsetTop) : 0
         docEl.style.setProperty('--app-top-offset', `${topInset}px`)
 
+        // expose a configurable extra top offset so we can add +20px globally (defaults to 20)
+        docEl.style.setProperty('--app-top-extra', `20px`) // change value if you want a different default
+
         // --- keyboard height (when visualViewport exists, this is the simplest reliable calc) ---
         // keyboardHeight = window.innerHeight - visualViewport.height - visualViewport.offsetTop (if any)
         let keyboardHeight = 0
@@ -113,31 +116,38 @@ export function updateLayoutVars(
             document.documentElement.style.setProperty('--app-top-offset', `0px`)
             document.documentElement.style.setProperty('--keyboard-height', `0px`)
             document.documentElement.style.setProperty('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
+            // inside the catch fallback
+            document.documentElement.style.setProperty('--app-top-extra', '20px')
+
         } catch (e) { /* ignore */ }
         return null
     }
 }
 
 function applyToastTopInset() {
-    const top = getComputedStyle(document.documentElement).getPropertyValue('--app-top-offset').trim() || '0px'
-    const header = getComputedStyle(document.documentElement).getPropertyValue('--app-header-height').trim() || '56px'
-    // parse numbers (in px) and compute numeric sum, fallback to calc string
+    const docEl = document.documentElement
+    const top = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px'
+    const header = getComputedStyle(docEl).getPropertyValue('--app-header-height').trim() || '56px'
+    const extra = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '20px'
+
     try {
         const pxTop = parseInt(top, 10) || 0
         const pxHeader = parseInt(header, 10) || 56
-        const topPx = pxTop + pxHeader + 8
+        const pxExtra = parseInt(extra, 10) || 20
+        const topPx = pxTop + pxHeader + pxExtra + 8
         document.querySelectorAll('.Toastify__toast-container').forEach(el => {
-            el.style.top = `${topPx}px`  // directly set inline style
+            el.style.top = `${topPx}px`
             el.style.zIndex = '1200'
         })
     } catch (e) {
-        // fallback: set CSS calc string
+        // fallback: set CSS calc string (keeps the var chain)
         document.querySelectorAll('.Toastify__toast-container').forEach(el => {
-            el.style.top = `calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 8px)`
+            el.style.top = `calc(var(--app-top-offset, 0px) + var(--app-top-extra, 20px) + var(--app-header-height, 56px) + 8px)`
             el.style.zIndex = '1200'
         })
     }
 }
+
 
 
 

@@ -488,17 +488,30 @@ async function loadData(idToLoad) {
         comments.value = await getComments(id, commentsPage)
         canComment.value = await availableComments(id)
 
-        if (bet.value.result !== 'undefined' &&
+        const betResultNorm = normalizeResult(bet.value?.result)
+        const userResultNorm = normalizeResult(userBetAmount.value?.result)
+        
+        if (
+            betResultNorm &&
+            betResultNorm !== 'undefined' &&            // keep your original "undefined" guard
             userBetAmount.value.stake > 0 &&
-            userBetAmount.value.result === bet.value.result) {
+            userResultNorm === betResultNorm
+        ) {
             showCelebration.value = true
             setTimeout(() => runConfetti(), 200)
         }
+
     } catch (err) {
         console.error('Error loading bet data:', err)
     } finally {
         spinnerShow.value = false
     }
+}
+
+// helper inside the same scope
+function normalizeResult(val) {
+    if (val === null || val === undefined) return ''
+    return String(val).trim().replace(/[_\s]+/g, '').toLowerCase()
 }
 
 async function onBetPlaced() {
