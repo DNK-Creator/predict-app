@@ -236,7 +236,7 @@ onMounted(async () => {
   }
   window.addEventListener('orientationchange', updateLayoutVars)
 
-  const referral = getReferralFromUrl() // returns Number or null
+  const referral = getReferralFromUrl({ tgInstance: tg, persist: true }) // returns Number or null
   info('[App] referral detected', { referral })
 
   // Make app.init observable/wrapped so errors/time reported
