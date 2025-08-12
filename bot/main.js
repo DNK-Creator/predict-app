@@ -97,7 +97,7 @@ async function handleStart(ctx) {
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([
-                    [Markup.button.webApp(
+                    [Markup.button.url(
                         "🕹️ Открыть приложение",
                         `https://t.me/giftspredict_bot?startapp=${ctx.session.ref || ""}`
                     )],
