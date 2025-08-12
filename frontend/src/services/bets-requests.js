@@ -133,102 +133,33 @@ export async function getHistory(betId) {
     return historyArr
 }
 
+// client: call RPC
 export async function placeBetRequest(betId, side, stake) {
-    // 0) Get the authenticated user
+    if (!betId || !side || !stake) throw new Error('missing args');
 
-    // ─── NEW: 0.5) Fetch and check close_time ─────────────
-    const { data: betMeta, error: timeErr } = await supabase
-        .from('bets')
-        .select('close_time')
-        .eq('id', betId)
-        .single()
-    if (timeErr) throw timeErr
+    // prefer to pass stake as string (preserve precision)
+    const { data, error } = await supabase.rpc('place_bet_rpc', {
+        p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
+        p_bet_id: Number(betId),
+        p_side: String(side),
+        p_stake: String(Number(stake).toFixed(3)) // send numeric string with 3 decimals
+    });
 
-    const now = new Date()
-    const closeTime = new Date(betMeta.close_time)
-    if (now > closeTime) {
-        throw new Error('Время для ставок закончилось!')
+    if (error) {
+        // handle db-side errors (insufficient funds, closed bet, etc.)
+        throw error;
     }
 
-    // 1) Fetch placed_bets & points by Telegram ID
-    const { data: profile, error: fetchErr } = await supabase
-        .from('users')
-        .select('placed_bets, points')
-        .eq('telegram', user?.id ?? 99)
-        .single()    // <- ensures a single object
-    if (fetchErr) throw fetchErr
-
-    // 2) Ensure enough points
-    if ((profile.points || 0) < +stake) {
-        throw new Error('Недостаточно средств для этой ставки.')
-    }
-
-    const existing = Array.isArray(profile.placed_bets) ? profile.placed_bets : []
-
-    // 3) Find or append/update entry
-    const idx = existing.findIndex((b) => b.bet_id === betId)
-    let updatedBets
-
-    if (idx >= 0) {
-        if (existing[idx].side !== side) {
-            throw new Error('Невозможно поставить на обе стороны одной ставки.')
-        }
-        // same side ⇒ bump stake
-        updatedBets = [...existing]
-        updatedBets[idx] = {
-            ...existing[idx],
-            stake: existing[idx].stake + Number(stake),
-            placed_at: new Date().toISOString()
-        }
-    } else {
-        let numStake = +stake
-        updatedBets = [
-            ...existing,
-            { bet_id: betId, side, stake: numStake, placed_at: new Date().toISOString() }
-        ]
-    }
-
-    // 4) Deduct points
-    const updatedPoints = (profile.points || 0) - Number(stake)
-
-    // 4) Now bump the bets.volume JSON
-    // 4a) fetch current volume
-    const { data: betRow, error: betErr } = await supabase
-        .from('bets')
-        .select('volume')
-        .eq('id', betId)
-        .single()
-    if (betErr) throw betErr
-
-    const currentVol = betRow.volume || { Yes: 0, No: 0 }
-    const newVol = {
-        ...currentVol,
-        [side]: (currentVol[side] || 0) + Number(stake)
-    }
-
-    // 4b) write it back
-    const { error: volErr } = await supabase
-        .from('bets')
-        .update({ volume: newVol })
-        .eq('id', betId)
-    if (volErr) throw volErr
-
-    // 5) Write back—still filter on telegram ID
-    const { error: updateErr } = await supabase
-        .from('users')
-        .update({ placed_bets: updatedBets, points: updatedPoints })
-        .eq('telegram', user?.id ?? 99)
-    if (updateErr) throw updateErr
-
-    // 6) Refresh our in‑memory cache so cannotComment sees the new bet
-    await _refreshCachedBets()
+    // RPC returns a row (an array because set-returning); extract first element if needed
+    const row = Array.isArray(data) ? data[0] : data;
 
     return {
-        placed_bets: updatedBets,
-        points: updatedPoints,
-        volume: newVol
-    }
+        placed_bets: row?.placed_bets ?? [],
+        points: parseFloat(row?.points ?? 0),
+        volume: row?.volume ?? { Yes: 0, No: 0 }
+    };
 }
+
 
 async function _refreshCachedBets() {
     const { data: profile, error } = await supabase

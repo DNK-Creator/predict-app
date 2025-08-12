@@ -2,7 +2,6 @@
   <!-- add ref here so we can programmatically reset scrollTop -->
   <div class="app-scroll-container" ref="appScrollRef">
     <Header :balance="app.points" @deposit-click="openDepositHistory" @settings-click="openSettings" />
-    <DebugConsoleToggle />
     <RouterView v-slot="{ Component }">
       <keep-alive>
         <component :is="Component" />
@@ -28,7 +27,6 @@ import { useTelegram } from '@/services/telegram.js'
 import Navbar from './components/Navbar.vue'
 import Header from './components/Header.vue'
 import SettingsModal from './components/SettingsModal.vue'
-import DebugConsoleToggle from '@/components/DebugConsoleToggle.vue'
 
 const loaded = ref(false)
 const app = useAppStore()

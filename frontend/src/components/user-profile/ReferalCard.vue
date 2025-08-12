@@ -237,7 +237,7 @@ function inviteFriends() {
 function shareReferal() {
     const ref = tgUser?.id ?? ''
     const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
-    const messageText = `%0AПрисоединяйся ко мне в Gifts Predict и **зарабатывай TON!**`
+    const messageText = `%0AПрисоединяйся ко мне в Gifts Predict и зарабатывай TON!`
     try {
         tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
     } catch (e) {

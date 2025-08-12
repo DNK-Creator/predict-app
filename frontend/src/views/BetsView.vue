@@ -36,9 +36,9 @@
 
             <!-- Inline loader for first page of a tab (keeps layout) -->
             <!-- IMPORTANT: only show inline loader when we are *not* showing global overlay -->
-            <div v-show="isLoadingFirstPage && !loadingInitial" class="inline-loader" aria-hidden="true">
+            <!-- <div v-show="isLoadingFirstPage && !loadingInitial" class="inline-loader" aria-hidden="true">
                 <LoaderPepe />
-            </div>
+            </div> -->
 
             <!-- Sentinel for IntersectionObserver (only show when not empty) -->
             <div v-if="!isEmpty" ref="scrollAnchor" class="scroll-anchor"></div>

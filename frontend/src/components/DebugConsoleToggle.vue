@@ -12,11 +12,11 @@ import { replayHistory } from '@/services/debugLogger' // <-- new helper
 // feature gate: visible in dev OR ?debug=1 OR localStorage.debugConsole === '1'
 const urlParams = new URLSearchParams(window.location.search)
 const visible = computed(() => {
-    if (process.env.NODE_ENV === 'development') return true
-    if (urlParams.get('debug') === '1') return true
-    if (localStorage.getItem('debugConsole') === '1') return true
-   // return false
-    return true
+    // if (process.env.NODE_ENV === 'development') return true
+    // if (urlParams.get('debug') === '1') return true
+    // if (localStorage.getItem('debugConsole') === '1') return true
+    return false
+    //  return true
 })
 
 const isOpen = ref(false)

@@ -318,7 +318,6 @@ async function waitForUUID(uuid, timeoutMs = 60_000) {
 
 // ——— Deposit flow ———
 async function onDeposit(amount) {
-    console.log(ton.value, user)
     // 1) If no wallet yet, open selector
     if (!walletAddress.value) {
         try {
@@ -332,7 +331,6 @@ async function onDeposit(amount) {
         return;
     }
     if (!ton.value) return
-    // if (!ton.value || !user) return
 
     const amountTON = amount
     const txId = uuidv4()
