@@ -2,6 +2,7 @@
   <!-- add ref here so we can programmatically reset scrollTop -->
   <div class="app-scroll-container" ref="appScrollRef">
     <Header :balance="app.points" @deposit-click="openDepositHistory" @settings-click="openSettings" />
+    <DebugConsoleToggle />
     <RouterView v-slot="{ Component }">
       <keep-alive>
         <component :is="Component" />
@@ -18,6 +19,8 @@
 <script setup>
 import { useRouter, useRoute, RouterView } from 'vue-router'
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
+// at top of App.vue script setup
+import { debug, info, warn, error, group, groupEnd, wrapAsync, installGlobalErrorHandlers } from '@/services/debugLogger'
 import { initLayout, disposeLayout, updateLayoutVars } from '@/services/useLayoutChanges' // ensure updateLayoutVars is exported
 import { getReferralFromUrl } from './services/urlParamsParse'
 import { useAppStore } from '@/stores/appStore.js'
@@ -25,6 +28,7 @@ import { useTelegram } from '@/services/telegram.js'
 import Navbar from './components/Navbar.vue'
 import Header from './components/Header.vue'
 import SettingsModal from './components/SettingsModal.vue'
+import DebugConsoleToggle from '@/components/DebugConsoleToggle.vue'
 
 const loaded = ref(false)
 const app = useAppStore()
@@ -162,19 +166,36 @@ function updateBackButtonForRoute(route) {
   }
 }
 
-const urlParams = new URLSearchParams(window.location.search)
-
 onMounted(async () => {
+  installGlobalErrorHandlers()
+
+  debug('[App] onMounted start', { location: window.location.href })
+
   window.addEventListener('menu-toggled', handleMenuToggled);
   const appEl = document.querySelector('.app') || document.documentElement;
   const mo = new MutationObserver((mutations) => { handleMenuToggled(); });
   mo.observe(appEl, { childList: true, subtree: true });
   __menuMo = mo;
 
-  // Wait for Telegram to be ready and attempt to expand BEFORE initial layout measurement
-  try { await tg?.ready?.(); } catch (e) { /* ignore */ }
-  try { await tg?.expand?.(); } catch (e) { /* ignore */ }
+  // Attempt to ready/expand Telegram early — log failures
+  try {
+    debug('[App] waiting for tg.ready() (if available)')
+    await (tg?.ready?.() ?? Promise.resolve())
+    info('[App] tg.ready() resolved')
+  } catch (e) {
+    warn('[App] tg.ready() failed or threw', { err: e?.message ?? e, stack: e?.stack })
+  }
 
+  try {
+    debug('[App] calling tg.expand() (if available)')
+    await (tg?.expand?.() ?? Promise.resolve())
+    info('[App] tg.expand() ok')
+  } catch (e) {
+    warn('[App] tg.expand() failed', { err: e?.message ?? e })
+  }
+
+  // visualViewport settle wait
+  debug('[App] waiting for visualViewport settle (180ms max)')
   // Wait for visualViewport to settle OR fallback to short timeout
   await new Promise((resolve) => {
     let done = false;
@@ -194,29 +215,43 @@ onMounted(async () => {
     // always fallback if no event or it doesn't fire quickly
     const timer = setTimeout(finish, 180); // 120-250ms is a good sweet spot
   });
+  info('[App] visualViewport settled (or timeout)')
 
-  // Now initialise layout (listeners etc.) and do the first measurement
-  initLayout({ telegram: tg });
-  try { updateLayoutVars(); } catch (e) { /* ignore */ }
-
-  // make visualViewport trigger layout recalcs going forward
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', updateLayoutVars);
+  // init layout subsystem, measure/layout
+  try {
+    initLayout({ telegram: tg })
+    debug('[App] initLayout called')
+    updateLayoutVars()
+    debug('[App] updateLayoutVars initial call done', {
+      tgViewportStable: getComputedStyle(document.documentElement).getPropertyValue('--tg-viewport-stable-height')
+    })
+  } catch (e) {
+    warn('[App] layout init failed', { err: e?.message ?? e, stack: e?.stack })
   }
-  window.addEventListener('orientationchange', updateLayoutVars);
 
-  try { await tg?.ready?.() } catch (e) { }
-  try { tg?.expand?.() } catch (e) { }
+  // attach visualViewport resize -> updateLayoutVars
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', updateLayoutVars)
+    info('[App] visualViewport resize handler attached')
+  }
+  window.addEventListener('orientationchange', updateLayoutVars)
 
   const referral = getReferralFromUrl() // returns Number or null
-  console.info('[App] referral detected:', referral)
+  info('[App] referral detected', { referral })
 
+  // Make app.init observable/wrapped so errors/time reported
+  const wrappedInit = wrapAsync(app.init.bind(app), 'app.init')
   try {
-    // pass referral (number or null) directly
-    await app.init(referral)
+    group('[App] app.init')
+    const t0 = Date.now()
+    await wrappedInit(referral)
+    info('[App] app.init completed', { durationMs: Date.now() - t0, userTelegram: app.user?.telegram })
     loaded.value = true
   } catch (err) {
-    console.error('[App] app.init failed', err)
+    error('[App] app.init failed', { err: (err && (err.message || String(err))) ?? err, stack: err?.stack })
+    // optional: rethrow or show UI
+  } finally {
+    groupEnd()
   }
 
   // set initial state for current route
@@ -228,6 +263,7 @@ onMounted(async () => {
   // ensure initial state starts at the top
   if (appScrollRef.value) {
     appScrollRef.value.scrollTop = 0
+    debug('[App] scroller reset to top')
   }
 
   removeAfterHook = router.afterEach((to) => {
@@ -252,6 +288,7 @@ onMounted(async () => {
       })
     })
   })
+  debug('[App] onMounted done')
 })
 
 // cleanup at top-level

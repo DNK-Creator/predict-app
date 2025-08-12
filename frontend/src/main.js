@@ -2,6 +2,8 @@ import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import Toast from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
+import { installGlobalErrorHandlers } from '@/services/debugLogger'
+installGlobalErrorHandlers()
 
 import "@fontsource/inter/200.css"; // thin
 import "@fontsource/inter/400.css"; // regular
@@ -15,6 +17,13 @@ import router from './router'
 import './assets/main.css'
 
 const app = createApp(App)
+
+app.config.errorHandler = (err, vm, info) => {
+    // logs to vConsole via console.error
+    console.error('[vue errorHandler]', err, info, vm)
+    // also push to our history
+    import('@/services/debugLogger').then(({ error }) => error('[vue errorHandler]', { err: err?.message, info, stack: err?.stack }))
+}
 
 app.use(Toast, {
     // global default timeout

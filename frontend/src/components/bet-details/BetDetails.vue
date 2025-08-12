@@ -117,8 +117,19 @@
 
             <!-- Buy buttons -->
             <div v-if="betStatus !== '000'" class="footer">
-                <button class="footer__yes" @click="openBetModal('Yes')">Купить Да</button>
-                <button class="footer__no" @click="openBetModal('No')">Купить Нет</button>
+                <button :class="['footer__yes', { pressed: pressingYes }]" @click="openBetModal('Yes')"
+                    @pointerdown="onPointerDown('yes')" @pointerup="onPointerUp('yes')"
+                    @pointercancel="onPointerUp('yes')" @mouseleave="onPointerUp('yes')"
+                    @touchstart.passive="onPointerDown('yes')" @touchend.passive="onPointerUp('yes')">
+                    Купить Да
+                </button>
+
+                <button :class="['footer__no', { pressed: pressingNo }]" @click="openBetModal('No')"
+                    @pointerdown="onPointerDown('no')" @pointerup="onPointerUp('no')" @pointercancel="onPointerUp('no')"
+                    @mouseleave="onPointerUp('no')" @touchstart.passive="onPointerDown('no')"
+                    @touchend.passive="onPointerUp('no')">
+                    Купить Нет
+                </button>
             </div>
         </div>
     </div>
@@ -156,6 +167,19 @@ const props = defineProps({
         default: null,
     },
 })
+
+const pressingYes = ref(false)
+const pressingNo = ref(false)
+
+function onPointerDown(side) {
+    if (side === 'yes') pressingYes.value = true
+    else pressingNo.value = true
+}
+
+function onPointerUp(side) {
+    if (side === 'yes') pressingYes.value = false
+    else pressingNo.value = false
+}
 
 const route = useRoute()
 
@@ -490,7 +514,7 @@ async function loadData(idToLoad) {
 
         const betResultNorm = normalizeResult(bet.value?.result)
         const userResultNorm = normalizeResult(userBetAmount.value?.result)
-        
+
         if (
             betResultNorm &&
             betResultNorm !== 'undefined' &&            // keep your original "undefined" guard
@@ -993,6 +1017,10 @@ watch(betId, async (newId, oldId) => {
 /* ---------- Button base (adapted preset for <button>) ---------- */
 .footer__yes,
 .footer__no {
+    touch-action: manipulation;
+    /* hint to browser we don't want pinch/scroll here */
+    -webkit-transform: translateZ(0);
+    /* promote to its own layer on iOS */
     position: relative;
     /* needed for ::after rail */
     z-index: 2;
@@ -1018,24 +1046,6 @@ watch(betId, async (newId, oldId) => {
     transition: transform 120ms ease, box-shadow 160ms ease, background-color 120ms ease;
     -webkit-font-smoothing: antialiased;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 10px 0 rgba(0, 0, 0, 0.35);
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
-}
-
-/* Button base (keep) */
-.footer__yes,
-.footer__no {
-    position: relative;
-    display: inline-block;
-    z-index: 2;
-    flex: 1 1 0;
-    padding: 14px 22px;
-    border: none;
-    border-radius: 8px;
-    color: #fff;
-    cursor: pointer;
-    transition: transform 120ms ease, box-shadow 160ms ease, background-color 120ms ease;
-    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
-    user-select: none;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
 }
 
@@ -1065,11 +1075,25 @@ watch(betId, async (newId, oldId) => {
 /* Pressed (active) */
 .footer__yes:active,
 .footer__no:active {
+    transform: translate3d(0, 10px, 0);
+    -webkit-transform: translate3d(0, 10px, 0);
     transform: translateY(10px);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.06),
         0 2px 0 rgba(0, 0, 0, 0.6);
     /* smaller rail when pressed */
+}
+
+/* pressed state (driven by JS) — use translate3d to ensure hardware accel */
+.footer__yes.pressed,
+.footer__no.pressed {
+    transform: translate3d(0, 10px, 0);
+    -webkit-transform: translate3d(0, 10px, 0);
+    /* match your :active box-shadow but smaller */
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 2px 0 rgba(0, 0, 0, 0.6);
+    transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
 /* Remove any existing ::after rules so nothing overlaps */

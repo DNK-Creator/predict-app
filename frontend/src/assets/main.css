@@ -28,8 +28,8 @@ body.keyboard-open .footer {
 }
 
 body.keyboard-open .modal-container {
-  transform: translate(-50%, calc(-50% - 1vh));
-  /* tweak 8vh as needed so input isn't behind browser chrome */
+  transform: translate(-50%, calc(-50% + 3vh));
+  /* tweak 1vh as needed so input isn't behind browser chrome */
 }
 
 /* Give the app the real visible height the WebApp exposes (fallback to 100vh) */

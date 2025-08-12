@@ -4,7 +4,7 @@
     </transition>
 
     <transition name="modal" appear>
-        <div v-if="visible" class="modal-container">
+        <div v-if="visible" ref="modalRef" class="modal-container">
             <header class="modal-header">
                 <div class="modal-header-description">
                     <h2>{{ bet.name }}</h2>
@@ -100,7 +100,7 @@
 </template>
 
 <script setup>
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 import { placeBetRequest } from '@/services/bets-requests'
@@ -125,6 +125,8 @@ const pressedInc = ref(false)
 const pressedDec = ref(false)
 const pressedQuick = ref(null)
 
+const modalRef = ref(null)   // NEW: used to scope outside-click blur
+
 const sideText = computed(() => (props.side === 'Yes' ? 'Да' : 'Нет'))
 const chosenSideLabel = computed(() => (props.side === 'Yes' ? 'ставите на "Да"' : 'ставите на "Нет"'))
 
@@ -146,37 +148,81 @@ function focusAmountInput() {
 
 // keyboard handlers for mobile
 function onAmountFocus() {
-    // add class to body so Navbar can be hidden via CSS
-    document.body.classList.add('keyboard-open');
+    document.body.classList.add('keyboard-open')
 
-    // make sure input is visible (centered)
-    // small timeout helps on some Android browsers
+    // ensure we scroll into view
     setTimeout(() => {
-        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
-    }, 50);
+        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch (_) { }
+    }, 50)
 
-    // visualViewport: update CSS var for keyboard height (optional)
-    if (window.visualViewport) {
+    if (window.visualViewport && amountInput.value) {
         const update = () => {
-            const kv = window.visualViewport;
-            const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
-            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-        };
-        // store on element so we can remove later
-        amountInput._vvListener = update;
-        window.visualViewport.addEventListener('resize', update);
-        update();
+            const kv = window.visualViewport
+            const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
+            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+        }
+        amountInput.value._vvListener = update
+        window.visualViewport.addEventListener('resize', update)
+        update()
     }
 }
 
 function onAmountBlur() {
-    document.body.classList.remove('keyboard-open');
+    document.body.classList.remove('keyboard-open')
 
-    // remove visualViewport listener
-    if (window.visualViewport && amountInput._vvListener) {
-        window.visualViewport.removeEventListener('resize', amountInput._vvListener);
-        delete amountInput._vvListener;
-        document.documentElement.style.removeProperty('--keyboard-height');
+    if (window.visualViewport && amountInput.value && amountInput.value._vvListener) {
+        window.visualViewport.removeEventListener('resize', amountInput.value._vvListener)
+        delete amountInput.value._vvListener
+        document.documentElement.style.removeProperty('--keyboard-height')
+    }
+}
+
+// Helper: decide if an element is interactive (so we don't blur when tapping real buttons/links/inputs)
+function isInteractiveElement(el) {
+    while (el && el !== document.documentElement) {
+        if (!el.tagName) return false
+        const tag = el.tagName.toUpperCase()
+        if (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON', 'A'].includes(tag)) return true
+        if (el.getAttribute && (el.getAttribute('role') === 'button' || el.getAttribute('role') === 'link' || el.getAttribute('role') === 'textbox')) return true
+        if (el.isContentEditable) return true
+        // any element with tabindex >= 0 should be considered interactive
+        const tabindex = el.getAttribute && el.getAttribute('tabindex')
+        if (tabindex != null && parseInt(tabindex, 10) >= 0) return true
+        el = el.parentElement
+    }
+    return false
+}
+
+// capture-phase handler: blur active input when user taps non-interactive area
+function onGlobalPointer(e) {
+    try {
+        const active = document.activeElement
+        if (!active) return
+        const aTag = active.tagName ? active.tagName.toUpperCase() : ''
+        const isActiveInput = (aTag === 'INPUT' || aTag === 'TEXTAREA' || active.isContentEditable)
+        if (!isActiveInput) return
+
+        // optionally scope to only inputs inside the modal:
+        if (modalRef.value && !modalRef.value.contains(active)) {
+            return
+        }
+
+        // if the tap target is the input itself (or inside it), don't blur
+        const target = e.target
+        if (active === target || active.contains && active.contains(target)) return
+
+        // if tapped element is interactive, don't blur (so buttons still work)
+        if (isInteractiveElement(target)) return
+
+        // otherwise, blur the input — this is a user gesture (pointerdown/touchstart) so it will normally hide the keyboard
+        active.blur()
+
+        // iOS/WebView fallback: sometimes blur doesn't hide keyboard immediately — nudge it
+        setTimeout(() => {
+            try { window.scrollTo(window.scrollX, window.scrollY) } catch (_) { }
+        }, 50)
+    } catch (err) {
+        // swallow errors — nothing fatal
     }
 }
 
@@ -479,6 +525,17 @@ function fmtTon(x) {
     if (!isFinite(x)) return '—'
     return (Math.round(x * 100) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' TON'
 }
+
+onMounted(() => {
+    // install both pointerdown and touchstart for older WebViews (capture so we run first)
+    document.addEventListener('pointerdown', onGlobalPointer, { capture: true, passive: true })
+    document.addEventListener('touchstart', onGlobalPointer, { capture: true, passive: true })
+})
+
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', onGlobalPointer, { capture: true })
+    document.removeEventListener('touchstart', onGlobalPointer, { capture: true })
+})
 </script>
 
 <style scoped>

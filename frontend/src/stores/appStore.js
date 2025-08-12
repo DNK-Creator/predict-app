@@ -3,6 +3,9 @@ import { defineStore } from 'pinia'
 import supabase from '@/services/supabase.js'
 import { getOrCreateUser, registerRef, getUsersByTelegrams } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
+// inside appStore actions
+import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
+
 
 export const useAppStore = defineStore('app', {
   state: () => ({
@@ -16,43 +19,74 @@ export const useAppStore = defineStore('app', {
   actions: {
     /* INIT */
     async init(refParam) {
+      group('[app.init] start')
+      const tStart = Date.now()
+
       const { user: tgUser, ready } = useTelegram()
-      try { if (typeof ready === 'function') await ready() } catch (e) { /* ignore */ }
+      debug('[app.init] telegram raw user', { tgUser })
+
+      try { if (typeof ready === 'function') await ready() } catch (e) { warn('[app.init] tg.ready threw', { e }) }
+
 
       const telegramId = Number(tgUser?.id ?? 99)
       if (!telegramId) {
         console.warn('No telegram id available on init')
+        warn('[app.init] no telegram id; aborting init', { tgUser })
+        groupEnd()
         return
       }
+      debug('[app.init] telegramId resolved', { telegramId })
 
       // fetch/create the user row (RPC or function you created)
       try {
-        this.user = await getOrCreateUser(telegramId, { first_name: tgUser?.username })
+        debug('[app.init] calling getOrCreateUser', { telegramId })
+        this.user = await getOrCreateUser(telegramId)
+        info('[app.init] getOrCreateUser OK', { userId: this.user?.id, telegram: this.user?.telegram })
       } catch (err) {
         console.error('Failed to get/create user row', err)
+        error('[app.init] getOrCreateUser failed', { err: err?.message ?? err, stack: err?.stack })
         throw err
       }
 
-      // If there's an inviter param, register ref (only if not same user)
-      const inviterId = refParam == null ? null : Number(refParam)
-      if (inviterId && Number.isFinite(inviterId) && inviterId !== telegramId) {
-        console.log('[app.init] registering referral', inviterId, 'for', telegramId)
-        try {
+      // handle referral registration
+      try {
+        const inviterId = refParam == null ? null : Number(refParam)
+        if (inviterId && Number.isFinite(inviterId) && inviterId !== telegramId) {
+          debug('[app.init] registering referral', { inviterId, telegramId })
           await registerRef(inviterId, null, telegramId, tgUser?.username ?? 'Anonymous')
+          // refresh user after register
           this.user = await getOrCreateUser(telegramId)
-        } catch (err) {
-          console.error('registerRef failed', err)
+          info('[app.init] registerRef OK & user refreshed', { user: this.user })
+        } else {
+          debug('[app.init] no valid inviterId or inviter equals self', { inviterId })
         }
+      } catch (err) {
+        warn('[app.init] registerRef failed', { err: err?.message ?? err })
+        // continue — we don't want to block the whole init for referral fail
       }
 
+      // load referrals
+      try {
+        debug('[app.init] loading referrals for user', { telegram: this.user?.telegram })
+        await this.loadReferrals()
+        info('[app.init] loadReferrals done', { referralsCount: this.referrals?.length ?? 0 })
+      } catch (err) {
+        warn('[app.init] loadReferrals threw', { err: err?.message ?? err })
+      }
 
-      // load referrals data (either from user.friends or by querying referred_by)
-      await this.loadReferrals()
+      // points fetch and subscriptions
+      try {
+        debug('[app.init] fetching points & subscribing')
+        await this.fetchPoints()
+        this.subscribePointChanges()
+        this.subscribeUserChanges()
+        info('[app.init] points fetched & subscriptions set', { points: this.points })
+      } catch (err) {
+        warn('[app.init] points/subscriptions failed', { err: err?.message ?? err })
+      }
 
-      // load points and subscribe to changes
-      await this.fetchPoints()
-      this.subscribePointChanges()
-      this.subscribeUserChanges()
+      info('[app.init] finished', { durationMs: Date.now() - tStart })
+      groupEnd()
     },
 
     /* POINTS */

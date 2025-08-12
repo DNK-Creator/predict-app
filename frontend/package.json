@@ -27,6 +27,7 @@
     "pinia": "^3.0.3",
     "telegraf": "^4.16.3",
     "uuid": "^11.1.0",
+    "vconsole": "^3.15.1",
     "vite-plugin-compression": "^0.5.1",
     "vite-plugin-node-polyfills": "^0.24.0",
     "vue": "^3.5.17",
