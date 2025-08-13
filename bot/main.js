@@ -161,7 +161,7 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
         }
 
         const uuid = uuidv4();
-        const depositAddress = usersWallet ?? HOT_WALLET;
+        const depositAddress = HOT_WALLET;
         if (!depositAddress) {
             console.error('[deposit-intent] no deposit address configured');
             return res.status(500).json({ error: 'Server misconfiguration' });
@@ -174,6 +174,7 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
             status: 'Ожидание пополнения',
             type: 'Deposit',
             deposit_address: depositAddress,
+            sender_wallet: usersWallet ?? null,
             created_at: new Date().toISOString()
         };
 
