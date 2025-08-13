@@ -23,7 +23,7 @@
                         <span v-else class="username">Anonymous</span>
 
                         <!-- STAKE LABEL (shows only if users_stake exists and has side + amount) -->
-                        <span v-if="stake" class="stake-label" :class="stake.side === 'Yes' ? 'stake-yes' : 'stake-no'"
+                        <span v-if="stake" class="stake-label" :class="stake.side === 'yes' ? 'stake-yes' : 'stake-no'"
                             :title="stakeTooltip" aria-hidden="true">
                             <!-- format amount nicely -->
                             {{ stakeLabel }}
