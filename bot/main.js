@@ -50,6 +50,19 @@ app.use(cors({
 // If your app runs behind a single trusted proxy (e.g. nginx), set:
 app.set('trust proxy', 1);
 
+// debug request logging - remove or tone down in production
+app.use((req, res, next) => {
+    // log basic request line
+    console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
+
+    // for non-GETs, show the body (small bodies only)
+    if (req.method !== 'GET' && req.body && Object.keys(req.body).length <= 50) {
+        console.log('[req.body]', JSON.stringify(req.body));
+    } else if (req.method !== 'GET') {
+        console.log('[req.body] (omitted — too large or empty)');
+    }
+    next();
+});
 
 // Light rate limiting for deposit-intent to reduce abuse
 const depositLimiter = rateLimit({
@@ -126,18 +139,33 @@ app.post("/api/botmessage", async (req, res) => {
 
 app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
     try {
-        const { amount, user_id, usersWallet } = req.body ?? {};
-        if (typeof amount !== 'number' || Number.isNaN(amount) || amount <= 0) {
-            return res.status(400).json({ error: 'Invalid amount' });
+        // log incoming raw payload (helpful in debugging)
+        console.log('[deposit-intent] incoming payload:', req.body);
+
+        // coerce amount to a Number so client may send "1.2" or 1.2
+        const rawAmount = req.body?.amount;
+        const amount = (typeof rawAmount === 'string' || typeof rawAmount === 'number')
+            ? Number(rawAmount)
+            : NaN;
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            console.warn('[deposit-intent] invalid amount received:', rawAmount);
+            return res.status(400).json({ error: 'Invalid amount', received: rawAmount });
         }
 
-        const MAX_AMOUNT = Number(99999);
+        const { user_id, usersWallet } = req.body ?? {};
+        const MAX_AMOUNT = Number(process.env.MAX_DEPOSIT_AMOUNT || 99999);
         if (amount > MAX_AMOUNT) {
+            console.warn('[deposit-intent] amount too large:', amount);
             return res.status(400).json({ error: `Amount too large (max ${MAX_AMOUNT})` });
         }
 
         const uuid = uuidv4();
         const depositAddress = usersWallet ?? HOT_WALLET;
+        if (!depositAddress) {
+            console.error('[deposit-intent] no deposit address configured');
+            return res.status(500).json({ error: 'Server misconfiguration' });
+        }
 
         const insertRow = {
             uuid,
@@ -157,7 +185,6 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
 
         if (error) {
             console.error('[deposit-intent] supabase insert error', error);
-            // send back readable message for debug
             return res.status(500).json({ error: 'Database error' });
         }
 
@@ -168,7 +195,6 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
-
 
 
 // ---------- POST /api/deposit-cancel ----------
