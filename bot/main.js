@@ -344,11 +344,24 @@ botMessagesChannel.subscribe(status => {
 });
 
 try {
-    await supabaseAdmin.from('bot_messages').insert([{ telegram_id: 936063094, message: 'Баланс пополненн', sent: false }]);
-    console.log('[supabase bot_messages] success')
+    const payload = [{ telegram_id: 936063094, message: 'Баланс пополненн', sent: false }];
+    const resp = await supabaseAdmin
+        .from('bot_messages')
+        .insert(payload)
+        .select(); // request returned rows so we can see what was inserted
+
+    console.log('[supabase bot_messages] insert response raw:', JSON.stringify(resp));
+    // resp has shape { data: ..., error: ..., status: ..., statusText: ... }
+
+    if (resp.error) {
+        console.error('[supabase bot_messages] insert returned error:', resp.error);
+    } else {
+        console.log('[supabase bot_messages] inserted rows:', resp.data);
+    }
 } catch (err) {
-    console.log('[supabase bot_messages] error when inserting message: ' + err)
+    console.error('[supabase bot_messages] unexpected thrown error:', err);
 }
+
 
 
 // helper to pull deep-link payload from "/start ABC123"
