@@ -3,6 +3,32 @@ import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express"
 import cors from "cors"
+import rateLimit from 'express-rate-limit'
+import { createClient } from '@supabase/supabase-js'
+import { v4 as uuidv4 } from 'uuid'
+
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_API_KEY; // service_role key (server-only)
+const TONCENTER_API_KEY = process.env.VITE_TONCENTER_API_KEY;
+const TONCENTER_API_BASE = process.env.VITE_TONCENTER_URL || 'https://api.toncenter.com/api/v2'
+const HOT_WALLET = process.env.VITE_HOT_WALLET;
+
+// basic validation
+if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    console.error('Missing Supabase server envs (SUPABASE_URL / SUPABASE_SERVICE_KEY). Exiting.')
+    process.exit(1)
+}
+if (!TONCENTER_API_KEY) {
+    console.warn('Warning: TONCENTER_API_KEY not set — /api/balance endpoint will fail until provided.')
+}
+if (!HOT_WALLET) {
+    console.warn('Warning: HOT_WALLET not set — deposit-intent will still work if you return per-user addresses, but default deposit address missing.')
+}
+
+// create server-side Supabase client (must use service key)
+const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false }
+});
 
 const token = process.env.BOT_TOKEN
 const bot = new Telegraf(token)
@@ -20,6 +46,13 @@ app.use(cors({
     credentials: true
 }))
 
+// Light rate limiting for deposit-intent to reduce abuse
+const depositLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute window
+    max: 5, // max 10 deposit-intent requests per minute per IP
+    standardHeaders: true,
+    legacyHeaders: false
+})
 
 app.post("/api/invoice", async (req, res) => {
     console.log('Hit /api/invoice')
@@ -33,7 +66,6 @@ app.post("/api/invoice", async (req, res) => {
     }
 });
 
-
 export async function createInvoiceLink(amount) {
     return bot.telegram.createInvoiceLink(
         {
@@ -46,6 +78,184 @@ export async function createInvoiceLink(amount) {
         }
     );
 }
+
+app.post("/api/botmessage", async (req, res) => {
+    console.log("Hit /api/botmessage");
+    try {
+        const { messageText, userID } = req.body;
+        if (!messageText || !userID) {
+            return res.status(400).json({ error: "messageText and userID required" });
+        }
+
+        // Build body for Telegram API (POST with JSON to avoid URL-encoding hazards)
+        const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+        const payload = {
+            chat_id: String(userID),
+            text: messageText,
+            reply_markup: {
+                inline_keyboard: [
+                    [{ text: "Открыть кошелек", url: "https://t.me/giftspredict_bot?startapp" }]
+                ]
+            }
+        };
+
+        const tgResp = await fetch(tgUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        });
+
+        const tgData = await tgResp.json().catch(() => null);
+        if (!tgResp.ok) {
+            console.error("Telegram API error:", tgData);
+            return res.status(502).json({ error: "Telegram API error", details: tgData });
+        }
+
+        // success — return Telegram result to client (or a sanitized success message)
+        return res.status(200).json({ ok: true, result: tgData?.result });
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "failed to send bot message", details: err.message });
+    }
+});
+
+// ---------- POST /api/deposit-intent ----------
+app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
+    try {
+        const { amount, user_id } = req.body;
+
+        // basic validation
+        if (typeof amount !== 'number' || Number.isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid amount' });
+        }
+
+        // optional: upper limit to prevent accidental huge amounts
+        const MAX_AMOUNT = Number(process.env.MAX_DEPOSIT_AMOUNT || 10000);
+        if (amount > MAX_AMOUNT) {
+            return res.status(400).json({ error: `Amount too large (max ${MAX_AMOUNT})` });
+        }
+
+        // generate server-side uuid to use as TextComment in the chain
+        const uuid = uuidv4();
+
+        // deposit_address: by default use HOT_WALLET, but you may implement per-user addresses here
+        const depositAddress = process.env.DEPOSIT_ADDRESS || HOT_WALLET;
+        if (!depositAddress) {
+            return res.status(500).json({ error: 'No deposit address configured' });
+        }
+
+        // create the transaction row server-side (handled defaults to false)
+        const insertRow = {
+            uuid,
+            user_id: user_id ?? null,
+            amount,
+            status: 'Ожидание пополнения',
+            type: 'Deposit',
+            deposit_address: depositAddress,
+            created_at: new Date().toISOString()
+        };
+
+        const { data, error } = await supabaseAdmin
+            .from('transactions')
+            .insert(insertRow)
+            .select() // return inserted row representation
+            .single();
+
+        if (error) {
+            console.error('Supabase insert error', error);
+            return res.status(500).json({ error: 'Database error creating deposit intent' });
+        }
+
+        // return the uuid and address to the frontend
+        return res.status(201).json({
+            uuid: data.uuid,
+            deposit_address: data.deposit_address,
+            created_at: data.created_at
+        });
+    } catch (err) {
+        console.error('deposit-intent error', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+// ---------- POST /api/deposit-cancel ----------
+app.post('/api/deposit-cancel', async (req, res) => {
+    try {
+        const { uuid } = req.body;
+        if (!uuid) return res.status(400).json({ error: 'uuid required' });
+
+        // Only update pending, unhandled deposits to "Отмененное пополнение"
+        // We intentionally do not set handled = true — so if a user actually sends funds later,
+        // the worker can still process the on-chain deposit.
+        const { data, error } = await supabaseAdmin
+            .from('transactions')
+            .update({
+                status: 'Отмененное пополнение',
+                processed_at: new Date().toISOString()
+            })
+            .eq('uuid', uuid)
+            .is('handled', false)
+            .limit(1)
+            .select()
+            .single();
+
+        if (error) {
+            // If not found, the transaction might already be handled/processed
+            console.warn('deposit-cancel: update returned error', error);
+            return res.status(404).json({ error: 'Not found or already processed' });
+        }
+
+        return res.json({ ok: true, uuid: data.uuid, status: data.status });
+    } catch (err) {
+        console.error('deposit-cancel error', err);
+        return res.status(500).json({ error: 'Internal server error' });
+    }
+});
+
+
+// ---------- GET /api/balance?address=... ----------
+app.get('/api/balance', async (req, res) => {
+    try {
+        const address = String(req.query.address || '').trim();
+        if (!address) return res.status(400).json({ error: 'address query param required' });
+
+        if (!TONCENTER_API_KEY) {
+            return res.status(500).json({ error: 'Server not configured to fetch balances' });
+        }
+
+        // call TONCenter (server-side) to fetch address balance (nanotons)
+        const url = `${TONCENTER_API_BASE}/getAddressBalance`;
+        const resp = await axios.get(url, {
+            params: {
+                address,
+                api_key: TONCENTER_API_KEY
+            },
+            timeout: 10_000
+        });
+
+        if (resp.status !== 200 || !resp.data) {
+            console.warn('toncenter/balance non-200', resp.status, resp.data);
+            return res.status(502).json({ error: 'Upstream error' });
+        }
+
+        // TonCenter returns result as string of nanotons usually in resp.data.result
+        const raw = resp.data?.result;
+        const nano = Number(raw);
+        if (Number.isNaN(nano)) {
+            console.warn('balance parse failed', raw);
+            return res.status(502).json({ error: 'Invalid balance format from provider' });
+        }
+
+        const balanceTON = nano / 1e9;
+        return res.json({ balance: balanceTON });
+    } catch (err) {
+        console.error('balance endpoint error', err?.response?.data ?? err?.message ?? err);
+        // bubble upstream error message cautiously
+        return res.status(500).json({ error: 'Failed to fetch balance' });
+    }
+});
+
 
 // helper to pull deep-link payload from "/start ABC123"
 function extractPayload(ctx) {
@@ -144,3 +354,54 @@ app.listen(PORT, () => {
 bot.launch()
 
 export default bot
+
+// --- worker supervisor (add near the bottom of main.js, after app.listen and bot.launch) ---
+import { spawn } from 'child_process';
+import path from 'path';
+import process from 'process';
+
+function startWorkerWithSupervisor() {
+    const workerFile = path.resolve('./worker.js'); // file in same root
+    let restartDelay = 1000; // start with 1s
+    const maxDelay = 60_000; // cap at 60s
+
+    function spawnWorker() {
+        console.log('[supervisor] spawning worker:', workerFile);
+        const child = spawn(process.execPath, [workerFile], {
+            env: { ...process.env },     // forward env
+            stdio: ['ignore', 'inherit', 'inherit', 'ipc'] // keep logs in docker output, enable IPC if needed later
+        });
+
+        child.on('message', (m) => {
+            console.log('[worker msg]', m);
+        });
+
+        child.on('exit', (code, signal) => {
+            console.warn(`[supervisor] worker exited (code=${code} signal=${signal})`);
+            // simple backoff restart
+            setTimeout(() => {
+                restartDelay = Math.min(maxDelay, restartDelay * 2); // exponential backoff
+                console.log(`[supervisor] restarting worker in ${restartDelay}ms`);
+                spawnWorker();
+            }, restartDelay);
+        });
+
+        child.on('error', (err) => {
+            console.error('[supervisor] spawn error:', err);
+            setTimeout(spawnWorker, restartDelay);
+        });
+
+        // reset restartDelay on successful start
+        child.once('spawn', () => {
+            restartDelay = 1000;
+        });
+
+        // optional: send a ping or config after spawn:
+        // child.send({ type: 'init', debug: true });
+    }
+
+    spawnWorker();
+}
+
+// start supervisor AFTER the server and bot are listening (so ordering is clear)
+startWorkerWithSupervisor();

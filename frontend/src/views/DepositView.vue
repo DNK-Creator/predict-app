@@ -29,6 +29,7 @@
             </div>
         </div>
         <h1 class="actions-top">История</h1>
+        <h2 class="actions-top-warning">Не закрывайте это окно во время подтверждения транзакции.</h2>
         <TransactionsTable :transactions="transactions" />
     </div>
 </template>
@@ -43,7 +44,7 @@ import { getTonConnect } from '@/services/ton-connect-ui'
 import { v4 as uuidv4 } from 'uuid'
 import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
-import { fetchInvoiceLink } from '@/services/payments'
+import { fetchInvoiceLink, fetchBotMessageTransaction } from '@/services/payments'
 
 // Components
 import TransactionsTable from '@/components/TransactionsTable.vue';
@@ -83,9 +84,7 @@ const showDepositModal = ref(false)
 const walletStatus = ref('Подключите кошелек')
 const walletBalance = ref(null)
 
-const TONCENTER = import.meta.env.VITE_TONCENTER_URL
-const API_KEY = import.meta.env.VITE_TONCENTER_API_KEY
-const HOT_WALLET = import.meta.env.VITE_HOT_WALLET
+const API_BASE = 'https://api.giftspredict.ru'
 
 async function openWithdrawalModal() {
     if (!walletAddress.value) {
@@ -254,66 +253,50 @@ async function reconnectWallet() {
     }
 }
 
+
+// ---------------------
+// Deposit: request deposit-intent from backend & send TX from wallet
+// ---------------------
 /**
- * Poll TONCenter `/getTransactions` until you see a TextComment payload
- * matching your `uuid`.  Then verify exit_code/aborted.
+ * POST /api/deposit-intent
+ * body: { amount: number, user_id?: number }
+ * response: { uuid: string, deposit_address: string, created_at: string }
+ *
+ * The backend MUST:
+ *  - create the transactions row with handled=false
+ *  - return the uuid and deposit_address (HOT_WALLET address or per-user address)
  */
-async function waitForUUID(uuid, timeoutMs = 60_000) {
-    const start = Date.now()
-    // We’ll page through the most recent 10 txns each poll
-    const limit = 10
-
-    console.log(`[poll] looking for comment "${uuid}" at ${HOT_WALLET}`)
-
-    while (Date.now() - start < timeoutMs) {
-
-        // 1) Fetch inbound transactions to HOT_WALLET
-        const url = new URL(`${TONCENTER}/getTransactions`)
-        url.searchParams.set('address', HOT_WALLET)
-        url.searchParams.set('limit', limit)
-        url.searchParams.set('archival', 'true')
-        url.searchParams.set('api_key', API_KEY)
-
-        let resp, json
-        try {
-            resp = await fetch(url.toString())
-            json = await resp.json()
-        } catch (e) {
-            console.warn('[poll] network:', e)
-            await new Promise(r => setTimeout(r, 2000))
-            continue
-        }
-
-        if (!resp.ok || json.error) {
-            console.warn('[poll] error:', resp.status, json.error)
-            await new Promise(r => setTimeout(r, 2000))
-            continue
-        }
-
-        // pick out the array of transactions
-        const txs = Array.isArray(json.result)
-            ? json.result
-            : Array.isArray(json.result.transactions)
-                ? json.result.transactions
-                : []
-
-        // look for my UUID in the TextComment payload
-        const found = txs.find(tx => {
-            const realComment = tx.in_msg?.message
-            return realComment == uuid // returns the transaction from array in which the comment is our uuid
+async function createDepositIntentOnServer(amount) {
+    const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            amount,
+            user_id: user?.id ?? 99
         })
-
-        console.log('[poll] found entry:', found)
-
-        if (found) {
-            return 'success'
-        }
-
-        // not yet found, wait a bit
-        await new Promise(r => setTimeout(r, 3000))
+    });
+    if (!resp.ok) {
+        const err = await resp.json().catch(() => null);
+        throw new Error(err?.error || `deposit-intent failed: ${resp.status}`);
     }
+    return resp.json();
+}
 
-    throw new Error('Timeout waiting for on‑chain UUID')
+/**
+ * Optional: notify server that the user cancelled the wallet prompt
+ * POST /api/deposit-cancel { uuid }
+ * server should set status = 'Отмененное пополнение' for that uuid
+ */
+async function cancelDepositIntentOnServer(uuid) {
+    try {
+        await fetch(`${API_BASE}/api/deposit-cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uuid })
+        });
+    } catch (err) {
+        console.warn('Failed to notify server about cancelled deposit intent', err);
+    }
 }
 
 // ——— Deposit flow ———
@@ -333,27 +316,26 @@ async function onDeposit(amount) {
     if (!ton.value) return
 
     const amountTON = amount
-    const txId = uuidv4()
 
-    console.log(txId)
-
-    let parsedAddress
-    if (walletAddress.value !== null) {
-        parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
+    // create deposit intent server-side (server will create the transaction row)
+    let intent
+    try {
+        intent = await createDepositIntentOnServer(amountTON)
+    } catch (err) {
+        console.error('Failed to create deposit intent', err)
+        toast.error('Не удалось создать намерение пополнения — попробуйте позже.')
+        return
     }
 
-    // 1) insert "Pending"
-    await supabase.from('transactions').insert({
-        uuid: txId,
-        user_id: user?.id ?? 99,
-        amount: amountTON,
-        status: 'Ожидание пополнения',
-        type: 'Deposit',
-        deposit_address: parsedAddress,
-        created_at: new Date().toISOString()
-    })
+    const txId = intent.uuid
+    const depositAddress = intent.deposit_address // backend-sent address (hot wallet or generated address)
+    if (!txId || !depositAddress) {
+        console.error('Invalid intent response', intent)
+        toast.error('Ошибка сервера — обратитесь в поддержку.')
+        return
+    }
 
-    // 2) build TON payload with the comment = UUID
+    // build TON payload with the comment = UUID
     const commentCell = beginCell()
         .storeUint(0, 32)
         .storeStringTail(txId)
@@ -363,61 +345,34 @@ async function onDeposit(amount) {
         validUntil: Math.floor(Date.now() / 1000) + 600,
         network: 'mainnet',
         messages: [{
-            address: HOT_WALLET,
+            address: depositAddress,
             amount: toNano(amountTON).toString(),
             payload: commentCell.toBoc().toString('base64')
         }]
     }
 
-    console.log(req)
-    console.log(req.messages.payload)
-
     try {
-        // 3) prompt wallet & broadcast
+        // prompt wallet & broadcast
         await ton.value.sendTransaction(req)
-        console.log('[deposit] transaction sent, now polling for UUID…')
 
-        // 4) wait until the on‑chain message with TextComment=txId appears
-        const status = await waitForUUID(txId)
-        console.log('[deposit] on-chain status is', status)
+        // Tell the user the transaction was broadcast
+        toast.info('Транзакция отправлена. Ожидайте подтверждения — баланс обновится автоматически.')
 
-        if (status !== 'success') {
-            // Transaction failed on chain
-            await supabase
-                .from('transactions')
-                .update({ status: 'Невыполненное пополнение' })
-                .eq('uuid', txId)
-            toast.error('Транзакция не прошла на блокчейне; средства не зачислены.')
-            return
-        }
-
-        // 6) on‑chain success → mark Completed
-        await supabase
-            .from('transactions')
-            .update({ status: 'Успешное пополнение' })
-            .eq('uuid', txId)
-
-        let newPoints = app.points + 10
-        const { error: updErr } = await supabase
-            .from('users')
-            .update({ points: newPoints })
-            .eq('telegram', user?.id ?? 99)
-        if (updErr) {
-            console.error('Error updating points:', updErr)
-        } else {
-            app.points += 10
-        }
+        // do NOT wait for TONCenter from frontend. Rely on backend worker to detect on-chain and update DB.
+        // Your realtime supabase subscription will pick up the final status row update.
 
     } catch (e) {
         if (e instanceof UserRejectsError) {
             // user cancelled
-            await supabase
-                .from('transactions')
-                .update({ status: 'Отмененное пополнение' })
-                .eq('uuid', txId)
             console.warn('[deposit] user rejected tx')
+
+            // inform backend the intent was cancelled (optional but recommended)
+            await cancelDepositIntentOnServer(txId)
+
+            toast.info('Транзакция отменена пользователем.')
         } else {
             console.error('Transaction error:', e)
+            toast.error('Ошибка отправки транзакции. Проверьте кошелек и попробуйте снова.')
         }
     }
 }
@@ -487,7 +442,7 @@ async function onWithdraw(amount) {
     if (!canRequestWithdrawal(lastWithdrawalRequest.value)) {
         return;
     }
-    
+
     lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
 
     const parsedAddress = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
@@ -517,23 +472,34 @@ async function onWithdraw(amount) {
     await supabase.from('users')
         .update({ points: app.points })
         .eq('telegram', user?.id ?? 99)
+
+    try {
+        fetchBotMessageTransaction(`💎 Запрос на получение ${amountTON} TON сохранен. %0A Текущий баланс: ${newPoints} TON`, user?.id)
+    } catch (err) {
+        console.warn('Failed to send bot message for user. Error: ' + err)
+    }
 }
 
+
+// ---------------------
+// Backend-backed balance fetch
+// ---------------------
 async function fetchTonBalance(address) {
-    if (address === null) return;
-    const url = new URL(`${TONCENTER}/getAddressBalance`);
-    url.searchParams.set('address', address);
-    url.searchParams.set('api_key', API_KEY);
-
-    const resp = await fetch(url.toString());
-    const json = await resp.json();
-    if (!json.ok) throw new Error(json.error || 'Balance fetch failed');
-
-    // json.result is a string of nanotons
-    const rawTon = Number(json.result) / 1e9;       // ⇒ TON as a Number
-    const roundedTon = Number(rawTon.toFixed(2));  // round to 2 decimal places
-
-    return roundedTon;
+    if (!address) return;
+    try {
+        const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => null);
+            throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
+        }
+        const json = await resp.json();
+        // backend returns { balance: number } in TON
+        return Number(json.balance);
+    } catch (err) {
+        console.error('fetchTonBalance error', err);
+        throw err;
+    }
 }
 
 onMounted(async () => {
@@ -612,7 +578,17 @@ function setupTonConnectListener() {
     color: white;
     width: 90vw;
     font-size: 1.5rem;
-    margin: 1.25rem auto 2.25vh auto;
+    margin: 1.05rem auto 0.25rem auto;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+}
+
+.actions-top-warning {
+    color: white;
+    opacity: 0.5;
+    width: 90vw;
+    font-size: 0.95rem;
+    margin: 0rem auto 2.45vh auto;
     font-weight: 600;
     font-family: "Inter", sans-serif;
 }
