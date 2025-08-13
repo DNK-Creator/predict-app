@@ -73,6 +73,7 @@ function viewWonPreviousBets() {
     border-radius: 12px;
     text-align: center;
     color: #ffffff;
+    user-select: none;
 }
 
 .profile-avatar {

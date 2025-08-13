@@ -592,6 +592,7 @@ function setupTonConnectListener() {
     margin: 1rem auto 2vh auto;
     font-weight: 600;
     font-family: "Inter", sans-serif;
+    user-select: none;
 }
 
 .wallet-wrapper {
@@ -603,6 +604,7 @@ function setupTonConnectListener() {
     /* clip the header */
     height: 13rem;
     /* enough to show wallet plus header peek */
+    user-select: none;
 }
 
 .wallet {

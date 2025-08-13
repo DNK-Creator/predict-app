@@ -348,6 +348,7 @@ onUnmounted(() => {
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
     font-family: "Montserrat", "Helvetica Neue", Arial, sans-serif;
     /* fallback chain */
+    user-select: none;
 }
 
 /* ensure controls also inherit the font */

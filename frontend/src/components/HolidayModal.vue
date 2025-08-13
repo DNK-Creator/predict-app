@@ -167,6 +167,7 @@ function shareHolidayMessage() {
     color: #ffffff;
     padding: 6px;
     border-radius: 6px;
+    user-select: none;
 }
 
 .modal-close:hover {

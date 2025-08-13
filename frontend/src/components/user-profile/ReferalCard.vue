@@ -312,6 +312,7 @@ watch(
     flex-direction: column;
     gap: 6px;
     margin-bottom: 1rem;
+    user-select: none;
 }
 
 /* Parent: don't force a small vh height on mobile; use padding + optional min-height */
@@ -333,6 +334,7 @@ watch(
     min-height: 72px;
     /* optional */
     box-sizing: border-box;
+    user-select: none;
 }
 
 /* Button: use padding, min-height and align-self to center horizontally */

@@ -92,6 +92,7 @@ function formattedSide(side) {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    user-select: none;
 }
 
 /* Each bet row */

@@ -117,6 +117,7 @@ async function copyAddress() {
     z-index: 12;
     font-weight: 600;
     font-family: "Inter", sans-serif;
+    user-select: none;
 }
 
 .wallet-info-modal h2 {

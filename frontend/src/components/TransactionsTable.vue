@@ -155,6 +155,7 @@ onMounted(async () => {
 
     scrollbar-width: none;
     scrollbar-color: transparent transparent;
+    user-select: none;
 }
 
 .day-group {

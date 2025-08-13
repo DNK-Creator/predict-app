@@ -11,7 +11,10 @@
         <div v-show="!spinnerShow" class="bet-details">
             <!-- Header -->
             <div class="header">
-                <h1 class="header__text">{{ bet.name }}</h1>
+                <div class="header-left-group">
+                    <img :src="questionImg">
+                    <h1 class="header__text">{{ bet.name }}</h1>
+                </div>
                 <!-- CircleGauge instead of image -->
                 <CircleGauge :percent="currentBetPercent" />
             </div>
@@ -61,7 +64,7 @@
                         <div class="volume_info">
                             <span>Статус:</span>
                             <span v-if="bet.result !== 'undefined'">Результат: "{{ formatUsersSide(bet.result)
-                                }}"</span>
+                            }}"</span>
                             <span v-else-if="betStatus !== '000' && betStatus !== '111'">{{ betStatus }}</span>
                             <span v-else-if="betStatus === '111'">Открыта</span>
                             <span v-else>Ожидание разрешения ставки</span>
@@ -159,6 +162,7 @@ import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
 import confetti from 'canvas-confetti'
 import { v4 as uuidv4 } from 'uuid'
+import questionImg from '@/assets/icons/Bet_Icon.png'
 
 // accept id as optional prop (router can pass params as props when configured)
 const props = defineProps({
@@ -768,6 +772,19 @@ watch(betId, async (newId, oldId) => {
     min-height: 5rem;
     /* preserve the original minimum height */
     box-sizing: border-box;
+    user-select: none;
+}
+
+.header-left-group {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 1.75rem;
+}
+
+.header-left-group img {
+    height: 25px;
+    width: 25px;
 }
 
 /* Title: take remaining space, but don't force the gauge to shrink.
@@ -777,7 +794,7 @@ watch(betId, async (newId, oldId) => {
     /* grow when there's space, shrink and wrap when needed */
     min-width: 0;
     /* allow wrapping inside flex container */
-    margin-left: 1.5rem;
+    margin-left: 0.55rem;
     margin-right: 0.75rem;
     font-size: 1.2rem;
     font-weight: 600;
@@ -822,6 +839,7 @@ watch(betId, async (newId, oldId) => {
     padding-top: 14px;
     margin-bottom: 26px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    user-select: none;
 }
 
 .card__title {

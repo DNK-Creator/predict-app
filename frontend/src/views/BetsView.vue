@@ -195,6 +195,7 @@ function switchTab(tab) {
     margin: 0 auto;
     padding: 12px;
     flex-shrink: 0;
+    user-select: none;
 }
 
 /* Catalogue buttons row */

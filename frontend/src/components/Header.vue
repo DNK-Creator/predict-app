@@ -72,6 +72,7 @@ function onDepositClick() {
     padding: 0 16px;
     height: 56px;
     color: #ffffff;
+    user-select: none;
 }
 
 /* wrapper for letter-avatar fallback (keeps same size as image) */

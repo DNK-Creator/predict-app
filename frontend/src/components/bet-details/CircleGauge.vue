@@ -47,6 +47,7 @@ const fgStyle = computed(() => {
     width: 4.8rem;
     box-sizing: border-box;
     margin-right: 1.5rem;
+    user-select: none;
 }
 
 /* keep the svg height strictly for the half-circle */

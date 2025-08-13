@@ -119,6 +119,7 @@ function closeModal() {
     margin: 0 auto;
     padding: 12px;
     flex-shrink: 0;
+    user-select: none;
 }
 
 .holiday-list {

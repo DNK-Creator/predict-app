@@ -262,6 +262,7 @@ function onMax() {
     display: flex;
     flex-direction: column;
     z-index: 1001;
+    user-select: none;
 }
 
 .modal-header {
