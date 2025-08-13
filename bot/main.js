@@ -1,4 +1,5 @@
 import fetch from 'node-fetch'
+import axios from 'axios'
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express"
