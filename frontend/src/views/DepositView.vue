@@ -287,15 +287,55 @@ async function createDepositIntentOnServer(amount) {
  * POST /api/deposit-cancel { uuid }
  * server should set status = 'Отмененное пополнение' for that uuid
  */
-async function cancelDepositIntentOnServer(uuid) {
+async function createDepositIntentOnServer(amount) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let userParsedAddr = null
+    if (walletAddress.value !== null && walletAddress.value !== undefined) {
+        userParsedAddr = (Address.parse(walletAddress.value)).toString({ urlSafe: true, bounceable: false })
+    }
     try {
-        await fetch(`${API_BASE}/api/deposit-cancel`, {
+        console.log('[client] POST /api/deposit-intent ->', { amount, user_id: user?.id ?? 99, usersWallet: userParsedAddr });
+
+        const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uuid })
+            body: JSON.stringify({ amount, user_id: user?.id ?? 99, usersWallet: userParsedAddr }),
+            signal: controller.signal,
         });
+
+        clearTimeout(timeout);
+
+        let text;
+        try {
+            text = await resp.text(); // read raw body first
+            // try parse JSON, but fall back to raw text for logging
+            const json = (() => {
+                try { return JSON.parse(text); } catch (e) { return null; }
+            })();
+
+            console.log('[client] deposit-intent response status', resp.status, 'body:', json ?? text);
+
+            if (!resp.ok) {
+                // bubble readable message to caller
+                const errMsg = (json && json.error) ? json.error : text || `HTTP ${resp.status}`;
+                throw new Error(errMsg);
+            }
+
+            // return parsed JSON
+            return json ?? {};
+        } catch (readErr) {
+            // body read/parse error
+            console.error('[client] failed to read/parse response body', readErr);
+            throw new Error('Invalid server response');
+        }
     } catch (err) {
-        console.warn('Failed to notify server about cancelled deposit intent', err);
+        if (err.name === 'AbortError') {
+            console.error('[client] createDepositIntentOnServer: request timed out');
+            throw new Error('timeout');
+        }
+        console.error('[client] createDepositIntentOnServer error', err);
+        throw err;
     }
 }
 

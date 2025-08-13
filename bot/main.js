@@ -124,32 +124,21 @@ app.post("/api/botmessage", async (req, res) => {
     }
 });
 
-// ---------- POST /api/deposit-intent ----------
 app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
     try {
-        const { amount, user_id } = req.body;
-
-        // basic validation
+        const { amount, user_id, usersWallet } = req.body ?? {};
         if (typeof amount !== 'number' || Number.isNaN(amount) || amount <= 0) {
             return res.status(400).json({ error: 'Invalid amount' });
         }
 
-        // optional: upper limit to prevent accidental huge amounts
-        const MAX_AMOUNT = Number(process.env.MAX_DEPOSIT_AMOUNT || 10000);
+        const MAX_AMOUNT = Number(99999);
         if (amount > MAX_AMOUNT) {
             return res.status(400).json({ error: `Amount too large (max ${MAX_AMOUNT})` });
         }
 
-        // generate server-side uuid to use as TextComment in the chain
         const uuid = uuidv4();
+        const depositAddress = usersWallet ?? HOT_WALLET;
 
-        // deposit_address: by default use HOT_WALLET, but you may implement per-user addresses here
-        const depositAddress = process.env.DEPOSIT_ADDRESS || HOT_WALLET;
-        if (!depositAddress) {
-            return res.status(500).json({ error: 'No deposit address configured' });
-        }
-
-        // create the transaction row server-side (handled defaults to false)
         const insertRow = {
             uuid,
             user_id: user_id ?? null,
@@ -163,25 +152,23 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
         const { data, error } = await supabaseAdmin
             .from('transactions')
             .insert(insertRow)
-            .select() // return inserted row representation
+            .select()
             .single();
 
         if (error) {
-            console.error('Supabase insert error', error);
-            return res.status(500).json({ error: 'Database error creating deposit intent' });
+            console.error('[deposit-intent] supabase insert error', error);
+            // send back readable message for debug
+            return res.status(500).json({ error: 'Database error' });
         }
 
-        // return the uuid and address to the frontend
-        return res.status(201).json({
-            uuid: data.uuid,
-            deposit_address: data.deposit_address,
-            created_at: data.created_at
-        });
+        console.log('[deposit-intent] created', { uuid: data.uuid, user_id: data.user_id, amount: data.amount });
+        return res.status(201).json({ uuid: data.uuid, deposit_address: data.deposit_address, created_at: data.created_at });
     } catch (err) {
-        console.error('deposit-intent error', err);
+        console.error('[deposit-intent] unexpected error', err?.message ?? err);
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
+
 
 
 // ---------- POST /api/deposit-cancel ----------
