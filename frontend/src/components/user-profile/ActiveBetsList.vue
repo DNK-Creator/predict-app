@@ -77,7 +77,10 @@ function formatDate(dateString, opts) {
 }
 
 function formattedSide(side) {
-    return side === 'Yes' ? 'Да' : 'Нет'
+    if(side === 'Yes' || side === 'yes' || side === 'YES') {
+        return 'Да'
+    }
+    return 'Нет'
 }
 </script>
 

@@ -350,7 +350,7 @@ function onCommentsBlur() {
 }
 
 function formatUsersSide(side) {
-    if (side === 'Yes') {
+    if (side === 'Yes' || side === 'yes' || side === 'YES') {
         return 'Да'
     }
     return 'Нет'
