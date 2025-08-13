@@ -33,7 +33,7 @@
                 <div class="items-group">
                     <div class="buttons-group">
                         <button class="action-btn-two" @click="reconnectWallet">
-                            Переподключить
+                            <span>Переподключить</span>
                         </button>
                     </div>
                 </div>
@@ -194,8 +194,12 @@ async function copyAddress() {
     cursor: pointer;
     border: none;
     border-radius: 16px;
-    font-size: 1.25rem;
     padding: 15px;
+}
+
+.action-btn-two span {
+    font-size: 1.25rem;
+    color: black;
     font-weight: 600;
     font-family: "Inter", sans-serif;
 }

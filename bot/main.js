@@ -47,6 +47,10 @@ app.use(cors({
     credentials: true
 }))
 
+// If your app runs behind a single trusted proxy (e.g. nginx), set:
+app.set('trust proxy', 1);
+
+
 // Light rate limiting for deposit-intent to reduce abuse
 const depositLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute window
