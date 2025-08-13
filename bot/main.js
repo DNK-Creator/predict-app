@@ -171,7 +171,7 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
             uuid,
             user_id: user_id ?? null,
             amount,
-            status: 'Ожидание пополнения',
+            status: 'Незавершенное пополнение',
             type: 'Deposit',
             deposit_address: depositAddress,
             sender_wallet: usersWallet ?? null,
@@ -286,8 +286,7 @@ const botMessagesChannel = supabaseAdmin
         {
             event: 'INSERT',
             schema: 'public',
-            table: 'bot_messages',
-            filter: 'sent=eq.false'
+            table: 'bot_messages'
             // optional: add filter field if you only want certain inserts, e.g.
             // filter: 'sent=eq.false'  // supabase 'filter' currently supports column ops for table subscriptions
         },

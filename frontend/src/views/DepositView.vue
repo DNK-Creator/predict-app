@@ -29,7 +29,6 @@
             </div>
         </div>
         <h1 class="actions-top">История</h1>
-        <h2 class="actions-top-warning">Не закрывайте это окно во время подтверждения транзакции.</h2>
         <TransactionsTable :transactions="transactions" />
     </div>
 </template>
@@ -590,17 +589,7 @@ function setupTonConnectListener() {
     color: white;
     width: 90vw;
     font-size: 1.5rem;
-    margin: 1.05rem auto 0.25rem auto;
-    font-weight: 600;
-    font-family: "Inter", sans-serif;
-}
-
-.actions-top-warning {
-    color: white;
-    opacity: 0.5;
-    width: 90vw;
-    font-size: 0.95rem;
-    margin: 0rem auto 2.45vh auto;
+    margin: 1rem auto 2vh auto;
     font-weight: 600;
     font-family: "Inter", sans-serif;
 }
@@ -706,6 +695,7 @@ function setupTonConnectListener() {
     font-weight: 600;
     font-family: "Inter", sans-serif;
     background-color: white;
+    color: black;
 }
 
 .wallet-button-withdraw {

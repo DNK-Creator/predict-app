@@ -151,20 +151,18 @@ function onDepositClick() {
     width: 20px;
     height: 20px;
     margin-left: 6px;
-    color: #10b981;
 }
 
 .balance-text {
-    font-weight: 500;
     font-size: 0.95rem;
     margin-left: 7px;
-    font-family: Inter;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .plus-button .icon {
     width: 20px;
     height: 20px;
-    color: #10b981;
     margin-left: 5px;
 }
 </style>
