@@ -343,6 +343,13 @@ botMessagesChannel.subscribe(status => {
     console.log('[supabase] bot_messages channel status:', status);
 });
 
+try {
+    await supabaseAdmin.from('bot_messages').insert([{ telegram_id: 123, message: 'test', sent: false }]);
+    console.log('[supabase bot_messages] success')
+} catch (err) {
+    console.log('[supabase bot_messages] error when inserting message: ' + err)
+}
+
 
 // helper to pull deep-link payload from "/start ABC123"
 function extractPayload(ctx) {
