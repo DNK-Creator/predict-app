@@ -275,6 +275,75 @@ app.get('/api/balance', async (req, res) => {
     }
 });
 
+// Subscribe to bot_messages inserts and send Telegram messages
+// Place this after supabaseAdmin is created and after bot is initialized
+
+// create a global channel name
+const botMessagesChannel = supabaseAdmin
+    .channel('bot-messages') // unique name for channel instance
+    .on(
+        'postgres_changes',
+        {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'bot_messages',
+            filter: 'sent=eq.false'
+            // optional: add filter field if you only want certain inserts, e.g.
+            // filter: 'sent=eq.false'  // supabase 'filter' currently supports column ops for table subscriptions
+        },
+        async (payload) => {
+            try {
+                // supabase payload shape may be payload.record or payload.new depending on version;
+                // check both to be defensive:
+                const rec = payload?.new ?? payload?.record ?? payload?.records?.[0] ?? null;
+                console.log('[realtime] bot_messages payload:', payload);
+
+                if (!rec) {
+                    console.warn('[bot_messages] no record found in payload, skipping');
+                    return;
+                }
+
+                const telegramId = rec.telegram_id ?? rec.user_id ?? null; // try a few likely field names
+                const messageText = rec.message ?? rec.text ?? null;
+                const rowId = rec.id ?? null;
+
+                if (!telegramId || !messageText) {
+                    console.warn('[bot_messages] missing telegramId or messageText', rec);
+                    return;
+                }
+
+                // send message using Telegraf bot (no HTTP roundtrip)
+                try {
+                    // Use bot.telegram.sendMessage: parse_mode optional (HTML/Markdown)
+                    await bot.telegram.sendMessage(String(telegramId), messageText, { parse_mode: 'HTML' });
+                    console.log('[bot_messages] sent message to', telegramId, 'rowId=', rowId);
+
+                    // mark message as sent in DB so we don't resend
+                    if (rowId) {
+                        const { error } = await supabaseAdmin
+                            .from('bot_messages')
+                            .update({ sent: true, processed_at: new Date().toISOString() })
+                            .eq('id', rowId);
+
+                        if (error) {
+                            console.error('[bot_messages] failed to mark sent for id', rowId, error);
+                        }
+                    }
+                } catch (sendErr) {
+                    console.error('[bot_messages] failed to send telegram message', sendErr);
+                    // don't mark sent — backend can retry later or admin can investigate
+                }
+            } catch (outerErr) {
+                console.error('[bot_messages] handler crashed', outerErr);
+            }
+        }
+    );
+
+// subscribe
+botMessagesChannel.subscribe(status => {
+    console.log('[supabase] bot_messages channel status:', status);
+});
+
 
 // helper to pull deep-link payload from "/start ABC123"
 function extractPayload(ctx) {
