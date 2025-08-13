@@ -254,34 +254,6 @@ async function reconnectWallet() {
 }
 
 
-// ---------------------
-// Deposit: request deposit-intent from backend & send TX from wallet
-// ---------------------
-/**
- * POST /api/deposit-intent
- * body: { amount: number, user_id?: number }
- * response: { uuid: string, deposit_address: string, created_at: string }
- *
- * The backend MUST:
- *  - create the transactions row with handled=false
- *  - return the uuid and deposit_address (HOT_WALLET address or per-user address)
- */
-async function createDepositIntentOnServer(amount) {
-    const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            amount,
-            user_id: user?.id ?? 99
-        })
-    });
-    if (!resp.ok) {
-        const err = await resp.json().catch(() => null);
-        throw new Error(err?.error || `deposit-intent failed: ${resp.status}`);
-    }
-    return resp.json();
-}
-
 /**
  * Optional: notify server that the user cancelled the wallet prompt
  * POST /api/deposit-cancel { uuid }
