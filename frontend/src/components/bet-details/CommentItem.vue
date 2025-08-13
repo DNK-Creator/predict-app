@@ -129,7 +129,7 @@ const stakeLabel = computed(() => {
     const amt = Number(stake.value.amount ?? stake.value.amt ?? 0)
     // format with no trailing decimals if integer, else 2 decimal places
     const nice = Number.isInteger(amt) ? String(amt) : amt.toFixed(2)
-    return `${stake.value.side === 'Yes' ? 'ДА' : 'НЕТ'} • ${nice} TON`
+    return `${stake.value.side === 'yes' ? 'ДА' : 'НЕТ'} • ${nice} TON`
 })
 
 const stakeTooltip = computed(() => {
