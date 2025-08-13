@@ -14,6 +14,32 @@ if (!TON_API_KEY || !HOT_WALLET || !SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     process.exit(1);
 }
 
+/**
+ * UUID regex: matches typical UUID strings like:
+ * 787515bc-2fac-4240-aceb-bb8dd1c14207
+ */
+const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+// small in-memory cache of seen tx hashes to avoid reprocessing identical txs each poll
+const seenTxHashes = new Set();
+const SEEN_SET_MAX = 10000; // arbitrary cap — trimmed when exceeded
+
+function rememberTxHash(hash) {
+    if (!hash) return;
+    seenTxHashes.add(hash);
+    if (seenTxHashes.size > SEEN_SET_MAX) {
+        // simple trim strategy: clear the set (keeps memory bounded)
+        // you can replace with an LRU if you want more sophistication
+        seenTxHashes.clear();
+        console.log('[worker] seenTxHashes cleared to avoid unbounded growth');
+    }
+}
+
+function hasSeenTxHash(hash) {
+    if (!hash) return false;
+    return seenTxHashes.has(hash);
+}
+
 function extractTextComment(tx) {
     // adapt to TONCenter response shape — common location: tx.in_msg.message
     if (tx?.in_msg?.message && typeof tx.in_msg.message === 'string') {
@@ -22,6 +48,17 @@ function extractTextComment(tx) {
     if (tx?.comment && typeof tx.comment === 'string') return tx.comment.trim();
     return null;
 }
+
+/**
+ * Try to extract a UUID substring from arbitrary text.
+ * Returns the first matched UUID string or null if none.
+ */
+function extractUuidFromText(text) {
+    if (!text || typeof text !== 'string') return null;
+    const match = text.match(UUID_REGEX);
+    return match ? match[0] : null;
+}
+
 
 function extractAmountTON(tx) {
     // This attempts to get the incoming value and convert from nanotons -> TON
@@ -64,18 +101,43 @@ async function callProcessDepositRPC({ uuid, onchain_amount, onchain_hash, from_
         console.log('[rpc] resp', resp.status, resp.data);
         return resp.data;
     } catch (err) {
-        console.error('[rpc] call failed', err?.response?.data ?? err.message);
+        // Keep original error logging but do not crash worker
+        console.error('[rpc] call failed', err?.response?.data ?? err?.message ?? err);
         throw err;
     }
 }
 
 async function processOnchainTx(tx) {
-    const textComment = extractTextComment(tx);
-    if (!textComment) return;
+    const txHash = tx?.hash ?? tx?.id ?? null;
 
-    const txUuid = textComment;
+    // 0) quick dedupe: if we've already seen this tx hash in-memory skip it
+    if (txHash && hasSeenTxHash(txHash)) {
+        // debug-level log to reduce noise
+        // console.debug('[skip] already seen', txHash);
+        return;
+    }
+
+    // 1) get the human-readable comment (if any)
+    const textComment = extractTextComment(tx);
+    if (!textComment) {
+        // no comment/message present — nothing we can match on
+        // console.debug('[skip] no text comment for tx', txHash);
+        rememberTxHash(txHash);
+        return;
+    }
+
+    // 2) try to extract a UUID substring from the text
+    const txUuid = extractUuidFromText(textComment);
+    if (!txUuid) {
+        // The tx has a text comment but it doesn't contain a UUID — skip it.
+        console.log('[skip] tx comment without UUID (not from our app). comment=', textComment, 'txHash=', txHash);
+        rememberTxHash(txHash);
+        return;
+    }
+
+    // 3) we have a uuid-looking string — proceed to extract other info and call RPC
     const onchainAmount = extractAmountTON(tx);
-    const onchainHash = tx?.hash ?? tx?.id ?? null;
+    const onchainHash = txHash;
     const exitCode = extractExitCode(tx);
     const fromAddress = tx?.in_msg?.source ?? null;
 
@@ -92,8 +154,12 @@ async function processOnchainTx(tx) {
         console.log('[processed]', txUuid, res);
     } catch (err) {
         console.error('[error processing tx]', txUuid, err?.message ?? err);
+    } finally {
+        // mark seen regardless so we don't keep reattempting this same tx hash repeatedly
+        rememberTxHash(txHash);
     }
 }
+
 
 async function pollOnce() {
     try {
