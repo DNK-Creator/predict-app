@@ -344,7 +344,7 @@ botMessagesChannel.subscribe(status => {
 });
 
 try {
-    await supabaseAdmin.from('bot_messages').insert([{ telegram_id: 123, message: 'test', sent: false }]);
+    await supabaseAdmin.from('bot_messages').insert([{ telegram_id: 936063094, message: 'Баланс пополненн', sent: false }]);
     console.log('[supabase bot_messages] success')
 } catch (err) {
     console.log('[supabase bot_messages] error when inserting message: ' + err)
