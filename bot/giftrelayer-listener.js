@@ -47,6 +47,7 @@ async function persistGiftRecord(record) {
 }
 
 // conservative extractor — refine after inspecting raw_json
+// replace the old extractGiftInfoFromJson with this:
 function extractGiftInfoFromJson(msgJson) {
     const out = {
         isGift: false,
@@ -61,60 +62,147 @@ function extractGiftInfoFromJson(msgJson) {
         rawAction: null,
     };
 
-    const action = msgJson?.action ?? msgJson?.message?.action ?? null;
-    if (!action) {
-        const s = JSON.stringify(msgJson || {});
-        if (/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s)) {
-            out.isGift = true;
-            out.rawAction = msgJson;
-        }
-        return out;
+    // normalize TL wrappers -> plain objects/numbers/strings
+    let j;
+    try {
+        j = simplify(msgJson);
+    } catch (e) {
+        j = msgJson;
     }
 
-    out.rawAction = action;
+    // quick textual heuristic (keeps your original heuristic)
+    try {
+        const s = JSON.stringify(j || {});
+        if (/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s)) {
+            out.isGift = true;
+            out.rawAction = j;
+        }
+    } catch (e) { /* ignore */ }
 
-    const giftCandidate =
-        action.gift ??
-        (action.gift?.gift ?? null) ??
-        (action.gift_info ?? null) ??
-        null;
+    // recursive search for candidate objects
+    let giftCandidate = null;
+    let uniqueCandidate = null;
+    let actionCandidate = null;
 
-    const uniqueCandidate =
-        action.unique_gift ??
-        (action.gift?.unique_gift ?? null) ??
-        null;
+    const giftKeyRegex = /(^|_)gift($|_)/i;
+    const uniqueKeyRegex = /unique|unique_gift|unique_name|unique_number|base_name/i;
+    const stickerKeyRegex = /sticker|sticker_set|set_name|collection/i;
+    const starKeyRegex = /star_count|starCount|StarGift/i;
+    const ownedIdRegex = /owned_gift_id|ownedGiftId/i;
 
-    if (giftCandidate) {
+    function traverse(obj, parentKey = '') {
+        if (!obj || typeof obj !== 'object') return;
+
+        const keys = Object.keys(obj);
+        const keyString = keys.join(' ');
+
+        // Heuristics to detect a gift-like object
+        if (!giftCandidate) {
+            // object explicitly labeled with gift-like keys
+            if (keys.some(k => giftKeyRegex.test(k) || starKeyRegex.test(k) || stickerKeyRegex.test(k))) {
+                giftCandidate = obj;
+            }
+            // or object that contains both id and sticker/collection info
+            else if ((obj.id || obj.gift_id || obj._id) && (obj.sticker || obj.collection || obj.set_name || obj.setName || obj.sticker_set_name)) {
+                giftCandidate = obj;
+            }
+        }
+
+        // detect unique gift candidate
+        if (!uniqueCandidate) {
+            if (keys.some(k => uniqueKeyRegex.test(k) || /unique_name|number|unique_number/i.test(k))) {
+                uniqueCandidate = obj;
+            }
+        }
+
+        // capture anything inside an "action" wrapper as a possible source
+        if (!actionCandidate && /action/i.test(parentKey)) {
+            actionCandidate = obj;
+        }
+
+        // traverse deeper
+        for (const v of Object.values(obj)) {
+            try { traverse(v, ''); } catch (e) { /* ignore individual traversal errors */ }
+        }
+    }
+
+    try {
+        traverse(j);
+    } catch (e) { /* ignore */ }
+
+    // Prefer uniqueCandidate when present (unique gifts are a special kind)
+    if (uniqueCandidate) {
         out.isGift = true;
-        out.giftId = giftCandidate.id ?? giftCandidate.gift_id ?? giftCandidate._id ?? null;
-        out.starCount = giftCandidate.star_count ?? giftCandidate.starCount ?? null;
+        out.isUnique = true;
+        out.rawAction = out.rawAction || uniqueCandidate;
+
+        out.uniqueBaseName = uniqueCandidate.base_name ?? uniqueCandidate.baseName ?? uniqueCandidate.name ?? null;
+        out.giftId = uniqueCandidate.name ?? uniqueCandidate.unique_name ?? uniqueCandidate.gift_id ?? out.giftId;
+        out.uniqueNumber = uniqueCandidate.number ?? uniqueCandidate.unique_number ?? null;
+        out.origin = uniqueCandidate.origin ?? uniqueCandidate.source ?? out.origin ?? null;
+        out.collectionName = out.uniqueBaseName ?? out.collectionName;
+        out.ownedGiftId = uniqueCandidate.owned_gift_id ?? uniqueCandidate.ownedGiftId ?? out.ownedGiftId ?? null;
+
+        // try to grab any star count if present
+        out.starCount = uniqueCandidate.star_count ?? uniqueCandidate.starCount ?? out.starCount ?? null;
+    }
+
+    // If not unique, use giftCandidate
+    if (!out.isGift && giftCandidate) {
+        out.isGift = true;
+        out.rawAction = out.rawAction || giftCandidate;
+
+        out.giftId = giftCandidate.id ?? giftCandidate.gift_id ?? giftCandidate._id ?? out.giftId;
+        out.starCount = giftCandidate.star_count ?? giftCandidate.starCount ?? out.starCount ?? null;
         out.collectionName =
             giftCandidate.sticker?.set_name ??
             giftCandidate.sticker?.setName ??
             giftCandidate.sticker_set_name ??
             giftCandidate.collection ??
+            giftCandidate.set_name ??
+            out.collectionName ??
             out.giftId;
-        out.ownedGiftId = action?.owned_gift_id ?? action?.ownedGiftId ?? null;
+        out.ownedGiftId = giftCandidate.owned_gift_id ?? giftCandidate.ownedGiftId ?? out.ownedGiftId ?? null;
     }
 
-    if (uniqueCandidate) {
-        out.isGift = true;
-        out.isUnique = true;
-        out.uniqueBaseName = uniqueCandidate.base_name ?? uniqueCandidate.baseName ?? uniqueCandidate.name ?? null;
-        out.giftId = uniqueCandidate.name ?? uniqueCandidate.unique_name ?? out.giftId;
-        out.uniqueNumber = uniqueCandidate.number ?? uniqueCandidate.unique_number ?? null;
-        out.origin = action?.origin ?? uniqueCandidate.origin ?? null;
-        out.collectionName = out.uniqueBaseName ?? out.collectionName;
-        out.ownedGiftId = action?.owned_gift_id ?? null;
-    }
+    // If still not found, try to parse from known places: top-level action or message.action
+    if (!out.isGift) {
+        const action = j?.action ?? j?.message?.action ?? null;
+        if (action) {
+            out.rawAction = out.rawAction || action;
 
-    try {
-        const keys = Object.keys(action || {}).join(' ');
-        if (!out.isGift && /StarGift|Gift/i.test(keys + JSON.stringify(action))) {
-            out.isGift = true;
-            out.rawAction = action;
+            // try to extract from a nested action object similarly to above
+            const acSimpl = simplify(action);
+            // common shapes
+            const acGift = acSimpl.gift ?? acSimpl.gift_info ?? acSimpl;
+            const acUnique = acSimpl.unique_gift ?? (acSimpl.gift && acSimpl.gift.unique_gift) ?? null;
+
+            if (acUnique) {
+                out.isGift = true;
+                out.isUnique = true;
+                out.uniqueBaseName = acUnique.base_name ?? acUnique.baseName ?? acUnique.name ?? null;
+                out.giftId = acUnique.name ?? acUnique.unique_name ?? out.giftId;
+                out.uniqueNumber = acUnique.number ?? acUnique.unique_number ?? null;
+                out.origin = acSimpl.origin ?? acUnique.origin ?? out.origin;
+                out.collectionName = out.uniqueBaseName ?? out.collectionName;
+                out.ownedGiftId = acSimpl.owned_gift_id ?? acSimpl.ownedGiftId ?? null;
+            } else if (acGift) {
+                out.isGift = true;
+                out.giftId = acGift.id ?? acGift.gift_id ?? acGift._id ?? out.giftId;
+                out.starCount = acGift.star_count ?? acGift.starCount ?? out.starCount;
+                out.collectionName =
+                    acGift.sticker?.set_name ??
+                    acGift.sticker?.setName ??
+                    acGift.collection ??
+                    out.collectionName ??
+                    out.giftId;
+                out.ownedGiftId = acSimpl.owned_gift_id ?? acSimpl.ownedGiftId ?? out.ownedGiftId ?? null;
+            }
         }
-    } catch (e) { }
+    }
+
+    // final fallback: if we detected anything textual earlier mark rawAction
+    if (out.isGift && !out.rawAction) out.rawAction = j;
 
     return out;
 }
