@@ -48,8 +48,6 @@ async function persistGiftRecord(record) {
     }
 }
 
-
-
 // Simplify TL wrappers -> plain JS (kept from your original)
 function simplify(obj) {
     if (obj === null || obj === undefined) return obj;
@@ -175,8 +173,7 @@ async function onRawUpdate(event) {
             created_at: now
         };
 
-        console.log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
-        log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
+        log('[giftrelayer] raw update detected gift -> persisting', { collection: record.collection_name, sender: record.telegram_sender_id });
 
         await persistGiftRecord(record);
     } catch (err) {
@@ -188,10 +185,10 @@ async function onRawUpdate(event) {
 // startup: connect, register handlers
 async function start() {
     try {
-        console.log("[giftrelayer] starting Telegram client...");
+        log("[giftrelayer] starting Telegram client...");
         await client.start();
         const me = await client.getMe();
-        console.log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
+        log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
 
         // register Raw for service updates (use light predicate to reduce frequency)
         client.addEventHandler(onRawUpdate, new Raw({
@@ -210,7 +207,7 @@ async function start() {
             }
         }));
 
-        console.log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
+        log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
         await new Promise(() => { }); // keep alive
     } catch (err) {
         console.error("[giftrelayer] start error, exiting:", err?.message ?? err);
