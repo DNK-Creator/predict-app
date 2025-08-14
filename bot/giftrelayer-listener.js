@@ -5,6 +5,7 @@
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { NewMessage } from "telegram/events/index.js";
+import { Raw } from "telegram/events/index.js";
 import fetch from "node-fetch";
 import { v4 as uuidv4 } from "uuid";
 
@@ -13,6 +14,9 @@ const apiId = Number(process.env.TG_API_ID || 0);
 const apiHash = process.env.TG_API_HASH || "";
 const stringSession = process.env.TG_STRING_SESSION || "";
 const DEBUG = !!process.env.WORKER_DEBUG;
+
+// Add near the top (module scope) to dedupe duplicate updates:
+const _processedMessageIds = new Set();
 
 if (!apiId || !apiHash || !stringSession) {
     console.error("[giftrelayer] TG_API_ID, TG_API_HASH and TG_STRING_SESSION must be set. Exiting.");
@@ -207,7 +211,103 @@ function extractGiftInfoFromJson(msgJson) {
     return out;
 }
 
+// New handler: listen to raw TL updates (catches service/messageAction shapes that NewMessage can miss)
+async function onRawUpdate(event) {
+    try {
+        console.log('[giftrelayer] onRawUpdate started')
+        const update = event?.update ?? event;
+        if (!update) return;
+
+        console.log('[giftrelayer] update is okay')
+
+        // Normalize TL wrappers into plain JS values using your existing simplify()
+        let j;
+        try { j = simplify(update); } catch (e) { j = update; }
+
+        // Try to find a message-like object inside the update
+        // Common TL shapes: { message: {...} }, { new_message: {...} }, { message?: { action: ... } }, or the update itself
+        const candidate =
+            j?.message ??
+            j?.new_message ??
+            j?.newMessage ??
+            j?.msg ??
+            j;
+
+        // Best-effort message id for dedupe — handle wrappers
+        console.log('[giftrelayer] start checking candidateId: ' + candidate?.id ?? candidate?.message?.id ?? null)
+        const candidateId = candidate?.id ?? candidate?.message?.id ?? null;
+        if (candidateId != null) {
+            if (_processedMessageIds.has(String(candidateId))) return; // already handled
+            // keep the set small
+            _processedMessageIds.add(String(candidateId));
+            if (_processedMessageIds.size > 1000) {
+                // drop oldest roughly (simple strategy)
+                const it = _processedMessageIds.values();
+                for (let i = 0; i < 100; i++) {
+                    const v = it.next().value;
+                    if (!v) break;
+                    _processedMessageIds.delete(v);
+                }
+            }
+        }
+
+        console.log('[giftrelayer] ended checking candidateId')
+
+        // Heuristic: only continue if payload looks like it might contain a gift
+        const s = JSON.stringify(candidate || {});
+        console.log('[giftrelayer] checking if the event is gift related')
+        if (!/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s)) {
+            // not gift-related — ignore
+            return;
+        }
+        console.log('[giftrelayer] the event is in fact gift related')
+
+        // Reuse the same extractor, but pass the candidate (already simplified)
+        const giftInfo = extractGiftInfoFromJson(candidate);
+        if (!giftInfo?.isGift) {
+            // If extractor didn't find it, still log sample when debugging
+            console.log('[giftrelayer] raw update looked gift-like but extractor returned false, sample=', s.slice(0, 2000))
+            log('[giftrelayer] raw update looked gift-like but extractor returned false, sample=', s.slice(0, 2000));
+            return;
+        }
+
+        // Build the same record you use in onNewMessage (best-effort fields from candidate)
+        const senderId =
+            (candidate?.fromId && typeof candidate.fromId === 'object' && candidate.fromId.userId) ? candidate.fromId.userId :
+                (candidate?.fromId ?? candidate?.senderId ?? candidate?.userId ?? null);
+        const senderUsername = candidate?.from?.username ?? candidate?.sender?.username ?? null;
+        const recipient = candidate?.peerId ?? candidate?.chatId ?? candidate?.toId ?? null;
+        const now = new Date().toISOString();
+
+        const record = {
+            uuid: uuidv4(),
+            telegram_message_id: candidate?.id ?? null,
+            telegram_chat_peer: JSON.stringify(recipient),
+            telegram_sender_id: senderId ?? null,
+            sender_username: senderUsername ?? null,
+            gift_id: giftInfo.giftId ?? null,
+            collection_name: giftInfo.collectionName ?? null,
+            star_count: giftInfo.starCount ?? null,
+            is_unique: !!giftInfo.isUnique,
+            unique_number: giftInfo.uniqueNumber ?? null,
+            unique_base_name: giftInfo.uniqueBaseName ?? null,
+            origin: giftInfo.origin ?? null,
+            owned_gift_id: giftInfo.ownedGiftId ?? null,
+            raw_json: candidate ? JSON.stringify(candidate) : null,
+            created_at: now
+        };
+
+        console.log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id })
+        log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
+
+        await persistGiftRecord(record);
+    } catch (err) {
+        console.error('[giftrelayer] onRawUpdate error', err);
+    }
+}
+
 async function onNewMessage(event) {
+    // DOESNT GET TRIGGERED WHEN GIFT SENT!!!
     try {
         const msg = event.message;
         if (!msg) return;
@@ -301,7 +401,8 @@ async function onNewMessage(event) {
 }
 
 
-// ------- startup: connect, register handler, fetch & print star gifts -------
+// Modify start() to register the Raw handler in addition to NewMessage
+// (make sure you also import Raw at top: `import { Raw } from "telegram/events/index.js";`)
 async function start() {
     try {
         console.log("[giftrelayer] starting Telegram client...");
@@ -309,8 +410,12 @@ async function start() {
         const me = await client.getMe();
         console.log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
 
-        // event handler
+        // event handler for normal messages (keep existing)
         client.addEventHandler(onNewMessage, new NewMessage({}));
+
+        // ALSO listen to raw TL updates (this catches service/messageAction updates that NewMessage can miss)
+        // Requires: `import { Raw } from "telegram/events/index.js";`
+        client.addEventHandler(onRawUpdate, new Raw());
 
         console.log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
         await new Promise(() => { }); // keep alive
