@@ -112,16 +112,13 @@ async function processOnchainTx(tx) {
 
     // 0) quick dedupe: if we've already seen this tx hash in-memory skip it
     if (txHash && hasSeenTxHash(txHash)) {
-        // debug-level log to reduce noise
-        // console.debug('[skip] already seen', txHash);
+        console.log('[skip] already handled tx. txHash=', txHash);
         return;
     }
 
     // 1) get the human-readable comment (if any)
     const textComment = extractTextComment(tx);
     if (!textComment) {
-        // no comment/message present — nothing we can match on
-        // console.debug('[skip] no text comment for tx', txHash);
         rememberTxHash(txHash);
         return;
     }
@@ -141,7 +138,7 @@ async function processOnchainTx(tx) {
     const exitCode = extractExitCode(tx);
     const fromAddress = tx?.in_msg?.source ?? null;
 
-//  console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
+    //  console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
 
     try {
         const res = await callProcessDepositRPC({
@@ -151,7 +148,7 @@ async function processOnchainTx(tx) {
             from_address: fromAddress,
             exit_code: exitCode
         });
-  //      console.log('[processed]', txUuid, res);
+        //      console.log('[processed]', txUuid, res);
     } catch (err) {
         console.error('[error processing tx]', txUuid, err?.message ?? err);
     } finally {
