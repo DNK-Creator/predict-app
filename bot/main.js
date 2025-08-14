@@ -64,6 +64,9 @@ app.use((req, res, next) => {
     next();
 });
 
+console.log(`[main] pid=${process.pid} ppid=${process.ppid} argv=${process.argv.join(' ')} env.SUPERVISOR_CHILD=${process.env.SUPERVISOR_CHILD ?? '0'}`);
+
+
 // Light rate limiting for deposit-intent to reduce abuse
 const depositLimiter = rateLimit({
     windowMs: 60 * 1000, // 1 minute window
@@ -616,8 +619,13 @@ function startWorkerWithSupervisor() {
         });
     }
 
-    // start all workers
+    // inside startWorkerWithSupervisor(), replace the "start all workers" loop with:
     for (const wf of workers) {
+        // skip if already have a child (safety belt)
+        if (state[wf].child) {
+            console.log(`[supervisor] child already present for ${wf} pid=${state[wf].child.pid}`);
+            continue;
+        }
         spawnWorker(wf);
     }
 
@@ -649,4 +657,7 @@ function startWorkerWithSupervisor() {
 }
 
 // start supervisor AFTER server and bot are listening
-startWorkerWithSupervisor();
+// startWorkerWithSupervisor();
+
+const sup = startWorkerWithSupervisor();
+console.log('[supervisor] children', sup.getChildren());
