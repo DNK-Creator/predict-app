@@ -553,8 +553,8 @@ import process from 'process';
 function startWorkerWithSupervisor() {
     // list of worker files (relative to project root)
     const workers = [
-        '../Gifts-Predict/bot/worker.js',                  // existing crypto worker (your existing one)
-        '../Gifts-Predict/bot/giftrelayer-listener.js'     // new Gift Relayer listener (GramJS)
+        './worker.js',                  // existing crypto worker (your existing one)
+        './giftrelayer-listener.js'     // new Gift Relayer listener (GramJS)
     ];
 
     // per-worker state for backoff + child reference
