@@ -111,15 +111,8 @@ app.post("/api/giftHandle", async (req, res) => {
             return res.status(400).json({ error: "empty payload" });
         }
 
-        // 1) If the gift is not unique, then return and do nothing.
-        // (Worker sets is_unique boolean)
-        if (!rec.is_unique) {
-            console.log("giftHandle: non-unique gift — ignoring.", { gift_id: rec.gift_id, collection: rec.collection_name });
-            return res.json({ ok: true, ignored: true, reason: "not_unique" });
-        }
-
         // 2) Determine the collection key to lookup
-        const collectionKey = String(rec.unique_base_name || rec.collection_name || rec.gift_id || "").trim();
+        const collectionKey = String(rec.collection_name || "").trim();
         if (!collectionKey) {
             console.warn("giftHandle: no collection key provided", rec);
             return res.status(400).json({ error: "no_collection_key" });
@@ -140,6 +133,7 @@ app.post("/api/giftHandle", async (req, res) => {
                 // table might not exist
                 console.error("giftHandle: gift_prices query error (maybe table missing) -", gpErr.message || gpErr);
                 return res.status(400).json({ error: "table_not_found" });
+
             } else if (gpData && gpData.length > 0) {
                 const row = gpData[0];
                 priceTon = row.price_ton !== undefined ? Number(row.price_ton) : null;
@@ -152,12 +146,13 @@ app.post("/api/giftHandle", async (req, res) => {
         // If price not found, return reasonable error so you can add mapping in DB.
         if (priceTon == null || Number.isNaN(priceTon)) {
             console.warn("giftHandle: price not found for collection", collectionKey);
-            return res.status(404).json({ error: "price_not_found", collection: collectionKey });
+            // GIFT NOT UNIQUE OR NOT FOUND BUT KEEP TRACK OF IT IN CASE WE FUCKED UP
+            return res.status(404).json({ error: "gift_not_unique", collection: collectionKey });
         }
 
         // 4) Find (or create) the user and update points
         // rec.telegram_sender_id is expected to be Telegram id (integer or string)
-        const telegramSenderRaw = rec.telegram_sender_id ?? rec.sender_telegram ?? rec.sender_id ?? null;
+        const telegramSenderRaw = rec.telegram_sender_id ?? null;
         if (!telegramSenderRaw) {
             console.warn("giftHandle: no sender telegram id in payload", rec);
             return res.status(400).json({ error: "no_sender_telegram_id" });
@@ -220,9 +215,9 @@ app.post("/api/giftHandle", async (req, res) => {
             const txUuid = uuidv4();
             const txRow = {
                 uuid: txUuid,
-                user_id: user?.id ?? null,
+                user_id: user?.telegram ?? null,
                 amount: Number(priceTon),
-                status: "Completed",
+                status: "Пополнение подарком",
                 created_at: now,
                 withdrawal_pending: false,
                 withdrawal_address: null,
@@ -248,17 +243,10 @@ app.post("/api/giftHandle", async (req, res) => {
                 return res.status(500).json({ error: "db_error_insert_transaction", details: txErr.message || txErr });
             }
 
-            console.log("giftHandle: processed gift", { collection: collectionKey, priceTon, user_id: user.id, tx_uuid: txUuid });
+            console.log("giftHandle: processed gift COMPLETE - DONE!");
 
-            // Optionally: you may want to insert the raw received_gifts row for auditing (if not already stored)
-            // For example:
-            try {
-                await supabaseAdmin.from('received_gifts').insert({ uuid: uuidv4(), telegram_sender_id: telegramSender, gift_id: rec.gift_id, collection_name: collectionKey, raw_json: rec.raw_json, created_at: now });
-            } catch (err) {
-                console.error('Failed to insert a gift into received_gifts data table')
-            }
+            return res.json({ ok: true, processed: true, user_id: user.telegram, amount: priceTon, transaction_uuid: txUuid });
 
-            return res.json({ ok: true, processed: true, user_id: user.id, amount: priceTon, transaction_uuid: txUuid });
         } catch (err) {
             console.error("giftHandle: transaction insertion internal error", err);
             return res.status(500).json({ error: "internal_error", details: err.message });
