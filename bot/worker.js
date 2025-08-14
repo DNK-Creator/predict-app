@@ -141,7 +141,7 @@ async function processOnchainTx(tx) {
     const exitCode = extractExitCode(tx);
     const fromAddress = tx?.in_msg?.source ?? null;
 
-     console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
+//  console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
 
     try {
         const res = await callProcessDepositRPC({

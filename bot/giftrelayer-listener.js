@@ -4,8 +4,7 @@
 
 import { TelegramClient } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
-import { NewMessage } from "telegram/events/index.js";
-import { Raw } from "telegram/events/index.js";
+import { NewMessage, Raw } from "telegram/events/index.js";
 import fetch from "node-fetch";
 import { v4 as uuidv4 } from "uuid";
 
@@ -413,9 +412,9 @@ async function start() {
         // event handler for normal messages (keep existing)
         client.addEventHandler(onNewMessage, new NewMessage({}));
 
-        // ALSO listen to raw TL updates (this catches service/messageAction updates that NewMessage can miss)
-        // Requires: `import { Raw } from "telegram/events/index.js";`
-        client.addEventHandler(onRawUpdate, new Raw());
+        // ALSO listen to raw TL updates (pass options object with `func` to Raw)
+        // the predicate returns true for all updates; onRawUpdate filters further.
+        client.addEventHandler(onRawUpdate, new Raw({ func: (update) => true }));
 
         console.log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
         await new Promise(() => { }); // keep alive
