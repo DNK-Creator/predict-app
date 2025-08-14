@@ -210,21 +210,18 @@ function extractGiftInfoFromJson(msgJson) {
     return out;
 }
 
-// New handler: listen to raw TL updates (catches service/messageAction shapes that NewMessage can miss)
+// REPLACE your existing onRawUpdate with this improved version
 async function onRawUpdate(event) {
     try {
-        console.log('[giftrelayer] onRawUpdate started')
+        console.log('[giftrelayer] onRawUpdate started');
         const update = event?.update ?? event;
         if (!update) return;
-
-        console.log('[giftrelayer] update is okay')
 
         // Normalize TL wrappers into plain JS values using your existing simplify()
         let j;
         try { j = simplify(update); } catch (e) { j = update; }
 
         // Try to find a message-like object inside the update
-        // Common TL shapes: { message: {...} }, { new_message: {...} }, { message?: { action: ... } }, or the update itself
         const candidate =
             j?.message ??
             j?.new_message ??
@@ -233,14 +230,12 @@ async function onRawUpdate(event) {
             j;
 
         // Best-effort message id for dedupe — handle wrappers
-        console.log('[giftrelayer] start checking candidateId: ' + candidate?.id ?? candidate?.message?.id ?? null)
         const candidateId = candidate?.id ?? candidate?.message?.id ?? null;
+        console.log(`[giftrelayer] start checking candidateId: ${String(candidateId ?? 'undefined')}`);
         if (candidateId != null) {
             if (_processedMessageIds.has(String(candidateId))) return; // already handled
-            // keep the set small
             _processedMessageIds.add(String(candidateId));
             if (_processedMessageIds.size > 1000) {
-                // drop oldest roughly (simple strategy)
                 const it = _processedMessageIds.values();
                 for (let i = 0; i < 100; i++) {
                     const v = it.next().value;
@@ -249,28 +244,40 @@ async function onRawUpdate(event) {
                 }
             }
         }
+        console.log('[giftrelayer] ended checking candidateId');
 
-        console.log('[giftrelayer] ended checking candidateId')
+        // Lightweight heuristic: check object keys first (avoid expensive JSON.stringify unless DEBUG)
+        const keysSnapshot = Object.keys(candidate || {}).join(' ');
+        console.log('[giftrelayer] checking if the event is gift related');
+        let looksLikeGift = /\bgift\b|unique_gift|unique_name|unique_number|messageAction|StarGift/i.test(keysSnapshot);
+        if (!looksLikeGift && DEBUG) {
+            // only stringify in debug mode to inspect full payload
+            try {
+                const s = JSON.stringify(candidate || {});
+                looksLikeGift = /\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s);
+                if (!looksLikeGift) {
+                    log('[giftrelayer] raw update looked NOT gift-like in full-scan (debug sample):', s.slice(0, 2000));
+                }
+            } catch (e) {
+                // ignore stringify failures on TL objects
+            }
+        }
 
-        // Heuristic: only continue if payload looks like it might contain a gift
-        const s = JSON.stringify(candidate || {});
-        console.log('[giftrelayer] checking if the event is gift related')
-        if (!/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s)) {
+        if (!looksLikeGift) {
             // not gift-related — ignore
             return;
         }
-        console.log('[giftrelayer] the event is in fact gift related')
+        console.log('[giftrelayer] the event is in fact gift related');
 
-        // Reuse the same extractor, but pass the candidate (already simplified)
+        // Reuse the same extractor, pass the candidate (already simplified)
         const giftInfo = extractGiftInfoFromJson(candidate);
         if (!giftInfo?.isGift) {
-            // If extractor didn't find it, still log sample when debugging
-            console.log('[giftrelayer] raw update looked gift-like but extractor returned false, sample=', s.slice(0, 2000))
-            log('[giftrelayer] raw update looked gift-like but extractor returned false, sample=', s.slice(0, 2000));
+            console.log('[giftrelayer] raw update looked gift-like but extractor returned false; sample keys=', keysSnapshot);
+            log('[giftrelayer] raw update looked gift-like but extractor returned false, sample keys=', keysSnapshot);
             return;
         }
 
-        // Build the same record you use in onNewMessage (best-effort fields from candidate)
+        // Build record (best-effort)
         const senderId =
             (candidate?.fromId && typeof candidate.fromId === 'object' && candidate.fromId.userId) ? candidate.fromId.userId :
                 (candidate?.fromId ?? candidate?.senderId ?? candidate?.userId ?? null);
@@ -296,7 +303,7 @@ async function onRawUpdate(event) {
             created_at: now
         };
 
-        console.log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id })
+        console.log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
         log('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
 
         await persistGiftRecord(record);
@@ -400,8 +407,7 @@ async function onNewMessage(event) {
 }
 
 
-// Modify start() to register the Raw handler in addition to NewMessage
-// (make sure you also import Raw at top: `import { Raw } from "telegram/events/index.js";`)
+// REPLACE your start() registration of Raw with this safer predicate (so Raw doesn't get called for every tiny update)
 async function start() {
     try {
         console.log("[giftrelayer] starting Telegram client...");
@@ -409,12 +415,26 @@ async function start() {
         const me = await client.getMe();
         console.log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
 
-        // event handler for normal messages (keep existing)
+        // keep existing NewMessage handler
         client.addEventHandler(onNewMessage, new NewMessage({}));
 
-        // ALSO listen to raw TL updates (pass options object with `func` to Raw)
-        // the predicate returns true for all updates; onRawUpdate filters further.
-        client.addEventHandler(onRawUpdate, new Raw({ func: (update) => true }));
+        // register Raw with a lightweight predicate so it only triggers for updates containing
+        // message / new_message / message_action / action-like shapes
+        client.addEventHandler(onRawUpdate, new Raw({
+            func: (u) => {
+                try {
+                    if (!u || typeof u !== 'object') return false;
+                    // common TL fields that indicate message-like update
+                    if (u.message || u.new_message || u.message_action || u.messageAction || u.action) return true;
+                    // sometimes 'update' wrappers expose 'message' nested; check some stringy constructor names if present
+                    const ctor = u?.CONSTRUCTOR_ID || u?.className || u?._ || u?.constructor?.name;
+                    if (typeof ctor === 'string' && /message|update|msg|action/i.test(String(ctor))) return true;
+                    return false;
+                } catch (e) {
+                    return false;
+                }
+            }
+        }));
 
         console.log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
         await new Promise(() => { }); // keep alive
