@@ -1,7 +1,7 @@
 // worker.js
 import axios from 'axios';
 
-const TONCENTER = process.env.VITE_TONCENTER_URL || 'https://api.toncenter.com/api/v2';
+const TONCENTER = process.env.VITE_TONCENTER_URL || 'https://toncenter.com/api/v2';
 const TON_API_KEY = process.env.VITE_TONCENTER_API_KEY;
 const HOT_WALLET = process.env.VITE_HOT_WALLET;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
@@ -98,11 +98,11 @@ async function callProcessDepositRPC({ uuid, onchain_amount, onchain_hash, from_
         };
 
         const resp = await axios.post(url, body, { headers, timeout: 15_000 });
-        console.log('[rpc] resp', resp.status, resp.data);
+        // console.log('[rpc] resp', resp.status, resp.data);
         return resp.data;
     } catch (err) {
         // Keep original error logging but do not crash worker
-        console.error('[rpc] call failed', err?.response?.data ?? err?.message ?? err);
+        // console.error('[rpc] call failed', err?.response?.data ?? err?.message ?? err);
         throw err;
     }
 }
@@ -130,7 +130,7 @@ async function processOnchainTx(tx) {
     const txUuid = extractUuidFromText(textComment);
     if (!txUuid) {
         // The tx has a text comment but it doesn't contain a UUID — skip it.
-        console.log('[skip] tx comment without UUID (not from our app). comment=', textComment, 'txHash=', txHash);
+        // console.log('[skip] tx comment without UUID (not from our app). comment=', textComment, 'txHash=', txHash);
         rememberTxHash(txHash);
         return;
     }
@@ -141,7 +141,7 @@ async function processOnchainTx(tx) {
     const exitCode = extractExitCode(tx);
     const fromAddress = tx?.in_msg?.source ?? null;
 
-    console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
+    // console.log('[found] uuid=%s amount=%s hash=%s exit=%s', txUuid, onchainAmount, onchainHash, exitCode);
 
     try {
         const res = await callProcessDepositRPC({
@@ -151,7 +151,7 @@ async function processOnchainTx(tx) {
             from_address: fromAddress,
             exit_code: exitCode
         });
-        console.log('[processed]', txUuid, res);
+        // console.log('[processed]', txUuid, res);
     } catch (err) {
         console.error('[error processing tx]', txUuid, err?.message ?? err);
     } finally {

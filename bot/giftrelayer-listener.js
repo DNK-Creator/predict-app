@@ -123,7 +123,7 @@ async function onNewMessage(event) {
     try {
         const msg = event.message;
         if (!msg) return;
-        console.log('Hi!')
+        console.log('[giftrelayer] found an incoming new message')
         const msgJson = msg.toJSON ? msg.toJSON() : msg;
         console.log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer)
         log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer);
@@ -175,9 +175,10 @@ async function onNewMessage(event) {
             } catch (err) {
                 console.error('[giftrelayer] error while sending non-gift reply', err);
             }
+            console.log('[giftrelayer] user sent random text message')
             return;
         }
-
+        console.log('[giftrelayer] THE MESSAGE SENT WAS A GIFT')
         const senderId =
             (msgJson?.fromId && typeof msgJson.fromId === 'object' && msgJson.fromId.userId) ? msgJson.fromId.userId :
                 (msgJson?.fromId ?? msgJson?.senderId ?? null);
@@ -202,7 +203,7 @@ async function onNewMessage(event) {
             raw_json: msgJson ? JSON.stringify(msgJson) : null,
             created_at: now
         };
-
+        console.log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id })
         log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
 
         await persistGiftRecord(record);
