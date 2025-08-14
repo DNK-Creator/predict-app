@@ -575,9 +575,10 @@ function startWorkerWithSupervisor() {
         st.spawning = true;
 
         console.log(`[supervisor] spawning worker: ${abs}`);
+        // inside spawnWorker(wf) where you call spawn(...)
         const child = spawn(process.execPath, [abs], {
-            env: { ...process.env }, // forward env
-            stdio: ['ignore', 'inherit', 'inherit', 'ipc'] // keep logs in main process, allow IPC if needed
+            env: { ...process.env, SUPERVISOR_CHILD: '1', WORKER_NAME: wf },
+            stdio: ['ignore', 'inherit', 'inherit', 'ipc']
         });
 
         st.child = child;

@@ -22,6 +22,8 @@ if (!apiId || !apiHash || !stringSession) {
     process.exit(1);
 }
 
+console.log(`[giftrelayer] starting process pid=${process.pid} ppid=${process.ppid} SUPERVISOR_CHILD=${process.env.SUPERVISOR_CHILD ?? '0'} WORKER_NAME=${process.env.WORKER_NAME ?? 'n/a'}`);
+
 // Telegram client
 const client = new TelegramClient(new StringSession(stringSession), apiId, apiHash, {
     connectionRetries: 10,
