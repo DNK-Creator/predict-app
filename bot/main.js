@@ -480,7 +480,11 @@ async function handleStart(ctx) {
             false
         );
 
-        await ctx.sendChatAction('typing');
+        try {
+            await ctx.sendChatAction('typing');
+        } catch (err) {
+            console.log('[bot telegraf] action blocked: ' + err)
+        }
 
         // ensure session exists
         if (!ctx.session) ctx.session = {}
