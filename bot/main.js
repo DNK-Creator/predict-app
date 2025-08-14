@@ -97,6 +97,176 @@ export async function createInvoiceLink(amount) {
     );
 }
 
+app.post("/api/giftHandle", async (req, res) => {
+    console.log("Hit /api/giftHandle");
+    try {
+        const rec = req.body ?? {};
+        // Basic validation
+        // Expect the worker to POST the record with fields like:
+        // { telegram_sender_id, sender_username, gift_id, collection_name, unique_base_name, is_unique, star_count, raw_json, ... }
+        if (!rec || Object.keys(rec).length === 0) {
+            return res.status(400).json({ error: "empty payload" });
+        }
+
+        // 1) If the gift is not unique, then return and do nothing.
+        // (Worker sets is_unique boolean)
+        if (!rec.is_unique) {
+            console.log("giftHandle: non-unique gift — ignoring.", { gift_id: rec.gift_id, collection: rec.collection_name });
+            return res.json({ ok: true, ignored: true, reason: "not_unique" });
+        }
+
+        // 2) Determine the collection key to lookup
+        const collectionKey = String(rec.unique_base_name || rec.collection_name || rec.gift_id || "").trim();
+        if (!collectionKey) {
+            console.warn("giftHandle: no collection key provided", rec);
+            return res.status(400).json({ error: "no_collection_key" });
+        }
+
+        // 3) Fetch current up-to-date prices for this collection from Supabase.
+        //    A dedicated table `gift_prices` (columns: collection_name text, price_ton numeric)
+        let priceTon = null;
+        try {
+            // Attempt 1: gift_prices table (case-insensitive match)
+            const { data: gpData, error: gpErr } = await supabaseAdmin
+                .from("gift_prices")
+                .select("*")
+                .ilike("collection_name", collectionKey)
+                .limit(1);
+
+            if (gpErr) {
+                // table might not exist
+                console.error("giftHandle: gift_prices query error (maybe table missing) -", gpErr.message || gpErr);
+                return res.status(400).json({ error: "table_not_found" });
+            } else if (gpData && gpData.length > 0) {
+                const row = gpData[0];
+                priceTon = row.price_ton !== undefined ? Number(row.price_ton) : null;
+                console.log("giftHandle: found price in gift_prices table", { collection: collectionKey, priceTon });
+            }
+        } catch (err) {
+            console.error("giftHandle: error while fetching prices", err);
+        }
+
+        // If price not found, return reasonable error so you can add mapping in DB.
+        if (priceTon == null || Number.isNaN(priceTon)) {
+            console.warn("giftHandle: price not found for collection", collectionKey);
+            return res.status(404).json({ error: "price_not_found", collection: collectionKey });
+        }
+
+        // 4) Find (or create) the user and update points
+        // rec.telegram_sender_id is expected to be Telegram id (integer or string)
+        const telegramSenderRaw = rec.telegram_sender_id ?? rec.sender_telegram ?? rec.sender_id ?? null;
+        if (!telegramSenderRaw) {
+            console.warn("giftHandle: no sender telegram id in payload", rec);
+            return res.status(400).json({ error: "no_sender_telegram_id" });
+        }
+        const telegramSender = Number(telegramSenderRaw);
+
+        let user = null;
+        try {
+            // find user by telegram
+            const { data: existingUser, error: userErr } = await supabaseAdmin
+                .from("users")
+                .select("id, points")
+                .eq("telegram", telegramSender)
+                .limit(1)
+                .maybeSingle();
+
+            if (userErr) {
+                console.error("giftHandle: users select error", userErr);
+                return res.status(500).json({ error: "db_error_read_user", details: userErr.message || userErr });
+            }
+
+            if (existingUser) {
+                // update points
+                const oldPoints = Number(existingUser.points ?? 0);
+                const newPoints = oldPoints + Number(priceTon);
+                const { data: updUser, error: updErr } = await supabaseAdmin
+                    .from("users")
+                    .update({ points: newPoints })
+                    .eq("id", existingUser.id)
+                    .select()
+                    .single();
+
+                if (updErr) {
+                    console.error("giftHandle: users update error", updErr);
+                    return res.status(500).json({ error: "db_error_update_user", details: updErr.message || updErr });
+                }
+                user = updUser;
+            } else {
+                // create a minimal user record (telegram required by constraint)
+                const { data: insUser, error: insErr } = await supabaseAdmin
+                    .from("users")
+                    .insert({ telegram: telegramSender, points: Number(priceTon) })
+                    .select()
+                    .single();
+
+                if (insErr) {
+                    console.error("giftHandle: users insert error", insErr);
+                    return res.status(500).json({ error: "db_error_create_user", details: insErr.message || insErr });
+                }
+                user = insUser;
+            }
+        } catch (err) {
+            console.error("giftHandle: user upsert error", err);
+            return res.status(500).json({ error: "internal_error", details: err.message });
+        }
+
+        // 5) Insert transaction row
+        try {
+            const now = new Date().toISOString();
+            const txUuid = uuidv4();
+            const txRow = {
+                uuid: txUuid,
+                user_id: user?.id ?? null,
+                amount: Number(priceTon),
+                status: "Completed",
+                created_at: now,
+                withdrawal_pending: false,
+                withdrawal_address: null,
+                deposit_address: null,
+                type: "Gift",
+                handled: true,
+                processed_at: now,
+                onchain_hash: null,
+                onchain_amount: null,
+                sender_wallet: null
+            };
+
+            const { data: txData, error: txErr } = await supabaseAdmin
+                .from("transactions")
+                .insert(txRow)
+                .select()
+                .single();
+
+            if (txErr) {
+                console.error("giftHandle: transactions insert error", txErr);
+                // There was an error writing the transaction — attempt to roll back the points update?
+                // For now, return an error so you can investigate.
+                return res.status(500).json({ error: "db_error_insert_transaction", details: txErr.message || txErr });
+            }
+
+            console.log("giftHandle: processed gift", { collection: collectionKey, priceTon, user_id: user.id, tx_uuid: txUuid });
+
+            // Optionally: you may want to insert the raw received_gifts row for auditing (if not already stored)
+            // For example:
+            try {
+                await supabaseAdmin.from('received_gifts').insert({ uuid: uuidv4(), telegram_sender_id: telegramSender, gift_id: rec.gift_id, collection_name: collectionKey, raw_json: rec.raw_json, created_at: now });
+            } catch (err) {
+                console.error('Failed to insert a gift into received_gifts data table')
+            }
+
+            return res.json({ ok: true, processed: true, user_id: user.id, amount: priceTon, transaction_uuid: txUuid });
+        } catch (err) {
+            console.error("giftHandle: transaction insertion internal error", err);
+            return res.status(500).json({ error: "internal_error", details: err.message });
+        }
+    } catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: "unexpected_error", details: err.message });
+    }
+});
+
+
 app.post("/api/botmessage", async (req, res) => {
     console.log("Hit /api/botmessage");
     try {
@@ -374,53 +544,108 @@ bot.launch()
 
 export default bot
 
-// --- worker supervisor (add near the bottom of main.js, after app.listen and bot.launch) ---
+// --- multi-worker supervisor (replace your old supervisor block with this) ---
+// place after app.listen(...) and bot.launch()
 import { spawn } from 'child_process';
 import path from 'path';
 import process from 'process';
 
 function startWorkerWithSupervisor() {
-    const workerFile = path.resolve('./worker.js'); // file in same root
-    let restartDelay = 1000; // start with 1s
-    const maxDelay = 60_000; // cap at 60s
+    // list of worker files (relative to project root)
+    const workers = [
+        '../Gifts-Predict/bot/worker.js',                  // existing crypto worker (your existing one)
+        '../Gifts-Predict/bot/giftrelayer-listener.js'     // new Gift Relayer listener (GramJS)
+    ];
 
-    function spawnWorker() {
-        console.log('[supervisor] spawning worker:', workerFile);
-        const child = spawn(process.execPath, [workerFile], {
-            env: { ...process.env },     // forward env
-            stdio: ['ignore', 'inherit', 'inherit', 'ipc'] // keep logs in docker output, enable IPC if needed later
+    // per-worker state for backoff + child reference
+    const state = {};
+    for (const wf of workers) {
+        state[wf] = { restartDelay: 1000, maxDelay: 60_000, child: null, spawning: false };
+    }
+
+    function spawnWorker(wf) {
+        const abs = path.resolve(wf);
+        const st = state[wf];
+
+        // avoid concurrent spawns for same worker
+        if (st.spawning) {
+            console.log(`[supervisor] spawn already in progress for ${wf}`);
+            return;
+        }
+        st.spawning = true;
+
+        console.log(`[supervisor] spawning worker: ${abs}`);
+        const child = spawn(process.execPath, [abs], {
+            env: { ...process.env }, // forward env
+            stdio: ['ignore', 'inherit', 'inherit', 'ipc'] // keep logs in main process, allow IPC if needed
+        });
+
+        st.child = child;
+
+        child.once('spawn', () => {
+            st.spawning = false;
+            st.restartDelay = 1000; // reset backoff on successful spawn
+            console.log(`[supervisor] worker spawned: ${wf} (pid=${child.pid})`);
         });
 
         child.on('message', (m) => {
-            console.log('[worker msg]', m);
+            // optional: children can send messages via process.send()
+            console.log(`[worker msg ${wf}]`, m);
         });
 
         child.on('exit', (code, signal) => {
-            console.warn(`[supervisor] worker exited (code=${code} signal=${signal})`);
-            // simple backoff restart
+            st.child = null;
+            st.spawning = false;
+            console.warn(`[supervisor] worker exited (${wf}) code=${code} signal=${signal}`);
+            // schedule restart with exponential backoff
+            const delay = st.restartDelay;
             setTimeout(() => {
-                restartDelay = Math.min(maxDelay, restartDelay * 2); // exponential backoff
-                console.log(`[supervisor] restarting worker in ${restartDelay}ms`);
-                spawnWorker();
-            }, restartDelay);
+                st.restartDelay = Math.min(st.maxDelay, Math.max(1000, st.restartDelay * 2));
+                console.log(`[supervisor] restarting worker ${wf} in ${delay}ms`);
+                spawnWorker(wf);
+            }, delay);
         });
 
         child.on('error', (err) => {
-            console.error('[supervisor] spawn error:', err);
-            setTimeout(spawnWorker, restartDelay);
+            st.child = null;
+            st.spawning = false;
+            console.error(`[supervisor] spawn error (${wf}):`, err);
+            // try again after restartDelay
+            setTimeout(() => spawnWorker(wf), st.restartDelay);
         });
-
-        // reset restartDelay on successful start
-        child.once('spawn', () => {
-            restartDelay = 1000;
-        });
-
-        // optional: send a ping or config after spawn:
-        // child.send({ type: 'init', debug: true });
     }
 
-    spawnWorker();
+    // start all workers
+    for (const wf of workers) {
+        spawnWorker(wf);
+    }
+
+    // graceful shutdown: kill children, then exit
+    const shutdown = () => {
+        console.log('[supervisor] shutting down workers...');
+        for (const wf of workers) {
+            const st = state[wf];
+            if (st?.child) {
+                try {
+                    console.log(`[supervisor] sending SIGTERM to ${wf} (pid=${st.child.pid})`);
+                    st.child.kill('SIGTERM');
+                } catch (e) {
+                    console.warn(`[supervisor] failed to kill ${wf}`, e);
+                }
+            }
+        }
+        // give children a short time to exit
+        setTimeout(() => process.exit(0), 2_000);
+    };
+
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
+
+    // optional: expose a simple health check to know child PIDs (useful in logs)
+    return {
+        getChildren: () => workers.map(wf => ({ worker: wf, pid: state[wf].child?.pid ?? null, restartingIn: state[wf].restartDelay }))
+    };
 }
 
-// start supervisor AFTER the server and bot are listening (so ordering is clear)
+// start supervisor AFTER server and bot are listening
 startWorkerWithSupervisor();
