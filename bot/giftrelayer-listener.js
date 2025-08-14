@@ -14,7 +14,7 @@ const apiHash = process.env.TG_API_HASH || "";
 const stringSession = process.env.TG_STRING_SESSION || "";
 const DEBUG = !!process.env.WORKER_DEBUG;
 
-// Add near the top (module scope) to dedupe duplicate updates:
+// Dedupe processed messages (keeps memory bounded)
 const _processedMessageIds = new Set();
 
 if (!apiId || !apiHash || !stringSession) {
@@ -43,13 +43,58 @@ async function persistGiftRecord(record) {
         }
         log('Transfered gift record to backend:', record ?? '(unknown)');
         return;
-
     } catch (err) {
         console.error('[giftrelayer] persistGiftRecord error', err);
     }
 }
 
-// ------------------ REPLACE THIS FUNCTION ------------------
+// Simplify TL wrappers -> plain JS (kept from your original)
+function simplify(obj) {
+    if (obj === null || obj === undefined) return obj;
+    if (typeof obj === 'string' || typeof obj === 'boolean') return obj;
+    if (typeof obj === 'bigint') return Number(obj);
+
+    if (typeof obj?.toJSON === 'function') {
+        try {
+            const j = obj.toJSON();
+            return simplify(j);
+        } catch (e) { /* fall through */ }
+    }
+
+    if (typeof obj === 'object' && obj !== null) {
+        const keys = Object.keys(obj);
+        if (keys.length === 1 && (keys[0] === 'value' || keys[0] === 'v')) {
+            const v = obj[keys[0]];
+            if (typeof v === 'bigint') return Number(v);
+            if (typeof v === 'number') return v;
+            if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
+            return simplify(v);
+        }
+
+        if (Array.isArray(obj)) return obj.map(x => simplify(x));
+
+        const out = {};
+        for (const k of Object.keys(obj)) {
+            try {
+                out[k] = simplify(obj[k]);
+            } catch (e) {
+                out[k] = String(obj[k]);
+            }
+        }
+        return out;
+    }
+
+    return obj;
+}
+
+/**
+ * Extract gift information from a message-like object.
+ * This function has a fast path: it first checks the well-known place
+ * message.action.gift (this is where collectible transfers appear).
+ *
+ * @param {object} msgJson - simplified (plain) message object or raw TL message
+ * @param {boolean} alreadySimplified - set true if msgJson is already passed through simplify()
+ */
 function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
     const out = {
         isGift: false,
@@ -64,7 +109,6 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
         rawAction: null,
     };
 
-    // If caller already simplified the object, don't run simplify() again.
     let j;
     try {
         j = alreadySimplified ? msgJson : simplify(msgJson);
@@ -72,31 +116,53 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
         j = msgJson;
     }
 
-    // quick textual heuristic (keeps your original heuristic)
+    // Fast deterministic path: message.action.gift (most reliable location for collectible transfers)
+    const action = j?.action ?? j?.message?.action ?? null;
+    if (action && action.gift) {
+        const g = simplify(action.gift);
+        out.isGift = true;
+        out.rawAction = action;
+
+        // fields from sample you provided
+        out.giftId = g.id ?? g.gift_id ?? g._id ?? null;
+        out.collectionName = g.title ?? g.slug ?? g.collection ?? out.giftId;
+        // `num` is typically the unique number for collectible gifts in your sample
+        out.uniqueNumber = g.num ?? g.number ?? null;
+        out.uniqueBaseName = g.title ?? g.collection ?? null;
+        // owner related
+        if (g.ownerId) {
+            const owner = simplify(g.ownerId);
+            out.origin = owner.userId ?? owner.id ?? out.origin ?? null;
+        }
+        out.ownedGiftId = action?.owned_gift_id ?? action?.ownedGiftId ?? null;
+        out.starCount = g.star_count ?? g.starCount ?? null;
+
+        // If num exists, treat as unique collectible
+        out.isUnique = out.uniqueNumber != null || Boolean(g.num);
+        return out;
+    }
+
+    // If not found in fast path, fallback to heuristic recursive search (keeps previous behavior)
     try {
         const s = JSON.stringify(j || {});
         if (/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(s)) {
             out.isGift = true;
             out.rawAction = j;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) { /* ignore stringify issues */ }
 
-    // recursive search for candidate objects
+    // recursive detection (best-effort)
     let giftCandidate = null;
     let uniqueCandidate = null;
-    let actionCandidate = null;
 
     const giftKeyRegex = /(^|_)gift($|_)/i;
     const uniqueKeyRegex = /unique|unique_gift|unique_name|unique_number|base_name/i;
     const stickerKeyRegex = /sticker|sticker_set|set_name|collection/i;
     const starKeyRegex = /star_count|starCount|StarGift/i;
 
-    function traverse(obj, parentKey = '') {
+    function traverse(obj) {
         if (!obj || typeof obj !== 'object') return;
-
         const keys = Object.keys(obj);
-
-        // Heuristics to detect a gift-like object
         if (!giftCandidate) {
             if (keys.some(k => giftKeyRegex.test(k) || starKeyRegex.test(k) || stickerKeyRegex.test(k))) {
                 giftCandidate = obj;
@@ -104,177 +170,145 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
                 giftCandidate = obj;
             }
         }
-
-        // detect unique gift candidate
         if (!uniqueCandidate) {
             if (keys.some(k => uniqueKeyRegex.test(k) || /unique_name|number|unique_number/i.test(k))) {
                 uniqueCandidate = obj;
             }
         }
-
-        if (!actionCandidate && /action/i.test(parentKey)) {
-            actionCandidate = obj;
-        }
-
         for (const v of Object.values(obj)) {
-            try { traverse(v, ''); } catch (e) { /* ignore individual traversal errors */ }
+            try { traverse(v); } catch (e) { /* ignore */ }
         }
     }
 
     try { traverse(j); } catch (e) { /* ignore */ }
 
-    // Prefer uniqueCandidate when present
     if (uniqueCandidate) {
+        const u = simplify(uniqueCandidate);
         out.isGift = true;
         out.isUnique = true;
-        out.rawAction = out.rawAction || uniqueCandidate;
-
-        out.uniqueBaseName = uniqueCandidate.base_name ?? uniqueCandidate.baseName ?? uniqueCandidate.name ?? null;
-        out.giftId = uniqueCandidate.name ?? uniqueCandidate.unique_name ?? uniqueCandidate.gift_id ?? out.giftId;
-        out.uniqueNumber = uniqueCandidate.number ?? uniqueCandidate.unique_number ?? null;
-        out.origin = uniqueCandidate.origin ?? uniqueCandidate.source ?? out.origin ?? null;
+        out.rawAction = out.rawAction || u;
+        out.uniqueBaseName = u.base_name ?? u.baseName ?? u.name ?? null;
+        out.giftId = u.name ?? u.unique_name ?? u.gift_id ?? out.giftId;
+        out.uniqueNumber = u.number ?? u.unique_number ?? null;
+        out.origin = u.origin ?? u.source ?? out.origin ?? null;
         out.collectionName = out.uniqueBaseName ?? out.collectionName;
-        out.ownedGiftId = uniqueCandidate.owned_gift_id ?? uniqueCandidate.ownedGiftId ?? out.ownedGiftId ?? null;
-        out.starCount = uniqueCandidate.star_count ?? uniqueCandidate.starCount ?? out.starCount ?? null;
+        out.ownedGiftId = u.owned_gift_id ?? u.ownedGiftId ?? out.ownedGiftId ?? null;
+        out.starCount = u.star_count ?? u.starCount ?? out.starCount ?? null;
+        return out;
     }
 
-    // If not unique, use giftCandidate
-    if (!out.isGift && giftCandidate) {
+    if (giftCandidate) {
+        const g = simplify(giftCandidate);
         out.isGift = true;
-        out.rawAction = out.rawAction || giftCandidate;
-
-        out.giftId = giftCandidate.id ?? giftCandidate.gift_id ?? giftCandidate._id ?? out.giftId;
-        out.starCount = giftCandidate.star_count ?? giftCandidate.starCount ?? out.starCount ?? null;
+        out.rawAction = out.rawAction || g;
+        out.giftId = g.id ?? g.gift_id ?? g._id ?? out.giftId;
+        out.starCount = g.star_count ?? g.starCount ?? out.starCount ?? null;
         out.collectionName =
-            giftCandidate.sticker?.set_name ??
-            giftCandidate.sticker?.setName ??
-            giftCandidate.sticker_set_name ??
-            giftCandidate.collection ??
-            giftCandidate.set_name ??
+            g.sticker?.set_name ??
+            g.sticker?.setName ??
+            g.sticker_set_name ??
+            g.collection ??
+            g.set_name ??
             out.collectionName ??
             out.giftId;
-        out.ownedGiftId = giftCandidate.owned_gift_id ?? giftCandidate.ownedGiftId ?? out.ownedGiftId ?? null;
+        out.ownedGiftId = g.owned_gift_id ?? g.ownedGiftId ?? out.ownedGiftId ?? null;
+        return out;
     }
 
-    // If still not found, try top-level action (but avoid extra simplify if already simplified)
-    if (!out.isGift) {
-        const action = j?.action ?? j?.message?.action ?? null;
-        if (action) {
-            out.rawAction = out.rawAction || action;
-            const acSimpl = alreadySimplified ? action : (() => { try { return simplify(action); } catch (e) { return action; } })();
-
-            const acGift = acSimpl.gift ?? acSimpl.gift_info ?? acSimpl;
-            const acUnique = acSimpl.unique_gift ?? (acSimpl.gift && acSimpl.gift.unique_gift) ?? null;
-
-            if (acUnique) {
-                out.isGift = true;
-                out.isUnique = true;
-                out.uniqueBaseName = acUnique.base_name ?? acUnique.baseName ?? acUnique.name ?? null;
-                out.giftId = acUnique.name ?? acUnique.unique_name ?? out.giftId;
-                out.uniqueNumber = acUnique.number ?? acUnique.unique_number ?? null;
-                out.origin = acSimpl.origin ?? acUnique.origin ?? out.origin;
-                out.collectionName = out.uniqueBaseName ?? out.collectionName;
-                out.ownedGiftId = acSimpl.owned_gift_id ?? acSimpl.ownedGiftId ?? null;
-            } else if (acGift) {
-                out.isGift = true;
-                out.giftId = acGift.id ?? acGift.gift_id ?? acGift._id ?? out.giftId;
-                out.starCount = acGift.star_count ?? acGift.starCount ?? out.starCount;
-                out.collectionName =
-                    acGift.sticker?.set_name ??
-                    acGift.sticker?.setName ??
-                    acGift.collection ??
-                    out.collectionName ??
-                    out.giftId;
-                out.ownedGiftId = acSimpl.owned_gift_id ?? acSimpl.ownedGiftId ?? out.ownedGiftId ?? null;
-            }
-        }
-    }
-
-    if (out.isGift && !out.rawAction) out.rawAction = j;
     return out;
 }
 
-// REPLACE your existing onRawUpdate with this improved version
-// ------------------ REPLACE this onRawUpdate ------------------
+
+/**
+ * Raw update handler: only does cheap top-level checks and then examines message.action.gift.
+ * Avoids stringifying whole `event` or `client` (caused circular JSON errors).
+ */
 async function onRawUpdate(event) {
     try {
-        console.log('[giftrelayer] onRawUpdate started');
+        // event may be a wrapper: use event.update if present
         const update = event?.update ?? event;
         if (!update) return;
-        const updateJson = update.toJSON ? update.toJSON() : update;
-        console.log('[giftrelayer] SAMPLE UPDATE JSON (first run):', JSON.stringify(updateJson, null, 2).slice(0, 4000));
 
-        // CHEAP SHALLOW CHECK (no deep simplify). This avoids blocking work on every update.
-        // Look for message-like keys or action keys at the top level.
-        const top = update;
-        const topKeys = Object.keys(top || {}).join(' ');
-        // quick check: only continue if likely to contain message/action/gift related keys
-        if (!/\bmessage\b|\bnew_message\b|\bmessage_action\b|\baction\b|\bgift\b|unique_gift|messageAction|StarGift/i.test(topKeys)) {
-            // not relevant — ignore immediately
+        // Cheap predicate: skip most updates quickly (no heavy work)
+        // We intentionally inspect only top-level keys here.
+        const topKeys = Object.keys(update || {}).join(' ');
+        if (!/\bmessage\b|\bnew_message\b|\bmessage_action\b|\baction\b/i.test(topKeys)) {
             return;
         }
 
-        // Now find the best candidate message object (shallow)
-        const shallowCandidate =
-            update.message ?? update.new_message ?? update.newMessage ?? update.msg ?? null;
-
-        // If we have a shallow candidate -> simplify only that candidate.
-        // If not, fall back to simplifying the top update (but only now, after cheap checks).
-        let candidateRaw = shallowCandidate ?? update;
-        let candidate;
+        // Try to pick message-like object without touching the whole event
+        const tlMessage = update.message ?? update.new_message ?? update.newMessage ?? null;
+        // If we have a TL message object, convert just that to plain JS safely
+        let msgPlain;
         try {
-            candidate = simplify(candidateRaw);
+            if (tlMessage && typeof tlMessage.toJSON === 'function') {
+                msgPlain = tlMessage.toJSON();
+            } else if (tlMessage) {
+                msgPlain = simplify(tlMessage);
+            } else {
+                // fallback to simplifying the update itself (rare)
+                msgPlain = simplify(update);
+            }
         } catch (e) {
-            candidate = candidateRaw;
+            // Defensive fallback
+            msgPlain = tlMessage ?? update;
         }
 
-        // Best-effort message id for dedupe
-        const candidateId = candidate?.id ?? candidate?.message?.id ?? null;
-        console.log(`[giftrelayer] start checking candidateId: ${String(candidateId ?? 'undefined')}`);
+        // optional debug capture of the message (safe: msgPlain won't contain client)
+        if (process.env.GIFTLR_CAPTURE_SAMPLE === '1' && msgPlain) {
+            try {
+                console.log('[giftrelayer] SAMPLE UPDATE JSON (first run):', JSON.stringify(msgPlain, null, 2).slice(0, 4000));
+            } catch (e) {
+                // ignore stringify problems for weird nested buffers etc
+                console.log('[giftrelayer] SAMPLE UPDATE (non-stringifiable snippet)');
+            } finally {
+                process.env.GIFTLR_CAPTURE_SAMPLE = '0';
+            }
+        }
+
+        // dedupe - some TL updates may be delivered multiple times
+        const candidateId = msgPlain?.id ?? msgPlain?.message?.id ?? null;
         if (candidateId != null) {
             if (_processedMessageIds.has(String(candidateId))) return;
             _processedMessageIds.add(String(candidateId));
-            if (_processedMessageIds.size > 1000) {
+            if (_processedMessageIds.size > 2000) {
+                // trim oldest ~200 entries
                 const it = _processedMessageIds.values();
-                for (let i = 0; i < 100; i++) {
+                for (let i = 0; i < 200; i++) {
                     const v = it.next().value;
                     if (!v) break;
                     _processedMessageIds.delete(v);
                 }
             }
         }
-        console.log('[giftrelayer] ended checking candidateId');
 
-        // Lightweight keys scan on the simplified candidate
-        const keysSnapshot = Object.keys(candidate || {}).join(' ');
-        console.log('[giftrelayer] checking if the event is gift related');
-        if (!/\bgift\b|unique_gift|unique_name|unique_number|messageAction|StarGift/i.test(keysSnapshot)) {
-            // not gift-related — ignore
+        // Now check the well-known gift location: message.action.gift
+        const action = msgPlain?.action ?? msgPlain?.message?.action ?? null;
+        if (!action || !action.gift) {
+            // Not a gift transfer — ignore
             return;
         }
-        console.log('[giftrelayer] the event is in fact gift related');
 
-        // Pass the pre-simplified candidate to the extractor and tell it it's already simplified
-        const giftInfo = extractGiftInfoFromJson(candidate, true);
+        // Extract gift info using the extractor (we already simplified the message)
+        const giftInfo = extractGiftInfoFromJson(msgPlain, true);
         if (!giftInfo?.isGift) {
-            console.log('[giftrelayer] raw update looked gift-like but extractor returned false; sample keys=', keysSnapshot);
-            log('[giftrelayer] raw update looked gift-like but extractor returned false, sample keys=', keysSnapshot);
+            log('[giftrelayer] gift-shaped update detected but extractor returned false, msg keys=', Object.keys(msgPlain || {}).join(' '));
             return;
         }
 
-        // Build record (best-effort)
-        const senderId =
-            (candidate?.fromId && typeof candidate.fromId === 'object' && candidate.fromId.userId) ? candidate.fromId.userId :
-                (candidate?.fromId ?? candidate?.senderId ?? candidate?.userId ?? null);
-        const senderUsername = candidate?.from?.username ?? candidate?.sender?.username ?? null;
-        const recipient = candidate?.peerId ?? candidate?.chatId ?? candidate?.toId ?? null;
+        // Build record
+        const sender =
+            (msgPlain?.fromId && typeof msgPlain.fromId === 'object' && msgPlain.fromId.userId) ? msgPlain.fromId.userId :
+                (msgPlain?.fromId ?? msgPlain?.senderId ?? null);
+        const senderUsername = msgPlain?.from?.username ?? msgPlain?.sender?.username ?? null;
+        const recipient = msgPlain?.peerId ?? msgPlain?.chatId ?? msgPlain?.toId ?? null;
         const now = new Date().toISOString();
 
         const record = {
             uuid: uuidv4(),
-            telegram_message_id: candidate?.id ?? null,
+            telegram_message_id: msgPlain?.id ?? null,
             telegram_chat_peer: JSON.stringify(recipient),
-            telegram_sender_id: senderId ?? null,
+            telegram_sender_id: sender ?? null,
             sender_username: senderUsername ?? null,
             gift_id: giftInfo.giftId ?? null,
             collection_name: giftInfo.collectionName ?? null,
@@ -284,7 +318,9 @@ async function onRawUpdate(event) {
             unique_base_name: giftInfo.uniqueBaseName ?? null,
             origin: giftInfo.origin ?? null,
             owned_gift_id: giftInfo.ownedGiftId ?? null,
-            raw_json: candidate ? JSON.stringify(candidate) : null,
+            raw_json: (() => {
+                try { return JSON.stringify(msgPlain); } catch (e) { return String(msgPlain); }
+            })(),
             created_at: now
         };
 
@@ -293,74 +329,69 @@ async function onRawUpdate(event) {
 
         await persistGiftRecord(record);
     } catch (err) {
-        console.error('[giftrelayer] onRawUpdate error', err);
+        // Always avoid calling JSON.stringify(event) here — circular objects live in the envelope
+        console.error('[giftrelayer] onRawUpdate error', err?.message ?? err);
     }
 }
-// ------------------ END REPLACEMENT ------------------
 
 
+/**
+ * NewMessage handler - still useful for regular incoming messages (text/media).
+ * Note: collectible gift transfers are service messages and *won't* trigger this handler,
+ * which is why we handle them in onRawUpdate above.
+ */
 async function onNewMessage(event) {
-    // DOESNT GET TRIGGERED WHEN GIFT SENT!!!
     try {
         const msg = event.message;
         if (!msg) return;
-        console.log('[giftrelayer] found an incoming new message')
-        const msgJson = msg.toJSON ? msg.toJSON() : msg;
-        console.log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer)
+
+        console.log('[giftrelayer] found an incoming new message');
+        let msgJson;
+        try {
+            msgJson = msg.toJSON ? msg.toJSON() : simplify(msg);
+        } catch (e) {
+            msgJson = simplify(msg);
+        }
+
+        console.log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer);
         log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer);
 
-        // capture one sample dump to refine extractor if configured
         if (process.env.GIFTLR_CAPTURE_SAMPLE === '1') {
-            console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
+            try {
+                console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
+            } catch (e) {
+                console.log('[giftrelayer] SAMPLE MSG JSON (first run - not fully stringifiable)');
+            }
             process.env.GIFTLR_CAPTURE_SAMPLE = '0';
         }
-        console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
 
-        const giftInfo = extractGiftInfoFromJson(msgJson);
-        console.log(giftInfo)
+        const giftInfo = extractGiftInfoFromJson(msgJson, true);
+        log('[giftrelayer] giftInfo from NewMessage:', giftInfo);
 
-        // If not a gift — reply in-chat (GramJS Message.reply preferred, using correct options shape)
         if (!giftInfo.isGift) {
+            // reply friendly to regular messages
             try {
-                // Preferred: use Message.reply with an options object (avoid passing a plain string)
                 if (msg && typeof msg.reply === 'function') {
+                    // pass object shape to avoid GramJS reply quirks
                     await msg.reply({ message: "Привет! Я - бот. Пришли мне любые уникализированные подарки 🎁" });
-                    log('[giftrelayer] replied with "Привет! Пришли мне любой уникализированный подарок." via msg.reply');
+                    log('[giftrelayer] replied to user (non-gift)');
                 } else {
-                    // Fallback: send by numeric id (try peerId.userId / fromId.userId / senderId)
-                    const candidate =
-                        simplify(msgJson?.peerId?.userId ?? msgJson?.fromId?.userId ?? msgJson?.senderId ?? null);
+                    // fallback: try to get a sender id and send there
+                    const candidate = simplify(msgJson?.peerId?.userId ?? msgJson?.fromId?.userId ?? msgJson?.senderId ?? null);
                     if (candidate != null) {
                         await client.sendMessage(candidate, { message: "Привет! Я - бот. Пришли мне любые уникализированные подарки 🎁" });
-                        log('[giftrelayer] sent fallback reply with client.sendMessage to', candidate);
-                    } else {
-                        // last resort: try event.getSender() -> extract id and send
-                        try {
-                            const senderEntity = await event.getSender();
-                            if (senderEntity) {
-                                // senderEntity may be a full User; pass its id
-                                const senderId = simplify(senderEntity?.id ?? senderEntity?.userId ?? null);
-                                if (senderId != null) {
-                                    await client.sendMessage(senderId, { message: "Привет! Я - бот. Пришли мне любые уникализированные подарки 🎁" });
-                                    log('[giftrelayer] sent fallback reply (via event.getSender) to', senderId);
-                                } else {
-                                    console.warn('[giftrelayer] cannot reply - sender entity has no id');
-                                }
-                            } else {
-                                console.warn('[giftrelayer] cannot reply - no sender entity available');
-                            }
-                        } catch (e) {
-                            console.error('[giftrelayer] fallback event.getSender error', e);
-                        }
+                        log('[giftrelayer] fallback replied using client.sendMessage');
                     }
                 }
             } catch (err) {
-                console.error('[giftrelayer] error while sending non-gift reply', err);
+                console.error('[giftrelayer] error while replying to non-gift message', err?.message ?? err);
             }
-            console.log('[giftrelayer] user sent random text message')
+            console.log('[giftrelayer] user sent random text message');
             return;
         }
-        console.log('[giftrelayer] THE MESSAGE SENT WAS A GIFT')
+
+        // If it *is* a gift (rare via NewMessage), persist similarly to raw update flow
+        console.log('[giftrelayer] THE MESSAGE SENT WAS A GIFT (NewMessage path)');
         const senderId =
             (msgJson?.fromId && typeof msgJson.fromId === 'object' && msgJson.fromId.userId) ? msgJson.fromId.userId :
                 (msgJson?.fromId ?? msgJson?.senderId ?? null);
@@ -382,20 +413,21 @@ async function onNewMessage(event) {
             unique_base_name: giftInfo.uniqueBaseName ?? null,
             origin: giftInfo.origin ?? null,
             owned_gift_id: giftInfo.ownedGiftId ?? null,
-            raw_json: msgJson ? JSON.stringify(msgJson) : null,
+            raw_json: (() => {
+                try { return JSON.stringify(msgJson); } catch (e) { return String(msgJson); }
+            })(),
             created_at: now
         };
-        console.log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id })
-        log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
 
+        console.log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
         await persistGiftRecord(record);
     } catch (err) {
-        console.error('[giftrelayer] onNewMessage error', err);
+        console.error('[giftrelayer] onNewMessage error', err?.message ?? err);
     }
 }
 
 
-// REPLACE your start() registration of Raw with this safer predicate (so Raw doesn't get called for every tiny update)
+// startup: connect, register handlers
 async function start() {
     try {
         console.log("[giftrelayer] starting Telegram client...");
@@ -403,19 +435,18 @@ async function start() {
         const me = await client.getMe();
         console.log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
 
-        // keep existing NewMessage handler
+        // register NewMessage for normal messages (keeps existing behavior)
         client.addEventHandler(onNewMessage, new NewMessage({}));
 
-        // register Raw with a lightweight predicate so it only triggers for updates containing
-        // message / new_message / message_action / action-like shapes
+        // register Raw for service updates (use light predicate to reduce frequency)
         client.addEventHandler(onRawUpdate, new Raw({
             func: (u) => {
                 try {
                     if (!u || typeof u !== 'object') return false;
-                    // common TL fields that indicate message-like update
-                    if (u.message || u.new_message || u.message_action || u.messageAction || u.action) return true;
-                    // sometimes 'update' wrappers expose 'message' nested; check some stringy constructor names if present
-                    const ctor = u?.CONSTRUCTOR_ID || u?.className || u?._ || u?.constructor?.name;
+                    // only allow raw updates that look message-like or action-like
+                    if (u.message || u.new_message || u.action || u.message_action) return true;
+                    // fallback: check a couple constructor-like fields
+                    const ctor = u?.className ?? u?.CONSTRUCTOR_ID ?? u?._ ?? u?.constructor?.name;
                     if (typeof ctor === 'string' && /message|update|msg|action/i.test(String(ctor))) return true;
                     return false;
                 } catch (e) {
@@ -427,63 +458,11 @@ async function start() {
         console.log("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
         await new Promise(() => { }); // keep alive
     } catch (err) {
-        console.error("[giftrelayer] start error, exiting:", err);
+        console.error("[giftrelayer] start error, exiting:", err?.message ?? err);
         process.exit(1);
     }
 }
 
-// make sure to place this in an ESM file (import util from 'util' at top if needed)
-
-function simplify(obj) {
-    // handle null / primitive
-    if (obj === null || obj === undefined) return obj;
-    if (typeof obj === 'string' || typeof obj === 'boolean') return obj;
-    // convert BigInt -> number
-    if (typeof obj === 'bigint') return Number(obj);
-
-    // If the object exposes toJSON, use it (many TL objects do)
-    if (typeof obj.toJSON === 'function') {
-        try {
-            const j = obj.toJSON();
-            // some toJSON still keep Integer wrappers — recurse
-            return simplify(j);
-        } catch (e) {
-            // fall through
-        }
-    }
-
-    // If it's an Integer-like TL object (GramJS prints [Integer]),
-    // it may be an object with a `value` or `toNumber` method.
-    if (typeof obj === 'object' && obj !== null) {
-        // detect single-value wrapper (e.g. { value: 123 })
-        const keys = Object.keys(obj);
-        if (keys.length === 1 && (keys[0] === 'value' || keys[0] === 'v')) {
-            const v = obj[keys[0]];
-            if (typeof v === 'bigint') return Number(v);
-            if (typeof v === 'number') return v;
-            if (typeof v === 'string' && /^\d+$/.test(v)) return Number(v);
-            return simplify(v);
-        }
-
-        // general object / array handling
-        if (Array.isArray(obj)) {
-            return obj.map((x) => simplify(x));
-        }
-
-        const out = {};
-        for (const k of Object.keys(obj)) {
-            try {
-                out[k] = simplify(obj[k]);
-            } catch (e) {
-                out[k] = String(obj[k]);
-            }
-        }
-        return out;
-    }
-
-    // fallback (numbers etc)
-    return obj;
-}
 
 // graceful shutdown
 async function shutdownAndExit() {

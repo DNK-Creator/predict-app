@@ -98,7 +98,7 @@ export async function createInvoiceLink(amount) {
 }
 
 app.post("/api/giftHandle", async (req, res) => {
-    console.log("Hit /api/giftHandle");
+    console.log("[BACKEND HIT] /api/giftHandle");
     try {
         const rec = req.body ?? {};
         // Basic validation
