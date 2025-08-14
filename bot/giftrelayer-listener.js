@@ -9,21 +9,29 @@ import fetch from "node-fetch";
 import { v4 as uuidv4 } from "uuid";
 import util from "util";
 
+// ----------------- MANUAL DEBUG FLAGS -----------------
+// Toggle these directly in this file while testing (no env needed)
+const FORCE_DEBUG = true;         // Set true to see all debug logs
+const FORCE_VERBOSE = false;      // slightly more verbose (safeStringify samples); leave false in production
+// ------------------------------------------------------
+
+const DEBUG = FORCE_DEBUG || !!process.env.WORKER_DEBUG;
+
+// Watchdog / timeout config
+const PERSIST_TIMEOUT_MS = 8000;
+const GETMSG_TIMEOUT_MS = 5000;
+const PING_INTERVAL_MS = 60_000;
+const PING_FAIL_RECONNECTS = 2;
+
 // ---- config / env ----
 const apiId = Number(process.env.TG_API_ID || 0);
 const apiHash = process.env.TG_API_HASH || "";
 const stringSession = process.env.TG_STRING_SESSION || "";
-const DEBUG = !!process.env.WORKER_DEBUG;
-
-// Watchdog / timeout config
-const PERSIST_TIMEOUT_MS = Number(process.env.GIFTLR_PERSIST_TIMEOUT_MS || 7000);
-const PING_INTERVAL_MS = Number(process.env.GIFTLR_PING_INTERVAL_MS || 60_000);
-const PING_FAIL_RECONNECTS = Number(process.env.GIFTLR_PING_FAIL_RECONNECTS || 2);
 
 // Add near the top (module scope) to dedupe duplicate updates:
 const _processedMessageIds = new Set();
 
-// minimal env validation
+// Basic env validation
 if (!apiId || !apiHash || !stringSession) {
     console.error("[giftrelayer] TG_API_ID, TG_API_HASH and TG_STRING_SESSION must be set. Exiting.");
     process.exit(1);
@@ -34,13 +42,7 @@ const client = new TelegramClient(new StringSession(stringSession), apiId, apiHa
     connectionRetries: 10,
 });
 
-// runtime state
-let handlersRegistered = false;
-let consecutivePingFailures = 0;
-
-function log(...args) {
-    if (DEBUG) console.log('[giftrelayer]', ...args);
-}
+function log(...args) { if (DEBUG) console.log('[giftrelayer]', ...args); }
 function info(...args) { console.log('[giftrelayer]', ...args); }
 function warn(...args) { console.warn('[giftrelayer]', ...args); }
 function error(...args) { console.error('[giftrelayer]', ...args); }
@@ -49,16 +51,13 @@ function error(...args) { console.error('[giftrelayer]', ...args); }
 function safeStringify(obj, maxLen = 4000) {
     const seen = new WeakSet();
     function replacer(key, value) {
-        // replace Buffers/typed arrays
         if (value && typeof value === 'object') {
-            // To avoid WeakSet throwing for primitives
             if (value instanceof Buffer || value?.type === 'Buffer' || (typeof value.byteLength === 'number' && (value instanceof Uint8Array || value.buffer))) {
                 return `<Binary ${value?.length ?? value?.byteLength ?? 'n'} bytes>`;
             }
             if (seen.has(value)) return '<Circular>';
             seen.add(value);
         }
-        // hide huge arrays
         if (Array.isArray(value) && value.length > 50) {
             return `[Array length ${value.length} — truncated]`;
         }
@@ -66,14 +65,12 @@ function safeStringify(obj, maxLen = 4000) {
     }
 
     try {
-        // If object exposes toJSON, prefer that for TL objects
         const candidate = (obj && typeof obj.toJSON === 'function') ? obj.toJSON() : obj;
         const s = JSON.stringify(candidate, replacer);
         if (s.length <= maxLen) return s;
         return s.slice(0, maxLen) + '...';
     } catch (e) {
         try {
-            // fallback util.inspect (safer on circular)
             return util.inspect(obj, { depth: 3, breakLength: 200, maxArrayLength: 10 });
         } catch (ign) {
             return String(obj);
@@ -81,29 +78,27 @@ function safeStringify(obj, maxLen = 4000) {
     }
 }
 
-// Promise timeout helper
-function withTimeout(promise, ms, failValue = null) {
+// helper: run promise with soft timeout (returns null on timeout)
+function withTimeout(promise, ms) {
     return Promise.race([
         promise,
-        new Promise((resolve) => setTimeout(() => resolve(failValue), ms))
+        new Promise((resolve) => setTimeout(() => resolve(null), ms))
     ]);
 }
 
-// persist with bounded timeout so we never await forever
+// persist with bounded timeout
 async function persistGiftRecord(record) {
     try {
-        const controller = new AbortController();
-        // node-fetch abort after timeout
-        const p = fetch('https://api.giftspredict.ru/api/giftHandle', {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(record),
-            signal: controller.signal
-        });
-
-        const resp = await withTimeout(p, PERSIST_TIMEOUT_MS, null);
+        const resp = await withTimeout(
+            fetch('https://api.giftspredict.ru/api/giftHandle', {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(record),
+            }),
+            PERSIST_TIMEOUT_MS
+        );
         if (!resp) {
-            warn('[giftrelayer] persistGiftRecord timed out');
+            warn('[giftrelayer] persistGiftRecord request timed out (no response)');
             return;
         }
         if (!resp.ok) {
@@ -117,8 +112,7 @@ async function persistGiftRecord(record) {
     }
 }
 
-// conservative gift extractor (you already had a good one).
-// Keep your existing extractor but avoid re-stringifying huge objects.
+// ----------------- Extractor & simplifier (kept robust) -----------------
 function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
     const out = {
         isGift: false,
@@ -134,22 +128,16 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
     };
 
     let j;
-    try {
-        j = alreadySimplified ? msgJson : simplify(msgJson);
-    } catch (e) {
-        j = msgJson;
-    }
+    try { j = alreadySimplified ? msgJson : simplify(msgJson); } catch (e) { j = msgJson; }
 
-    // small textual heuristic
     try {
         const sample = safeStringify(j, 2000);
         if (/\bGift\b|\bStarGift\b|\bunique_gift\b|\bmessageAction\b/i.test(sample)) {
             out.isGift = true;
             out.rawAction = j;
         }
-    } catch (e) { /* ignore */ }
+    } catch (e) { }
 
-    // recursive search for candidate objects
     let giftCandidate = null;
     let uniqueCandidate = null;
 
@@ -174,11 +162,11 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
             }
         }
         for (const v of Object.values(obj)) {
-            try { traverse(v); } catch (e) { /* ignore */ }
+            try { traverse(v); } catch (e) { }
         }
     }
 
-    try { traverse(j); } catch (e) { /* ignore */ }
+    try { traverse(j); } catch (e) { }
 
     if (uniqueCandidate) {
         out.isGift = true;
@@ -245,35 +233,25 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
     return out;
 }
 
-// simplified TL -> plain converter (safe: limit recursion depth and skip Big binary)
+// simplified TL -> plain converter
 function simplify(obj, depth = 0, maxDepth = 6) {
     if (obj === null || obj === undefined) return obj;
     if (typeof obj === 'string' || typeof obj === 'boolean' || typeof obj === 'number') return obj;
     if (typeof obj === 'bigint') return Number(obj);
 
-    // prefer toJSON
     if (typeof obj.toJSON === 'function') {
-        try {
-            return simplify(obj.toJSON(), depth + 1, maxDepth);
-        } catch (e) {
-            // fall through
-        }
+        try { return simplify(obj.toJSON(), depth + 1, maxDepth); } catch (e) { }
     }
 
-    if (depth > maxDepth) {
-        return '[MaxDepth]';
-    }
+    if (depth > maxDepth) return '[MaxDepth]';
 
-    // Buffer / typed arrays
     if (obj instanceof Buffer || (obj && typeof obj.byteLength === 'number' && (obj instanceof Uint8Array || obj.buffer))) {
         return `<Binary ${obj?.length ?? obj?.byteLength ?? 'n'} bytes>`;
     }
 
     if (Array.isArray(obj)) {
         const outA = [];
-        for (let i = 0; i < obj.length && i < 100; i++) {
-            outA.push(simplify(obj[i], depth + 1, maxDepth));
-        }
+        for (let i = 0; i < obj.length && i < 100; i++) outA.push(simplify(obj[i], depth + 1, maxDepth));
         if (obj.length > 100) outA.push(`[... ${obj.length - 100} more items]`);
         return outA;
     }
@@ -281,11 +259,7 @@ function simplify(obj, depth = 0, maxDepth = 6) {
     if (typeof obj === 'object') {
         const out = {};
         for (const k of Object.keys(obj)) {
-            try {
-                out[k] = simplify(obj[k], depth + 1, maxDepth);
-            } catch (e) {
-                out[k] = String(obj[k]);
-            }
+            try { out[k] = simplify(obj[k], depth + 1, maxDepth); } catch (e) { out[k] = String(obj[k]); }
         }
         return out;
     }
@@ -293,23 +267,95 @@ function simplify(obj, depth = 0, maxDepth = 6) {
     return obj;
 }
 
-// Robust raw update handler (cheap checks + limited stringify)
+// Attempt to resolve sender ID from the candidate and context.
+// If not present in candidate, attempt to fetch the referenced message (replyTo.replyToMsgId)
+async function resolveSenderId(candidate, giftInfo) {
+    // 1) candidate.fromId (object { userId })
+    if (candidate?.fromId && typeof candidate.fromId === 'object' && candidate.fromId.userId) {
+        return candidate.fromId.userId;
+    }
+    // 2) candidate.fromId primitive (rare)
+    if (candidate?.fromId) return candidate.fromId;
+
+    // 3) candidate.action.fromId (messageActionStarGift.from_id)
+    if (candidate?.action?.fromId) {
+        const a = candidate.action.fromId;
+        if (typeof a === 'object' && a.userId) return a.userId;
+        return a;
+    }
+
+    // 4) gift.ownerId — may be recipient (the relayer) — keep as fallback
+    try {
+        const g = giftInfo?.rawAction?.gift ?? giftInfo?.rawAction;
+        if (g && (g.ownerId || g.owner)) {
+            const owner = g.ownerId ?? g.owner;
+            if (owner && owner.userId) return owner.userId;
+            if (owner) return owner;
+        }
+    } catch (e) { }
+
+    // 5) If update has a replyTo.replyToMsgId (the service update references the original message),
+    //    fetch that message from the peer and extract its fromId. This is the core recovery mechanism.
+    try {
+        const replyToMsgId = candidate?.replyTo?.replyToMsgId ?? candidate?.replyToMsgId ?? null;
+        const peer = candidate?.peerId ?? candidate?.peer ?? candidate?.chatId ?? null;
+        if (replyToMsgId && peer) {
+            // peer might be simplified object like { userId: '123', className: 'PeerUser' } or an id
+            let peerArg = peer;
+            // if peer is object with userId string, convert to number
+            if (peer && typeof peer === 'object') {
+                if (peer.userId) peerArg = Number(peer.userId);
+                else if (peer.chatId) peerArg = Number(peer.chatId);
+            }
+
+            log('[giftrelayer] attempting to fetch referenced message to resolve sender: replyToMsgId=', replyToMsgId, 'peer=', peerArg);
+
+            const msgs = await withTimeout(client.getMessages(peerArg, [replyToMsgId]), GETMSG_TIMEOUT_MS);
+            if (msgs && Array.isArray(msgs) && msgs.length > 0) {
+                const m = msgs[0];
+                try {
+                    // Many gramJS Message objects have .fromId or .from
+                    const simplified = simplify(m);
+                    const fromIdObj = simplified?.fromId ?? simplified?.senderId ?? simplified?.from ?? null;
+                    // fromIdObj might be object { userId: '...' } or numeric/string id
+                    if (fromIdObj && typeof fromIdObj === 'object' && fromIdObj.userId) {
+                        log('[giftrelayer] resolved sender from referenced message (object userId)=', fromIdObj.userId);
+                        return fromIdObj.userId;
+                    } else if (fromIdObj) {
+                        log('[giftrelayer] resolved sender from referenced message (primitive)=', fromIdObj);
+                        return fromIdObj;
+                    }
+                } catch (e) {
+                    log('[giftrelayer] error while parsing referenced message', e);
+                }
+            } else {
+                log('[giftrelayer] getMessages returned no results or timed out for msgId', replyToMsgId);
+            }
+        }
+    } catch (err) {
+        log('[giftrelayer] resolveSenderId getMessages error', err && err.message ? err.message : err);
+    }
+
+    // final fallback: null
+    return null;
+}
+
+// Robust raw update handler
 async function onRawUpdate(event) {
     try {
-        // lightweight checks only
         const update = event?.update ?? event;
         if (!update) return;
 
         // shallow top-level keys check
-        const top = update;
-        const topKeys = Object.keys(top || {}).join(' ');
+        const topKeys = Object.keys(update || {}).join(' ');
         if (!/\bmessage\b|\bnew_message\b|\bmessage_action\b|\baction\b|\bgift\b|unique_gift|messageAction|StarGift/i.test(topKeys)) {
+            // skip — but in debug show a sample
+            if (DEBUG && FORCE_VERBOSE) log('[giftrelayer] onRawUpdate skipped topKeys:', topKeys);
             return;
         }
 
         // candidate selection (shallow)
-        const shallowCandidate =
-            update.message ?? update.new_message ?? update.newMessage ?? update.msg ?? null;
+        const shallowCandidate = update.message ?? update.new_message ?? update.newMessage ?? update.msg ?? null;
         const candidateRaw = shallowCandidate ?? update;
 
         // simplify only the candidate (safe)
@@ -320,10 +366,12 @@ async function onRawUpdate(event) {
         const candidateId = candidate?.id ?? candidate?.message?.id ?? null;
         log(`[giftrelayer] start checking candidateId: ${String(candidateId ?? 'undefined')}`);
         if (candidateId != null) {
-            if (_processedMessageIds.has(String(candidateId))) return;
+            if (_processedMessageIds.has(String(candidateId))) {
+                if (DEBUG) log('[giftrelayer] duplicate candidateId - ignoring', candidateId);
+                return;
+            }
             _processedMessageIds.add(String(candidateId));
             if (_processedMessageIds.size > 1000) {
-                // prune some
                 const it = _processedMessageIds.values();
                 for (let i = 0; i < 100; i++) {
                     const v = it.next().value;
@@ -334,41 +382,30 @@ async function onRawUpdate(event) {
         }
         log('[giftrelayer] ended checking candidateId');
 
-        // further cheap key-scan
+        // cheap key-scan
         const keysSnapshot = Object.keys(candidate || {}).join(' ');
-        log('[giftrelayer] checking if the event is gift related');
-        if (!/\bgift\b|unique_gift|unique_name|unique_number|messageAction|StarGift/i.test(keysSnapshot)) {
+        log('[giftrelayer] checking if the event is gift related (keys snapshot)', keysSnapshot);
+        // expanded check: also look into candidate.message?.action presence
+        const maybeGift =
+            /\bgift\b|unique_gift|unique_name|unique_number|messageAction|StarGift/i.test(keysSnapshot) ||
+            !!(candidate?.action) ||
+            !!(candidate?.message?.action);
+
+        if (!maybeGift) {
+            if (DEBUG && FORCE_VERBOSE) log('[giftrelayer] not gift-like after deeper checks; sample candidate:', safeStringify(candidate, 2000));
             return;
         }
-        info('[giftrelayer] the event is in fact gift related');
+        info('[giftrelayer] the event is in fact gift related (passed shallow checks)');
 
         // extract gift info (already simplified)
         const giftInfo = extractGiftInfoFromJson(candidate, true);
         if (!giftInfo?.isGift) {
-            log('[giftrelayer] extractor did not find gift; keys=', keysSnapshot);
+            log('[giftrelayer] extractor did not find gift; keys=', keysSnapshot, 'sample=', FORCE_VERBOSE ? safeStringify(candidate, 3000) : undefined);
             return;
         }
 
-        // Resolve sender id robustly
-        let senderId =
-            (candidate?.fromId && typeof candidate.fromId === 'object' && candidate.fromId.userId) ? candidate.fromId.userId :
-                (candidate?.fromId ?? candidate?.senderId ?? candidate?.userId ?? null);
-
-        // Check action.fromId (messageActionStarGift.from_id)
-        if (!senderId && candidate?.action?.fromId) {
-            const a = candidate.action.fromId;
-            senderId = (a && typeof a === 'object' && a.userId) ? a.userId : a ?? null;
-        }
-
-        // If still missing, check nested gift.ownerId (but ownerId can be recipient/relayer — you'll filter later)
-        if (!senderId && giftInfo?.rawAction) {
-            // giftInfo.rawAction is simplified; many shapes place ownerId inside gift.ownerId
-            const g = giftInfo.rawAction.gift ?? giftInfo.rawAction;
-            if (g && (g.ownerId || g.owner)) {
-                const owner = g.ownerId ?? g.owner;
-                senderId = owner && owner.userId ? owner.userId : senderId;
-            }
-        }
+        // Resolve sender id robustly, including trying to fetch referenced message if needed
+        let senderId = await resolveSenderId(candidate, giftInfo);
 
         // Build record
         const senderUsername = candidate?.from?.username ?? candidate?.sender?.username ?? null;
@@ -393,7 +430,17 @@ async function onRawUpdate(event) {
             created_at: now
         };
 
-        info('[giftrelayer] raw update detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
+        info('[giftrelayer] raw update detected gift -> persisting', {
+            gift_id: record.gift_id,
+            collection: record.collection_name,
+            sender: record.telegram_sender_id
+        });
+
+        // if sender is still null — log explicit debug; backend will reject such records (as you configured)
+        if (!record.telegram_sender_id) {
+            warn('[giftrelayer] WARNING: telegram_sender_id is null for this gift. Attempted resolution failed. sample raw_json (truncated):', safeStringify(candidate, 2000));
+        }
+
         await persistGiftRecord(record);
 
     } catch (err) {
@@ -401,17 +448,16 @@ async function onRawUpdate(event) {
     }
 }
 
-// plain NewMessage handler (for regular messages)
+// NewMessage handler (keeps previous behavior)
 async function onNewMessage(event) {
     try {
         const msg = event.message;
         if (!msg) return;
         info('[giftrelayer] found an incoming new message');
         const msgJson = (msg && typeof msg.toJSON === 'function') ? msg.toJSON() : msg;
-        // log small sample only
         log('incoming message id=', msgJson?.id, 'peer=', (msgJson?.peerId ?? msgJson?.peer));
-        if (process.env.GIFTLR_CAPTURE_SAMPLE === '1') {
-            console.log('[giftrelayer] SAMPLE MSG JSON (first run):', safeStringify(msgJson, 4000));
+        if (process.env.GIFTLR_CAPTURE_SAMPLE === '1' || FORCE_VERBOSE) {
+            console.log('[giftrelayer] SAMPLE MSG JSON (first run or forced):', safeStringify(msgJson, 4000));
             process.env.GIFTLR_CAPTURE_SAMPLE = '0';
         }
 
@@ -437,7 +483,7 @@ async function onNewMessage(event) {
             return;
         }
 
-        // treat as gift (rare with NewMessage but keep parity)
+        // If it is a gift in NewMessage (rare) handle same as raw
         const senderId =
             (msgJson?.fromId && typeof msgJson.fromId === 'object' && msgJson.fromId.userId) ? msgJson.fromId.userId :
                 (msgJson?.fromId ?? msgJson?.senderId ?? null);
@@ -463,6 +509,7 @@ async function onNewMessage(event) {
             created_at: now
         };
         info('[giftrelayer] detected gift (NewMessage) -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
+        if (!record.telegram_sender_id) warn('[giftrelayer] NewMessage gift has null sender (will reach backend as null unless resolved).');
         await persistGiftRecord(record);
 
     } catch (err) {
@@ -470,7 +517,8 @@ async function onNewMessage(event) {
     }
 }
 
-// register event handlers (idempotent)
+// register handlers (idempotent)
+let handlersRegistered = false;
 function registerHandlers() {
     if (handlersRegistered) return;
     client.addEventHandler(onNewMessage, new NewMessage({}));
@@ -478,7 +526,6 @@ function registerHandlers() {
         func: (u) => {
             try {
                 if (!u || typeof u !== 'object') return false;
-                // only message-like/actions (quick)
                 if (u.message || u.new_message || u.action || u.message_action) return true;
                 const ctor = u?.className ?? u?.CONSTRUCTOR_ID ?? u?._ ?? u?.constructor?.name;
                 if (typeof ctor === 'string' && /message|update|msg|action/i.test(String(ctor))) return true;
@@ -492,12 +539,12 @@ function registerHandlers() {
     info('[giftrelayer] event handlers registered');
 }
 
-// --- client startup & heartbeat/reconnect helpers ---
+// heartbeat and restart helpers (keeps client healthy)
+let consecutivePingFailures = 0;
 async function restartClient() {
     try {
         info('[giftrelayer] restarting client...');
-        try { await client.disconnect(); } catch (e) { /* ignore */ }
-        // small delay to allow proper socket cleanup
+        try { await client.disconnect(); } catch (e) { }
         await new Promise(r => setTimeout(r, 500));
         await client.start();
         registerHandlers();
@@ -507,17 +554,15 @@ async function restartClient() {
         console.error('[giftrelayer] restartClient error', err && err.message ? err.message : err);
     }
 }
-
-async function heartbeatLoop() {
+function heartbeatLoop() {
     setInterval(async () => {
         try {
-            // simple call to keep connection healthy
             await client.getMe();
             if (consecutivePingFailures > 0) {
                 info('[giftrelayer] ping OK (reset fail count)');
                 consecutivePingFailures = 0;
             } else {
-                log('[giftrelayer] ping OK');
+                if (DEBUG) log('[giftrelayer] ping OK');
             }
         } catch (err) {
             consecutivePingFailures++;
@@ -531,7 +576,7 @@ async function heartbeatLoop() {
     }, PING_INTERVAL_MS).unref();
 }
 
-// startup: connect, register handlers
+// startup
 async function start() {
     try {
         info("[giftrelayer] starting Telegram client...");
@@ -543,16 +588,14 @@ async function start() {
         heartbeatLoop();
 
         info("[giftrelayer] connected — entering wait loop (ctrl+C to stop)");
-        // keep alive
-        await new Promise(() => { });
+        await new Promise(() => { }); // keep alive
     } catch (err) {
         console.error("[giftrelayer] start error, exiting:", err && err.message ? err.message : err);
-        // try to let the supervisor restart us instead of process.exit here
         process.exit(1);
     }
 }
 
-// global failure logging so handler doesn't silently die
+// global failure logging
 process.on('unhandledRejection', (reason, p) => {
     console.error('[giftrelayer] unhandledRejection', reason && reason.stack ? reason.stack : reason);
 });
@@ -563,7 +606,7 @@ process.on('uncaughtException', (err) => {
 // graceful shutdown
 async function shutdownAndExit() {
     console.log('[giftrelayer] shutting down — disconnecting client...');
-    try { await client.disconnect(); } catch (e) { /* ignore */ }
+    try { await client.disconnect(); } catch (e) { }
     process.exit(0);
 }
 process.on('SIGINT', shutdownAndExit);
