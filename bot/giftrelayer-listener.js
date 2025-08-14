@@ -31,22 +31,52 @@ function log(...args) {
     if (DEBUG) console.log('[giftrelayer]', ...args);
 }
 
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 async function persistGiftRecord(record) {
-    try {
-        const resp = await fetch('https://api.giftspredict.ru/api/giftHandle', {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(record),
-        });
-        if (!resp.ok) {
-            console.warn('[giftrelayer] backend relay non-ok', resp.status);
+    const url = 'https://api.giftspredict.ru/api/giftHandle';
+    const maxAttempts = 3;
+    let attempt = 0;
+
+    while (++attempt <= maxAttempts) {
+        try {
+            const resp = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(record),
+                // optionally add timeout logic with AbortController
+            });
+
+            if (resp.ok) {
+                log('[giftrelayer] backend relay ok', resp.status);
+                return true;
+            }
+
+            // handle non-retriable status codes
+            if (resp.status >= 400 && resp.status < 500 && resp.status !== 429) {
+                const txt = await resp.text().catch(() => '<no-body>');
+                console.warn('[giftrelayer] backend non-retriable', resp.status, txt);
+                return false;
+            }
+
+            // for 5xx or 429 we can retry
+            const body = await resp.text().catch(() => '<no-body>');
+            console.warn('[giftrelayer] backend temporary error', resp.status, body);
+
+        } catch (err) {
+            // network / DNS errors (EAI_AGAIN etc) fall here — retry
+            console.error('[giftrelayer] persistGiftRecord network error', err?.code ?? err?.message ?? err);
         }
-        log('Transfered gift record to backend:', record ?? '(unknown)');
-        return;
-    } catch (err) {
-        console.error('[giftrelayer] persistGiftRecord error', err);
+
+        // exponential backoff
+        const backoffMs = 200 * Math.pow(2, attempt - 1);
+        await sleep(backoffMs);
     }
+
+    console.error('[giftrelayer] persistGiftRecord failed after retries');
+    return false;
 }
+
 
 // Simplify TL wrappers -> plain JS (kept from your original)
 function simplify(obj) {
@@ -218,6 +248,15 @@ function extractGiftInfoFromJson(msgJson, alreadySimplified = false) {
     return out;
 }
 
+// helper
+function makeUpdateKey(msgPlain) {
+    // message id (if available) + action type + gift id/num
+    const id = msgPlain?.id ?? msgPlain?.message?.id ?? 'no-id';
+    const actionType = (msgPlain?.action && msgPlain.action.className) ? msgPlain.action.className : (msgPlain?.message?.action?.className ?? 'no-action');
+    const giftId = msgPlain?.action?.gift?.id ?? msgPlain?.action?.gift?.name ?? msgPlain?.action?.gift?.num ?? '';
+    return `${String(id)}|${String(actionType)}|${String(giftId)}`;
+}
+
 
 /**
  * Raw update handler: only does cheap top-level checks and then examines message.action.gift.
@@ -254,24 +293,21 @@ async function onRawUpdate(event) {
             msgPlain = tlMessage ?? update;
         }
 
-        // optional debug capture of the message (safe: msgPlain won't contain client)
-        if (process.env.GIFTLR_CAPTURE_SAMPLE === '1' && msgPlain) {
-            try {
-                console.log('[giftrelayer] SAMPLE UPDATE JSON (first run):', JSON.stringify(msgPlain, null, 2).slice(0, 4000));
-            } catch (e) {
-                // ignore stringify problems for weird nested buffers etc
-                console.log('[giftrelayer] SAMPLE UPDATE (non-stringifiable snippet)');
-            } finally {
-                process.env.GIFTLR_CAPTURE_SAMPLE = '0';
-            }
-        }
+        console.log('[giftrelayer] SAMPLE UPDATE JSON (first run):', JSON.stringify(msgPlain, null, 2).slice(0, 4000));
 
         // dedupe - some TL updates may be delivered multiple times
         const candidateId = msgPlain?.id ?? msgPlain?.message?.id ?? null;
+        const collectionName = msgPlain?.action?.gift?.title ?? msgPlain.message?.action?.gift?.title ?? 'HUY TEBE V ROT'
+        console.log('999999999999999999999999999999999999999' + candidateId)
+        console.log('777777777777777777777777777777777777777' + collectionName)
         if (candidateId != null) {
-            if (_processedMessageIds.has(String(candidateId))) return;
-            _processedMessageIds.add(String(candidateId));
-            if (_processedMessageIds.size > 2000) {
+            const key = makeUpdateKey(msgPlain);
+            if (_processedMessageIds.has(key)) {
+                log('[giftrelayer] duplicate update ignored', key);
+                return;
+            }
+            _processedMessageIds.add(key);
+            if (_processedMessageIds.size > 200) {
                 // trim oldest ~200 entries
                 const it = _processedMessageIds.values();
                 for (let i = 0; i < 200; i++) {
@@ -334,99 +370,6 @@ async function onRawUpdate(event) {
     }
 }
 
-
-/**
- * NewMessage handler - still useful for regular incoming messages (text/media).
- * Note: collectible gift transfers are service messages and *won't* trigger this handler,
- * which is why we handle them in onRawUpdate above.
- */
-async function onNewMessage(event) {
-    try {
-        const msg = event.message;
-        if (!msg) return;
-
-        console.log('[giftrelayer] found an incoming new message');
-        let msgJson;
-        try {
-            msgJson = msg.toJSON ? msg.toJSON() : simplify(msg);
-        } catch (e) {
-            msgJson = simplify(msg);
-        }
-
-        console.log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer);
-        log('incoming message id=', msgJson?.id, 'peer=', msgJson?.peerId ?? msgJson?.peer);
-
-        if (process.env.GIFTLR_CAPTURE_SAMPLE === '1') {
-            try {
-                console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
-            } catch (e) {
-                console.log('[giftrelayer] SAMPLE MSG JSON (first run - not fully stringifiable)');
-            }
-            process.env.GIFTLR_CAPTURE_SAMPLE = '0';
-        }
-
-        const giftInfo = extractGiftInfoFromJson(msgJson, true);
-        log('[giftrelayer] giftInfo from NewMessage:', giftInfo);
-
-        if (!giftInfo.isGift) {
-            // reply friendly to regular messages
-            try {
-                if (msg && typeof msg.reply === 'function') {
-                    // pass object shape to avoid GramJS reply quirks
-                    await msg.reply({ message: "Привет! Я - бот. Пришли мне любые уникализированные подарки 🎁" });
-                    log('[giftrelayer] replied to user (non-gift)');
-                } else {
-                    // fallback: try to get a sender id and send there
-                    const candidate = simplify(msgJson?.peerId?.userId ?? msgJson?.fromId?.userId ?? msgJson?.senderId ?? null);
-                    if (candidate != null) {
-                        await client.sendMessage(candidate, { message: "Привет! Я - бот. Пришли мне любые уникализированные подарки 🎁" });
-                        log('[giftrelayer] fallback replied using client.sendMessage');
-                    }
-                }
-            } catch (err) {
-                console.error('[giftrelayer] error while replying to non-gift message', err?.message ?? err);
-            }
-            console.log('[giftrelayer] user sent random text message');
-            return;
-        }
-
-        // If it *is* a gift (rare via NewMessage), persist similarly to raw update flow
-        console.log('[giftrelayer] THE MESSAGE SENT WAS A GIFT (NewMessage path)');
-        const senderId =
-            (msgJson?.fromId && typeof msgJson.fromId === 'object' && msgJson.fromId.userId) ? msgJson.fromId.userId :
-                (msgJson?.fromId ?? msgJson?.senderId ?? null);
-        const senderUsername = msgJson?.from?.username ?? msgJson?.sender?.username ?? null;
-        const recipient = msgJson?.peerId ?? msgJson?.chatId ?? null;
-        const now = new Date().toISOString();
-
-        const record = {
-            uuid: uuidv4(),
-            telegram_message_id: msgJson?.id ?? null,
-            telegram_chat_peer: JSON.stringify(recipient),
-            telegram_sender_id: senderId ?? null,
-            sender_username: senderUsername ?? null,
-            gift_id: giftInfo.giftId ?? null,
-            collection_name: giftInfo.collectionName ?? null,
-            star_count: giftInfo.starCount ?? null,
-            is_unique: !!giftInfo.isUnique,
-            unique_number: giftInfo.uniqueNumber ?? null,
-            unique_base_name: giftInfo.uniqueBaseName ?? null,
-            origin: giftInfo.origin ?? null,
-            owned_gift_id: giftInfo.ownedGiftId ?? null,
-            raw_json: (() => {
-                try { return JSON.stringify(msgJson); } catch (e) { return String(msgJson); }
-            })(),
-            created_at: now
-        };
-
-        console.log('[giftrelayer] detected gift -> persisting', { gift_id: record.gift_id, collection: record.collection_name, sender: record.telegram_sender_id });
-        await persistGiftRecord(record);
-    } catch (err) {
-        console.error('[giftrelayer] onNewMessage error', err?.message ?? err);
-    }
-}
-
-
 // startup: connect, register handlers
 async function start() {
     try {
@@ -434,9 +377,6 @@ async function start() {
         await client.start();
         const me = await client.getMe();
         console.log("[giftrelayer] logged in as", me?.username || `${me?.firstName || ""} ${me?.lastName || ""}`.trim());
-
-        // register NewMessage for normal messages (keeps existing behavior)
-        client.addEventHandler(onNewMessage, new NewMessage({}));
 
         // register Raw for service updates (use light predicate to reduce frequency)
         client.addEventHandler(onRawUpdate, new Raw({
