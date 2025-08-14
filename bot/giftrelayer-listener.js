@@ -201,6 +201,8 @@ async function onRawUpdate(event) {
         console.log('[giftrelayer] onRawUpdate started');
         const update = event?.update ?? event;
         if (!update) return;
+        const updateJson = update.toJSON ? update.toJSON() : update;
+        console.log('[giftrelayer] SAMPLE UPDATE JSON (first run):', JSON.stringify(updateJson, null, 2).slice(0, 4000));
 
         // CHEAP SHALLOW CHECK (no deep simplify). This avoids blocking work on every update.
         // Look for message-like keys or action keys at the top level.
@@ -312,6 +314,7 @@ async function onNewMessage(event) {
             console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
             process.env.GIFTLR_CAPTURE_SAMPLE = '0';
         }
+        console.log('[giftrelayer] SAMPLE MSG JSON (first run):', JSON.stringify(msgJson, null, 2).slice(0, 4000));
 
         const giftInfo = extractGiftInfoFromJson(msgJson);
         console.log(giftInfo)
