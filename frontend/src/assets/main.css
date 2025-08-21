@@ -41,7 +41,7 @@ body.keyboard-open .modal-container {
 .app {
   height: var(--tg-viewport-stable-height, 100vh);
   display: flex;
-  background-color: rgb(24, 24, 24);
+  background-color: #181818;
   flex-direction: column;
   overflow: hidden;
   /* include the extra top offset here */

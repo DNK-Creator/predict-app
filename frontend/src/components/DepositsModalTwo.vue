@@ -157,14 +157,53 @@ function openRelayerChat() {
     tg.openTelegramLink('https://t.me/giftspredictrelayer')
 }
 
-function scrollModalToBottom(smooth = true) {
+async function scrollModalToBottom(smooth = true) {
     const el = modalBody.value
+    const input = amountInput.value
     if (!el) return
-    // scroll to bottom so focused input moves above keyboard
+
+    // ensure DOM/layout settled
+    await nextTick()
+    // allow one rAF for any browser reflow quirks
+    await new Promise((r) => requestAnimationFrame(r))
+
+    // If we don't have an input or measurement fails, fallback to full bottom
+    if (!input) {
+        const kb = window.visualViewport ? Math.max(0, window.innerHeight - window.visualViewport.height) : 0
+        const fallbackTop = Math.max(0, el.scrollHeight - el.clientHeight + kb + 8)
+        if (smooth && el.scrollTo) el.scrollTo({ top: fallbackTop, behavior: 'smooth' })
+        else el.scrollTop = fallbackTop
+        return
+    }
+
+    // Measurements
+    const elRect = el.getBoundingClientRect()
+    const inputRect = input.getBoundingClientRect()
+
+    // offset of input within the scroll container content (taking current scrollTop into account)
+    const inputOffsetTop = inputRect.top - elRect.top + el.scrollTop
+
+    // keyboard height (0 fallback)
+    const keyboardHeight = window.visualViewport ? Math.max(0, window.innerHeight - window.visualViewport.height) :
+        parseInt(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-height')) || 0
+
+    // how much space inside the container we want beneath the input (16px or more)
+    const desiredBottomGap = 16
+
+    // compute desired scrollTop so the input is just above the keyboard / bottom area:
+    // put input near the bottom of the visible container: offsetTop - (containerHeight - inputHeight) + keyboardHeight + gap
+    const desiredTop = Math.max(
+        0,
+        Math.round(
+            inputOffsetTop - (el.clientHeight - inputRect.height) + keyboardHeight + desiredBottomGap
+        )
+    )
+
     if (smooth && el.scrollTo) {
-        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+        // some browsers ignore smooth during keyboard animation; still try it
+        el.scrollTo({ top: desiredTop, behavior: 'smooth' })
     } else {
-        el.scrollTop = el.scrollHeight
+        el.scrollTop = desiredTop
     }
 }
 
@@ -179,10 +218,13 @@ function focusAmountInput() {
 function onAmountFocus() {
     document.body.classList.add('keyboard-open')
 
-    // small delay helps Android/iOS settle before scrolling
+    // run initial scroll after short delay to let keyboard show
     setTimeout(() => {
-        // try to bring input into view, then ensure parent is scrolled to bottom
-        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' }) } catch (_) { }
+        try {
+            // first try to bring the input into view (this helps some Android variants)
+            amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+        } catch (_) { }
+        // then do our fine-grained scroll
         scrollModalToBottom(true)
     }, 80)
 
@@ -190,19 +232,19 @@ function onAmountFocus() {
     if (window.visualViewport) {
         vvResizeListener = () => {
             const kv = window.visualViewport
-            const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
-            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
-            // ensure modal scrolls with keyboard changes
+            const kbHeight = Math.max(0, window.innerHeight - kv.height)
+            document.documentElement.style.setProperty('--keyboard-height', `${kbHeight}px`)
+            // re-align modal content immediately (non-smooth to avoid being ignored)
             scrollModalToBottom(false)
         }
         window.visualViewport.addEventListener('resize', vvResizeListener)
-        // call once immediately
+        // call once immediately to set initial spacing
         vvResizeListener()
     } else {
-        // fallback: some browsers don't have visualViewport — use window resize
+        // fallback: some browsers don't have visualViewport — use window resize and a small delay
         windowResizeListener = () => {
-            // you may not know exact keyboard height here, but re-scroll to bottom
-            scrollModalToBottom(false)
+            // avoid thrashing — small timeout
+            setTimeout(() => scrollModalToBottom(false), 50)
         }
         window.addEventListener('resize', windowResizeListener)
     }
