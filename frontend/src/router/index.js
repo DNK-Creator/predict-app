@@ -6,6 +6,8 @@ import BetDetails from '@/components/bet-details/BetDetails.vue'
 import DepositView from '@/views/DepositView.vue'
 import BetsHistoryList from '@/components/BetsHistoryList.vue'
 import PrivacyView from '@/views/PrivacyView.vue'
+import GiftsPricesView from '@/views/GiftsPricesView.vue'
+import HistoryView from '@/views/HistoryView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -25,11 +27,11 @@ const router = createRouter({
       name: 'bets',
       component: BetsView,
     },
-    {
-      path: '/deposit',
-      name: 'deposit',
-      component: DepositView,
-    },
+    // {
+    //   path: '/deposit',
+    //   name: 'deposit',
+    //   component: DepositView,
+    // },
     {
       path: '/bets-history',
       name: 'bets-history',
@@ -46,6 +48,16 @@ const router = createRouter({
       path: '/privacy',
       name: 'privacy',
       component: PrivacyView,
+    },
+    {
+      path: '/gifts-prices',
+      name: 'gifts-prices',
+      component: GiftsPricesView,
+    },
+    {
+      path: '/history',
+      name: 'history',
+      component: HistoryView,
     },
   ],
 })

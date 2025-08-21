@@ -17,7 +17,10 @@
                     </section>
 
                     <button class="action-btn" @click="shareHolidayMessage">
-                        Поделиться праздником
+                        <div class="btn-content">
+                            <img :src="shareImg">
+                            <span>Поделиться праздником</span>
+                        </div>
                     </button>
                 </div>
             </div>
@@ -27,6 +30,7 @@
 
 <script setup>
 import { useTelegram } from '@/services/telegram.js'
+import shareImg from '@/assets/icons/Share_Icon.png'
 
 const { user } = useTelegram()
 const { tg } = useTelegram()
@@ -118,19 +122,21 @@ function shareHolidayMessage() {
     align-items: flex-start;
     padding-top: 20px;
     z-index: 1000;
+    user-select: none;
 }
 
 .modal {
     background: #292a2a;
     width: 85%;
     max-width: 500px;
-    max-height: 70vh;
+    max-height: max(70vh, 550px);
     border-radius: 12px;
     overflow: hidden;
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
-    margin-top: 20vh;
+    margin: auto auto;
+    user-select: none;
 }
 
 .modal-header {
@@ -146,7 +152,7 @@ function shareHolidayMessage() {
     margin: 0;
     font-size: 1.2rem;
     color: #ffffff;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
 }
 
@@ -154,8 +160,8 @@ function shareHolidayMessage() {
     display: block;
     margin-bottom: 8px;
     color: rgba(255, 255, 255, 0.9);
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    font-weight: 500;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .modal-close {
@@ -183,29 +189,47 @@ function shareHolidayMessage() {
 
 .modal-body {
     padding: 16px;
+    padding-bottom: 12px;
     overflow-y: auto;
     font-size: 0.95rem;
     line-height: 1.5;
     color: #ffffff;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .action-btn {
-    margin: 16px auto 20px;
+    margin: 0px auto 20px auto;
     width: 75%;
-    padding: 12px 0;
+    padding: 12px 16px;
     background-color: #0098EA;
     color: #ffffff;
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 1.25rem;
     border: none;
-    border-radius: 10px;
+    border-radius: 16px;
     cursor: pointer;
     align-self: center;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
 }
 
 .action-btn:hover {
     background-color: #028fdc;
+}
+
+.btn-content {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.btn-content span {
+    font-size: 1rem;
+}
+
+.btn-content img {
+    height: 16px;
+    width: 12px;
 }
 </style>

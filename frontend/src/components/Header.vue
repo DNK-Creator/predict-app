@@ -13,7 +13,12 @@
 
         <div class="spacer"></div>
 
-        <div class="balance-container" @click="onDepositClick">
+        <div v-if="balance <= 0 && (address === null || address === undefined)" class="wallet-connect-container"
+            @click="walletConnect">
+            <img :src="tonIcon" class="wallet-address-icon">
+            <p class="wallet-address">Подключить кошелёк</p>
+        </div>
+        <div v-else class="balance-container" @click="onDepositClick">
             <!-- Diamond Icon SVG -->
             <img :src="tonImg" class="diamond-icon">
             <span class="balance-text">{{ balance }} TON</span>
@@ -22,6 +27,7 @@
                 <img :src="plusImg" class="icon">
             </button>
         </div>
+
     </header>
 </template>
 
@@ -31,22 +37,24 @@ import { useRoute } from 'vue-router'
 import { useTelegram } from '@/services/telegram.js'
 import settingsImg from '@/assets/icons/Settings_Icon.png'
 import tonImg from '@/assets/icons/TON_Icon.png'
+import tonIcon from '@/assets/icons/TON_White_Icon.png'
 import plusImg from '@/assets/icons/Plus_Icon.png'
 
 const props = defineProps({
     balance: {
         type: Number,
         default: 0
-    }
+    },
+    address: String
 })
-const emit = defineEmits(['settings-click', 'deposit-click'])
+const emit = defineEmits(['settings-click', 'deposit-click', 'wallet-connect'])
 
 const route = useRoute()
 
 const { user } = useTelegram()
 
 const settingsRoutes = ['deposit', 'bets-history', 'profile']
-const headerHideRoutes = ['deposit', 'privacy', 'bets-history']
+const headerHideRoutes = ['deposit', 'privacy', 'bets-history', 'gifts-prices']
 
 const showSettings = computed(() =>
     settingsRoutes.includes(route.name)
@@ -58,6 +66,10 @@ const hideHeader = computed(() =>
 
 function onSettingsClick() {
     emit('settings-click')
+}
+
+function walletConnect() {
+    emit('wallet-connect')
 }
 
 function onDepositClick() {
@@ -165,5 +177,33 @@ function onDepositClick() {
     width: 20px;
     height: 20px;
     margin-left: 5px;
+}
+
+.wallet-connect-container {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    justify-content: center;
+    background-color: #323437;
+    border-radius: 28px;
+    padding: 8px 12px 8px 12px;
+    margin: auto auto;
+    cursor: pointer;
+    width: 45%;
+    max-width: 260px;
+    background-color: #3b82f6;
+    text-align: center;
+}
+
+.wallet-address {
+    margin: 0.25rem 0;
+    font-size: 0.85rem;
+    font-weight: bold;
+    width: 180px;
+}
+
+.wallet-address-icon {
+    height: 12px;
+    width: 12px;
 }
 </style>

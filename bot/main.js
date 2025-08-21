@@ -266,11 +266,17 @@ app.post("/api/botmessage", async (req, res) => {
             return res.status(400).json({ error: "messageText and userID required" });
         }
 
-        // Build body for Telegram API (POST with JSON to avoid URL-encoding hazards)
-        const tgUrl = `https://api.telegram.org/bot${token}/sendMessage`;
+        if (!token) {
+            console.error('Telegram token not configured (process.env.TELEGRAM_BOT_TOKEN missing)');
+            return res.status(500).json({ error: 'Telegram bot token not configured' });
+        }
+
+        const tgUrl = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
+
         const payload = {
             chat_id: String(userID),
             text: messageText,
+            parse_mode: 'HTML', // optionally; or 'MarkdownV2' / omit
             reply_markup: {
                 inline_keyboard: [
                     [{ text: "Открыть кошелек", url: "https://t.me/giftspredict_bot?startapp" }]
@@ -286,17 +292,17 @@ app.post("/api/botmessage", async (req, res) => {
 
         const tgData = await tgResp.json().catch(() => null);
         if (!tgResp.ok) {
-            console.error("Telegram API error:", tgData);
-            return res.status(502).json({ error: "Telegram API error", details: tgData });
+            console.error("Telegram API error:", tgResp.status, tgData);
+            return res.status(502).json({ error: "Telegram API error", status: tgResp.status, details: tgData });
         }
 
-        // success — return Telegram result to client (or a sanitized success message)
         return res.status(200).json({ ok: true, result: tgData?.result });
     } catch (err) {
-        console.error(err);
-        return res.status(500).json({ error: "failed to send bot message", details: err.message });
+        console.error('Unexpected error in /api/botmessage:', err);
+        return res.status(500).json({ error: "failed to send bot message", details: String(err) });
     }
 });
+
 
 app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
     try {
@@ -362,8 +368,8 @@ app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
 // ---------- POST /api/deposit-cancel ----------
 app.post('/api/deposit-cancel', async (req, res) => {
     try {
-        const { uuid } = req.body;
-        if (!uuid) return res.status(400).json({ error: 'uuid required' });
+        const { txId } = req.body;
+        if (!txId) return res.status(400).json({ error: 'txId required' });
 
         // Only update pending, unhandled deposits to "Отмененное пополнение"
         // We intentionally do not set handled = true — so if a user actually sends funds later,
@@ -374,7 +380,7 @@ app.post('/api/deposit-cancel', async (req, res) => {
                 status: 'Отмененное пополнение',
                 processed_at: new Date().toISOString()
             })
-            .eq('uuid', uuid)
+            .eq('uuid', txId)
             .is('handled', false)
             .limit(1)
             .select()
@@ -435,6 +441,57 @@ app.get('/api/balance', async (req, res) => {
         return res.status(500).json({ error: 'Failed to fetch balance' });
     }
 });
+
+// ---------- GET /api/channelMembership?userId=... ----------
+app.get('/api/channelMembership', async (req, res) => {
+    try {
+        const userId = String(req.query.userId || '').trim()
+        if (!userId) return res.status(400).json({ error: 'userId query param required' })
+
+        if (!token) {
+            return res.status(500).json({ error: 'Bot not configured to check member' })
+        }
+        let formattedChatId = '@giftspredict'
+
+
+        const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
+            `?chat_id=${encodeURIComponent(formattedChatId)}` +
+            `&user_id=${encodeURIComponent(userId)}`;
+
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            const errorText = await response.text().catch(() => '');
+            console.error('Telegram API error:', response.status, errorText);
+            return res.status(502).json({
+                error: 'Telegram API error',
+                status: response.status,
+                details: errorText,
+            });
+        }
+
+        const data = await response.json().catch(() => null);
+        if (!data) {
+            console.error('Telegram returned invalid JSON');
+            return res.status(502).json({ error: 'Invalid response from Telegram API' });
+        }
+
+        if (!data.ok) {
+            console.error('Telegram API responded with ok=false', data);
+            return res.status(502).json({ error: 'Telegram API returned ok=false', payload: data });
+        }
+
+        const status = data.result?.status ?? null;
+        const isMember = ['creator', 'administrator', 'member'].includes(status);
+
+        // Return JSON to the caller
+        return res.json({ isMember });
+
+    } catch (err) {
+        console.error('Error checking channel membership:', err);
+        return res.status(500).json({ error: 'Failed to check channel membership', details: String(err) });
+    }
+})
 
 
 // helper to pull deep-link payload from "/start ABC123"

@@ -310,6 +310,54 @@ async function createDepositIntentOnServer(amount) {
     }
 }
 
+async function cancelDepositIntentOnServer(txId) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+        console.log('[client] POST /api/deposit-cancel -> ', txId);
+
+        const resp = await fetch(`${API_BASE}/api/deposit-cancel`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ txId }),
+            signal: controller.signal,
+        });
+
+        clearTimeout(timeout);
+
+        let text;
+        try {
+            text = await resp.text(); // read raw body first
+            // try parse JSON, but fall back to raw text for logging
+            const json = (() => {
+                try { return JSON.parse(text); } catch (e) { return null; }
+            })();
+
+            console.log('[client] deposit-cancel response status', resp.status, 'body:', json ?? text);
+
+            if (!resp.ok) {
+                // bubble readable message to caller
+                const errMsg = (json && json.error) ? json.error : text || `HTTP ${resp.status}`;
+                throw new Error(errMsg);
+            }
+
+            // return parsed JSON
+            return json ?? {};
+        } catch (readErr) {
+            // body read/parse error
+            console.error('[client] failed to read/parse response body', readErr);
+            throw new Error('Invalid server response');
+        }
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            console.error('[client] cancelDepositIntentOnServer: request timed out');
+            throw new Error('timeout');
+        }
+        console.error('[client] cancelDepositIntentOnServer error', err);
+        throw err;
+    }
+}
+
 // ——— Deposit flow ———
 async function onDeposit(amount) {
     // 1) If no wallet yet, open selector
@@ -485,7 +533,7 @@ async function onWithdraw(amount) {
         .eq('telegram', user?.id ?? 99)
 
     try {
-        fetchBotMessageTransaction(`💎 Запрос на получение ${amountTON} TON сохранен. %0A Текущий баланс: ${newPoints} TON`, user?.id)
+        await fetchBotMessageTransaction(`💎 Запрос на получение ${amountTON} TON сохранен.\nТекущий баланс: ${app.points} TON`, user?.id)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }

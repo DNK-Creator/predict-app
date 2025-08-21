@@ -1,7 +1,7 @@
 // src/stores/appStore.js
 import { defineStore } from 'pinia'
 import supabase from '@/services/supabase.js'
-import { getOrCreateUser, registerRef, getUsersByTelegrams } from '@/api/requests.js'
+import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
 // inside appStore actions
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
@@ -15,6 +15,7 @@ export const useAppStore = defineStore('app', {
     loadingReferrals: false,
     _pointsChannel: null,
     _userChannel: null,
+    walletAddress: null,
   }),
   actions: {
     /* INIT */
@@ -47,6 +48,8 @@ export const useAppStore = defineStore('app', {
         error('[app.init] getOrCreateUser failed', { err: err?.message ?? err, stack: err?.stack })
         throw err
       }
+
+      this.walletAddress = await getUsersWalletAddress()
 
       // handle referral registration
       try {

@@ -5,6 +5,39 @@ const { user } = useTelegram()
 
 const MY_ID = user?.id ?? 99
 
+export async function userFirstTimeOpening(telegramId) {
+    try {
+        const idToCheck = telegramId ?? user?.id ?? null
+
+        // If we don't have an id at all, treat as "unknown" -> return false (not first-time).
+        // Change this to `return true` if you'd prefer to treat unknown as first-time.
+        if (!idToCheck) {
+            console.warn('userFirstTimeOpening called without a telegram id; returning false')
+            return false
+        }
+
+        // Query the users table for any row with telegram = idToCheck
+        const { data, error } = await supabase
+            .from('users')
+            .select('id', { count: 'exact' })
+            .eq('telegram', idToCheck)
+            .maybeSingle()
+
+        if (error) {
+            // Log and return false (conservative). You can throw if you want to escalate.
+            console.error('userFirstTimeOpening: supabase error', error)
+            return false
+        }
+
+        // If no data rows were returned -> first time
+        const found = Array.isArray(data) ? data.length > 0 : Boolean(data)
+        return !found
+    } catch (err) {
+        console.error('userFirstTimeOpening: unexpected error', err)
+        return false
+    }
+}
+
 export async function getOrCreateUser(telegramId) {
     if (!telegramId || Number.isNaN(Number(telegramId))) {
         throw new Error('getOrCreateUser: telegramId is required and must be a number');
@@ -104,6 +137,19 @@ export async function getUsersWonBetsCount() {
     return data.bets_won;
 }
 
+export async function getGiftsPrices() {
+    const { data, error } = await supabase
+        .from('gift_prices')
+        .select('*')
+
+    if (error) {
+        console.error('Error fetching points:', error);
+        return {};
+    }
+    console.log(data)
+    return data;
+}
+
 export async function getLastWithdrawalTime() {
     const { data, error } = await supabase
         .from('users')
@@ -117,6 +163,21 @@ export async function getLastWithdrawalTime() {
     }
 
     return data.last_withdrawal_request;
+}
+
+export async function getUsersWalletAddress() {
+    const { data, error } = await supabase
+        .from('users')
+        .select('wallet_address')
+        .eq('telegram', MY_ID)
+        .single();
+
+    if (error) {
+        console.error('Error fetching wallet address: ', error);
+        return null;
+    }
+
+    return data.wallet_address;
 }
 
 /**

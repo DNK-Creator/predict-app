@@ -1,6 +1,8 @@
 // src/services/debugLogger.js
 const MAX_HISTORY = 300
 
+const debuggerOn = false
+
 // add near the bottom of src/services/debugLogger.js
 export function replayHistory() {
     try {
@@ -19,7 +21,6 @@ export function replayHistory() {
     }
 }
 
-
 function nowIso() {
     return (new Date()).toISOString()
 }
@@ -36,6 +37,7 @@ function pushHistory(level, msg, meta) {
 }
 
 function safeConsole(method, ...args) {
+    if(debuggerOn === false) return
     try { console[method](...args) } catch (e) { console.log(...args) }
 }
 

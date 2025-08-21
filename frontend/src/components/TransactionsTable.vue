@@ -38,7 +38,7 @@ import { computed, onMounted, ref } from 'vue'
 import { defineProps } from 'vue'
 import lottie from 'lottie-web';
 import pako from 'pako';
-import EmptyGift from '@/assets/EmptyGift2.tgs'
+import EmptyGift from '@/assets/PepeCalendar.tgs'
 import depositImg from '@/assets/icons/Deposit_Icon.png'
 import withdrawalImg from '@/assets/icons/Withdrawal_Icon.png'
 
@@ -168,6 +168,7 @@ onMounted(async () => {
     font-weight: bold;
     margin-bottom: 0.5rem;
     width: 90vw;
+    max-width: 480px;
     margin: auto auto;
     font-family: Inter;
 }
@@ -177,6 +178,7 @@ onMounted(async () => {
     padding: 0;
     margin: auto auto;
     width: 90vw;
+    max-width: 480px;
 }
 
 .transaction-item {
@@ -184,6 +186,7 @@ onMounted(async () => {
     align-items: center;
     padding: 0.75rem;
     border-bottom: thin solid #626262;
+    max-width: 480px;
 }
 
 .transaction-icon {

@@ -34,7 +34,7 @@
                     <div class="ref-right">
                         <div class="commission">
                             <div class="commission-amount">{{ formatTon(f.commission) }} TON</div>
-                            <div class="commission-label">Ваш бонус (3%)</div>
+                            <div class="commission-label">Ваш бонус</div>
                         </div>
                     </div>
                 </li>
@@ -45,44 +45,46 @@
             </ul>
         </div>
         <footer class="referrals-footer">
-            <button class="invite-button" @click="inviteFriends">{{ inviteText }}</button>
+            <div class="invite-button" @click="inviteFriends">
+                <div class="invite-button-content">
+                    <img :src="tonWhiteIcon">
+                    <h2>{{ inviteText }}</h2>
+                </div>
+            </div>
         </footer>
     </div>
     <div v-else class="referral-card">
-        <h3 class="card-title">
-            ПРИГЛАШАЙ ДРУЗЕЙ И ПОЛУЧАЙ TON
-            <img :src="tonWhiteIcon" alt="TON Icon" class="ton-white-icon" />
-        </h3>
-        <ul class="benefits-list">
-            <li class="benefit-item">
-                <span class="icon referral-icon">🎯</span>
-                <div class="benefit-content">
-                    <span class="benefit-title">Комиссия с рефералов</span>
-                    <span class="benefit-desc">Зарабатывайте 3% с выигрыша приглашенных пользователей</span>
+        <div class="ref-header-image">
+            <img :src="tonWhiteIcon">
+        </div>
+        <h1 class="card-title">
+            Зарабатывай с друзьями
+        </h1>
+        <p class="ref-description">
+            Приглашайте друзей и получайте <span class="highlighted-words"> 50% комиссии </span>с их выигрышей навсегда
+        </p>
+        <div class="starter-statistics-container">
+            <div class="stats-box">
+                <span class="ref-value-single">0</span>
+                <span class="ref-hints">РЕФЕРАЛЫ</span>
+            </div>
+            <div class="stats-box">
+                <div class="value-and-image">
+                    <span>0</span>
+                    <img :src="tonBlueIcon">
                 </div>
-            </li>
-            <li class="divider"></li>
-            <li class="benefit-item">
-                <span class="icon points-icon">⭐</span>
-                <div class="benefit-content">
-                    <span class="benefit-title">Неограниченный доход</span>
-                    <span class="benefit-desc">Приглашайте всех своих друзей участвовать в предсказаниях с
-                        вами</span>
-                </div>
-            </li>
-            <li class="divider"></li>
-            <li class="benefit-item">
-                <span class="icon cashback-icon">💰</span>
-                <div class="benefit-content">
-                    <span class="benefit-title">Кешбек - зарабатывай честно за активность других</span>
-                    <span class="benefit-desc">Чем больше зарабатывают друзья - тем больше приходит вам!</span>
-                </div>
-            </li>
-        </ul>
-        <button class="invite-button" @click="inviteFriends">{{ inviteText }}</button>
+                <span class="ref-hints">ЗАРАБОТАНО</span>
+            </div>
+        </div>
+        <div class="invite-button" @click="openReferalModal">
+            <div class="invite-button-content">
+                <img :src="shareIcon">
+                <h2>{{ inviteText }}</h2>
+            </div>
+        </div>
     </div>
     <div class="follow-card" @click="openChannel">
-        <h3 class="card-title">
+        <h3 class="card-title-follow">
             Подписывайтесь и не пропускайте самые важные новости
         </h3>
         <button class="follow-button">@gifts_predict</button>
@@ -90,11 +92,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, defineEmits } from 'vue'
 import { useAppStore } from '@/stores/appStore'
 import { getUsersByTelegrams } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
+import shareIcon from '@/assets/icons/Share_Icon.png'
+import tonBlueIcon from '@/assets/icons/TON_Icon.png'
 
 const app = useAppStore()
 const { user: tgUser, tg } = useTelegram()
@@ -102,6 +106,8 @@ const { user: tgUser, tg } = useTelegram()
 const loading = ref(false)
 const inviteText = ref('Пригласить друзей')
 const friendsList = ref([]) // { telegram, username, total_winnings, commission }
+
+const emit = defineEmits(['open-referal-modal'])
 
 const referralsBodyRef = ref(null)
 const isScrollable = ref(false)
@@ -226,6 +232,10 @@ function copyLink() {
     navigator.clipboard.writeText(shareLink)
 }
 
+function openReferalModal() {
+    emit('open-referal-modal')
+}
+
 /* Invite / share */
 function inviteFriends() {
     copyLink()
@@ -310,6 +320,7 @@ watch(
     color: #f9fafb;
     display: flex;
     flex-direction: column;
+    align-items: center;
     gap: 6px;
     margin-bottom: 1rem;
     user-select: none;
@@ -355,7 +366,7 @@ watch(
     color: #ffffff;
     font-size: 1rem;
     cursor: pointer;
-    font-family: "Inter", sans-serif;
+    font-family: "Montserrat", sans-serif;
     font-weight: 600;
     display: inline-flex;
     align-items: center;
@@ -380,12 +391,33 @@ watch(
 .card-title {
     display: flex;
     align-items: center;
-    font-size: 0.95rem;
-    font-family: "Inter", sans-serif;
+    font-size: 1.55rem;
+    font-family: "Montserrat", sans-serif;
     font-weight: 600;
-    color: #9ca3af;
-    opacity: 0.7;
+    color: #ffffff;
     margin: 0;
+    text-align: center;
+}
+
+.card-title-follow {
+    display: flex;
+    align-items: center;
+    font-size: 1.15rem;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
+    color: rgba(237, 237, 237, 0.98);
+    margin: 0;
+    text-align: center;
+}
+
+.ref-description {
+    color: rgba(207, 207, 207, 0.88);
+    text-align: center;
+    width: 90%;
+    margin-top: 0.5rem;
+    margin-bottom: 1.05rem;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
 }
 
 .ton-white-icon {
@@ -451,25 +483,6 @@ watch(
     width: 85vw;
     margin: auto auto;
     align-self: center;
-}
-
-.invite-button {
-    margin-bottom: 12px;
-    width: 95%;
-    padding: 16px 0;
-    background-color: #3b82f6;
-    color: #ffffff;
-    font-size: 1rem;
-    border: none;
-    border-radius: 10px;
-    cursor: pointer;
-    align-self: center;
-    font-family: "Inter", sans-serif;
-    font-weight: 600;
-}
-
-.invite-button:hover {
-    background-color: #2563eb;
 }
 
 /* TABLE OF REFERRALS VALUES */
@@ -817,5 +830,120 @@ watch(
     padding: 10px;
     text-align: center;
     font-size: 0.95rem;
+}
+
+.invite-button {
+    text-align: center;
+    font-size: 0.95rem;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    width: 60%;
+    margin: auto auto;
+    color: #9ca3af;
+    padding: 16px 24px 16px 24px;
+    background: linear-gradient(to right, #3b82f6, #733bf6);
+    border-radius: 20px;
+    cursor: pointer;
+    margin-top: 1rem;
+    margin-bottom: 1rem;
+}
+
+/* Hover */
+.invite-button:hover {
+    background-color: rgb(51, 115, 218);
+}
+
+.invite-button-content {
+    display: flex;
+    gap: 10px;
+    align-content: center;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+.invite-button-content img {
+    width: 12px;
+    height: 15px;
+}
+
+.invite-button-content h2 {
+    font-size: 1.05rem;
+    text-justify: center;
+    margin: 0;
+    color: white;
+}
+
+.ref-header-image {
+    margin: 1rem;
+}
+
+.ref-header-image img {
+    width: 34px;
+    height: 34px;
+    transition: transform 300ms;
+    transform: rotate(4deg);
+    background: conic-gradient(#3b82f6, #733bf6, #3b82f6);
+    padding: 24px;
+    border-radius: 20px;
+}
+
+.ref-header-image img:hover {
+    transition: transform 300ms;
+    transform: rotate(0deg);
+}
+
+.starter-statistics-container {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 0.35rem;
+}
+
+.stats-box {
+    display: flex;
+    flex-direction: column;
+    padding: 18px 36px 18px 36px;
+    width: 5rem;
+    gap: 12px;
+    align-items: center;
+    justify-content: center;
+    background-color: rgb(73, 74, 74, 0.88);
+    border-radius: 16px;
+}
+
+.value-and-image {
+    display: flex;
+    text-justify: center;
+    text-align: center;
+    align-items: center;
+    gap: 8px;
+}
+
+.ref-value-single,
+.value-and-image span {
+    font-size: 1.45rem;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
+    background-image: linear-gradient(to bottom, #b5b5b5 60%, #cccbce 93%);
+    color: transparent;
+    background-clip: text;
+}
+
+.highlighted-words {
+    background-image: linear-gradient(to right, #3b82f6, #733bf6);
+    color: transparent;
+    background-clip: text;
+}
+
+.ref-hints {
+    font-size: 0.75rem;
+    color: rgb(213, 213, 213, 0.88);
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
+}
+
+.value-and-image img {
+    height: 20px;
+    width: 20px;
 }
 </style>

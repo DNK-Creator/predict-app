@@ -23,6 +23,14 @@
                 <span class="menu-label">Профиль</span>
             </div>
         </RouterLink>
+
+        <RouterLink to="/history" custom v-slot="{ isActive, navigate }">
+            <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
+                :aria-current="isActive ? 'page' : null" tabindex="0">
+                <i class="fas fa-clock-rotate-left icon" :aria-hidden="true"></i>
+                <span class="menu-label">История</span>
+            </div>
+        </RouterLink>
     </div>
 </template>
 
@@ -33,7 +41,7 @@ import { computed, watch, onMounted, nextTick, ref, onUpdated, onBeforeUnmount }
 const route = useRoute()
 
 // route names where we want the bottom navbar hidden (match your router names)
-const menuHideRoutes = ['deposit', 'BetDetails', 'privacy', 'bets-history']
+const menuHideRoutes = ['deposit', 'BetDetails', 'privacy', 'bets-history', 'gifts-prices']
 
 const hideMenu = computed(() => menuHideRoutes.includes(route.name))
 
@@ -92,8 +100,7 @@ onUpdated(() => {
     left: 50%;
     transform: translateX(-50%);
     bottom: calc(15px + env(safe-area-inset-bottom, 0));
-    width: min(920px, 92%);
-    max-width: 920px;
+    width: min(520px, 92%);
     height: 76px;
     display: flex;
     justify-content: space-around;

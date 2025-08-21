@@ -21,10 +21,10 @@
                 </div>
             </router-link>
         </div>
-
+<!-- 
         <div v-if="activeBets.length === 0" class="empty-state">
-            No active bets.
-        </div>
+            Нет активных предсказаний.
+        </div> -->
     </div>
 </template>
 

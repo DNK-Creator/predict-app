@@ -111,7 +111,10 @@ function selectNotifyBets(option) {
     left: 0;
     right: 0;
     bottom: 0;
-    height: 42vh;
+    height: max(42vh, 400px);
+    max-width: 480px;
+    margin: auto auto;
+    align-self: center;
     background: #292a2a;
     color: White;
     font-family: "Inter", sans-serif;

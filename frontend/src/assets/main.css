@@ -9,6 +9,10 @@ body {
   overflow: hidden;
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial;
   font-display: swap;
+
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+
 }
 
 body.keyboard-open .menu {
@@ -37,7 +41,7 @@ body.keyboard-open .modal-container {
 .app {
   height: var(--tg-viewport-stable-height, 100vh);
   display: flex;
-  background-color: black;
+  background-color: rgb(24, 24, 24);
   flex-direction: column;
   overflow: hidden;
   /* include the extra top offset here */
@@ -78,6 +82,13 @@ body.keyboard-open .modal-container {
   flex: 1;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  max-width: 720px;
+  width: 100%;
+  /* <-- ensure it fills horizontally */
+  max-width: 720px;
+  /* optional — keep a maximum for very wide screens */
+  margin: 0 auto;
+  /* center when max-width applies */
 
   /* space under the header so first content is not underneath it */
   padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));

@@ -14,8 +14,11 @@
                 </div>
                 <div class="items-group">
                     <h2 class="item-header">БАЛАНС</h2>
-                    <h1 class="item-balance">
+                    <h1 v-if="balance" class="item-balance">
                         {{ balance }} TON
+                    </h1>
+                    <h1 v-else="balance" class="item-balance">
+                        Неизвестен
                     </h1>
                 </div>
                 <div class="items-group">
@@ -25,7 +28,7 @@
                         <span v-if="!copied" class="wallet-text">
                             {{ shortenedAddress(address) }}
                         </span>
-                        <span v-else class="wallet-text"> Copied! </span>
+                        <span v-else class="wallet-text"> Скопировано! </span>
 
                         <img class="copy-icon" :src="CopyIcon" alt="copy icon" />
                     </button>
@@ -93,7 +96,7 @@ async function copyAddress() {
     inset: 0;
     background-color: rgba(0, 0, 0, 0);
     backdrop-filter: blur(0px);
-    z-index: 10;
+    z-index: 20;
 }
 
 .overlay--visible {
@@ -114,7 +117,7 @@ async function copyAddress() {
     border-top-right-radius: 20px;
     padding: 1.25rem;
     box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
-    z-index: 12;
+    z-index: 22;
     font-weight: 600;
     font-family: "Inter", sans-serif;
     user-select: none;

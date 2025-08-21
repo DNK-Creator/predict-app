@@ -11,19 +11,23 @@ export async function fetchInvoiceLink(amount) {
     return link;
 }
 
-// call from browser / frontend
-export async function fetchBotMessageTransaction(messageText, userID) {
-    const resp = await fetch("https://api.giftspredict.ru/api/botmessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageText, userID }),
-    });
-
-    // read body and check status
-    const data = await resp.json().catch(() => null);
-    if (!resp.ok) {
-        // surface server error text if present
-        throw new Error(data?.error || `Bot message failed: ${resp.status}`);
+// helper: call backend endpoint
+export async function fetchBotMessageTransaction(messageText, userId) {
+    try {
+        const resp = await fetch('https://api.giftspredict.ru/api/botmessage', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ messageText, userID: userId }),
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => null);
+            console.warn('botmessage endpoint returned non-OK', resp.status, err);
+            return false;
+        }
+        const json = await resp.json().catch(() => null);
+        return json;
+    } catch (e) {
+        console.error('fetchBotMessageTransaction error', e);
+        return false;
     }
-    return data; // success payload from server
 }

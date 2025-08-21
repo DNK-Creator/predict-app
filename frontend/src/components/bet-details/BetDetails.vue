@@ -15,7 +15,6 @@
                     <img :src="questionImg">
                     <h1 class="header__text">{{ bet.name }}</h1>
                 </div>
-                <!-- CircleGauge instead of image -->
                 <CircleGauge :percent="currentBetPercent" />
             </div>
 

@@ -1,10 +1,11 @@
 <template>
     <LoaderPepe v-if="spinnerShow" />
     <div v-show="!spinnerShow">
+        <ReferalShareModal :show="showReferalModal" @close="closeReferalModal" />
         <ProfileCard :user="user" :totalVolume="volume" :betsMade="betsMade" :betsWon="betsWon"
             @view-previous-bets="previousBetsHistory" @view-won-bets="wonBetsHistory" />
         <ActiveBetsList />
-        <ReferalCard />
+        <ReferalCard @open-referal-modal="openReferalModal" />
     </div>
 </template>
 
@@ -19,6 +20,7 @@ import { useTelegram } from '@/services/telegram.js'
 import ReferalCard from '@/components/user-profile/ReferalCard.vue'
 import ProfileCard from '@/components/user-profile/ProfileCard.vue'
 import ActiveBetsList from '@/components/user-profile/ActiveBetsList.vue'
+import ReferalShareModal from '@/components/ReferalShareModal.vue'
 import LoaderPepe from '@/components/LoaderPepe.vue'
 
 import { getUsersWonBetsCount, getUsersBetsSummary } from '@/api/requests'
@@ -33,6 +35,16 @@ const volume = ref(0)
 
 const spinnerShow = ref(true)
 const loading = ref(false)
+
+const showReferalModal = ref(false)
+
+function openReferalModal() {
+    showReferalModal.value = true
+}
+
+function closeReferalModal() {
+    showReferalModal.value = false
+}
 
 function previousBetsHistory() {
     router.push({ name: 'bets-history', query: { filter: 'all' } })

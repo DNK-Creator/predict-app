@@ -219,10 +219,10 @@ function renderChart() {
                 label: 'Вероятность "Да" (%)',
                 data: dataPoints,
                 parsing: false,
-                fill: false,
+                fill: true,
                 tension: 0.4,
-                borderColor: '#0098ea',
-                backgroundColor: 'rgba(0,152,234,0.2)',
+                borderColor: 'rgba(16, 158, 27, 0.9)',
+                backgroundColor: 'rgba(14, 113, 21, 0.2)',
                 pointRadius: 3,
                 pointHoverRadius: 6
             }]
