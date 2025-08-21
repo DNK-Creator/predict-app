@@ -32,7 +32,7 @@
 import 'vue3-toastify/dist/index.css'
 import supabase from '@/services/supabase'
 import { toast } from 'vue3-toastify'
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onActivated } from 'vue'
 import { getLastWithdrawalTime } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
@@ -344,6 +344,15 @@ onMounted(async () => {
 
     spinnerShow.value = false;
 })
+
+onActivated(async () => {
+    // every time DepositView is shown again…
+    if (appStoreObj.walletAddress) {
+        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+        walletBalance.value = +freshBal.toFixed(2)
+    }
+})
+
 </script>
 
 <style scoped>

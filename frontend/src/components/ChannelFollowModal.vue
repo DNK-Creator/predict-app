@@ -7,7 +7,7 @@
         <transition name="slide-up">
             <div v-if="show" class="channel-follow-modal" role="dialog" aria-modal="true">
                 <div class="upper-media">
-                    <div class="close-btn" @click="onClose">✖</div>
+                    <div class="close-btn" @click="onClose">x</div>
                     <img class="upper-media-img"
                         src="https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PepeHeroicBanner.png">
                 </div>
