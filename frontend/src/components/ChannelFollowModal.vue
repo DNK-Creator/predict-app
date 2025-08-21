@@ -109,6 +109,7 @@ function onSubscribe() {
 
 /* Close button: circular, subtle */
 .close-btn {
+    color: white;
     position: absolute;
     cursor: pointer;
     display: flex;
@@ -278,7 +279,7 @@ function onSubscribe() {
 .channel-follow-modal::after {
     content: "@giftspredict";
     position: absolute;
-    bottom: 10px;
+    bottom: 24px;
     left: 50%;
     transform: translateX(-50%);
     font-size: 12px;

@@ -4,8 +4,8 @@
         @withdraw="handleWithdraw" />
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
-    <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" @reconnect-wallet="reconnectWallet"
-        @close="closeWalletInfo" />
+    <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" :balance="walletBalance"
+        @reconnect-wallet="reconnectWallet" @close="closeWalletInfo" />
 
     <div class="wallet-wrapper">
         <div class="wallet-top-header" @click="openWalletInfo">
@@ -52,6 +52,10 @@ const spinnerShow = ref(true)
 const showWithdrawalModal = ref(false)
 const showWalletInfo = ref(false)
 
+const API_BASE = 'https://api.giftspredict.ru'
+
+const walletBalance = ref(null)
+
 const walletAddress = computed(() => {
     return app.walletAddress ?? null
 })
@@ -96,9 +100,13 @@ async function closeWalletInfo() {
 }
 
 async function openWithdrawalModal() {
-    ton.value = getTonConnect();
+    if (app.walletAddress === null || app.walletAddress === undefined) {
+        try {
+            ton.value = getTonConnect();
+        } catch (err) {
+            console.error('Error while connecting ton: ', err)
+        }
 
-    if (!app.walletAddress) {
         try {
             const wallet = await ton.value.connectWallet()
             if (wallet) {
@@ -243,8 +251,17 @@ async function handleConnected(wallet) {
             console.warn('Failed to parse address', err)
         }
 
-        if (parsedAddress !== null) {
+        if (parsedAddress !== null && parsedAddress !== undefined) {
             app.walletAddress = parsedAddress
+        }
+
+        // fetch balance (guard with try/catch)
+        try {
+            const tonBal = await fetchTonBalance(appStoreObj.walletAddress)
+            walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
+        } catch (err) {
+            console.warn('Failed to fetch TON balance', err)
+            walletBalance.value = null
         }
     }
 
@@ -257,6 +274,28 @@ async function handleConnected(wallet) {
         if (error) {
             console.error('Error updating wallet_address:', error)
         }
+    }
+}
+
+
+// ---------------------
+// Backend-backed balance fetch
+// ---------------------
+async function fetchTonBalance(address) {
+    if (!address) return;
+    try {
+        const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => null);
+            throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
+        }
+        const json = await resp.json();
+        // backend returns { balance: number } in TON
+        return Number(json.balance);
+    } catch (err) {
+        console.error('fetchTonBalance error', err);
+        throw err;
     }
 }
 

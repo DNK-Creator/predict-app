@@ -46,7 +46,7 @@ async function loadGifts() {
     try {
         const data = await getGiftsPrices()
         const arr = Array.isArray(data) ? data : (data?.data ?? [])
-        gifts.value = [...arr].sort((a, b) => Number(a.price_ton ?? 0) - Number(b.price_ton ?? 0))
+        gifts.value = [...arr].sort((a, b) => Number(b.price_ton ?? 0) - Number(a.price_ton ?? 0))
         visibleCount.value = Math.min(PAGE_SIZE, gifts.value.length)
         await nextTick()
         initObserver()
@@ -218,7 +218,6 @@ onUnmounted(() => {
     height: 44px;
     border-radius: 8px;
     object-fit: cover;
-    background: rgba(255, 255, 255, 0.02);
     display: block;
 }
 
@@ -239,7 +238,7 @@ onUnmounted(() => {
 .gift-price {
     font-weight: 700;
     font-size: 0.95rem;
-    color: #3dd0ff;
+    color: #3b82f6;
     margin-left: 8px;
     white-space: nowrap;
 }

@@ -45,9 +45,9 @@
             </ul>
         </div>
         <footer class="referrals-footer">
-            <div class="invite-button" @click="inviteFriends">
+            <div class="invite-button" @click="openReferalModal">
                 <div class="invite-button-content">
-                    <img :src="tonWhiteIcon">
+                    <img :src="shareIcon">
                     <h2>{{ inviteText }}</h2>
                 </div>
             </div>

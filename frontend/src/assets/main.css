@@ -36,6 +36,11 @@ body.keyboard-open .modal-container {
   /* tweak 1vh as needed so input isn't behind browser chrome */
 }
 
+body.keyboard-open .settings-modal {
+  transform: translate(-50%, calc(-50% + 3vh));
+  /* tweak as needed */
+}
+
 /* Give the app the real visible height the WebApp exposes (fallback to 100vh) */
 #app,
 .app {

@@ -12,7 +12,7 @@
             <div v-if="visible" class="settings-modal">
                 <div class="divider"></div>
 
-                <div class="settings-modal__body">
+                <div class="settings-modal__body" ref="modalBody">
                     <div class="modal-footer">
                         <h2>Пополнение баланса</h2>
                     </div>
@@ -99,7 +99,7 @@
     </Teleport>
 </template>
 <script setup>
-import { ref, watch, nextTick, onUnmounted, computed, onDeactivated, toRef } from 'vue'
+import { ref, watch, nextTick, onUnmounted, computed, onDeactivated, toRef, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTelegram } from '@/services/telegram'
 import lottie from 'lottie-web'
@@ -136,6 +136,7 @@ const parsedTgsCache = {} // key: media (import string/module), value: parsed js
 
 const lastInputtedNumber = ref('')
 const amountInput = ref(null)
+const modalBody = ref(null)
 // Local state for user input
 const amount = ref('')
 
@@ -156,6 +157,17 @@ function openRelayerChat() {
     tg.openTelegramLink('https://t.me/giftspredictrelayer')
 }
 
+function scrollModalToBottom(smooth = true) {
+    const el = modalBody.value
+    if (!el) return
+    // scroll to bottom so focused input moves above keyboard
+    if (smooth && el.scrollTo) {
+        el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    } else {
+        el.scrollTop = el.scrollHeight
+    }
+}
+
 // called when user clicks “TON”
 function focusAmountInput() {
     // focus the input so the keyboard appears & the cursor is active
@@ -164,40 +176,53 @@ function focusAmountInput() {
     }
 }
 
-// keyboard handlers for mobile
 function onAmountFocus() {
-    // add class to body so Navbar can be hidden via CSS
-    document.body.classList.add('keyboard-open');
+    document.body.classList.add('keyboard-open')
 
-    // make sure input is visible (centered)
-    // small timeout helps on some Android browsers
+    // small delay helps Android/iOS settle before scrolling
     setTimeout(() => {
-        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
-    }, 50);
+        // try to bring input into view, then ensure parent is scrolled to bottom
+        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' }) } catch (_) { }
+        scrollModalToBottom(true)
+    }, 80)
 
-    // visualViewport: update CSS var for keyboard height (optional)
+    // visualViewport: update CSS var for keyboard height & re-scroll when it changes
     if (window.visualViewport) {
-        const update = () => {
-            const kv = window.visualViewport;
-            const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
-            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-        };
-        // store on element so we can remove later
-        amountInput._vvListener = update;
-        window.visualViewport.addEventListener('resize', update);
-        update();
+        vvResizeListener = () => {
+            const kv = window.visualViewport
+            const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
+            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+            // ensure modal scrolls with keyboard changes
+            scrollModalToBottom(false)
+        }
+        window.visualViewport.addEventListener('resize', vvResizeListener)
+        // call once immediately
+        vvResizeListener()
+    } else {
+        // fallback: some browsers don't have visualViewport — use window resize
+        windowResizeListener = () => {
+            // you may not know exact keyboard height here, but re-scroll to bottom
+            scrollModalToBottom(false)
+        }
+        window.addEventListener('resize', windowResizeListener)
     }
 }
 
 function onAmountBlur() {
-    document.body.classList.remove('keyboard-open');
+    document.body.classList.remove('keyboard-open')
 
     // remove visualViewport listener
-    if (window.visualViewport && amountInput._vvListener) {
-        window.visualViewport.removeEventListener('resize', amountInput._vvListener);
-        delete amountInput._vvListener;
-        document.documentElement.style.removeProperty('--keyboard-height');
+    if (window.visualViewport && vvResizeListener) {
+        window.visualViewport.removeEventListener('resize', vvResizeListener)
+        vvResizeListener = null
     }
+    if (windowResizeListener) {
+        window.removeEventListener('resize', windowResizeListener)
+        windowResizeListener = null
+    }
+
+    // cleanup CSS var (optional)
+    document.documentElement.style.removeProperty('--keyboard-height')
 }
 
 // sanitize + format input
@@ -232,6 +257,16 @@ function onAmountInput(e) {
 
     lastInputtedNumber.value = v
 }
+
+// safety: if component unmounts, remove listeners
+onBeforeUnmount(() => {
+    if (window.visualViewport && vvResizeListener) {
+        window.visualViewport.removeEventListener('resize', vvResizeListener)
+    }
+    if (windowResizeListener) {
+        window.removeEventListener('resize', windowResizeListener)
+    }
+})
 
 // compute whether amount > 0
 const validAmount = computed(() => {
@@ -370,6 +405,7 @@ function connectNewWallet() {
     background-color: rgba(0, 0, 0, 0);
     backdrop-filter: blur(0px);
     z-index: 10;
+    user-select: none;
 }
 
 .overlay--visible {
@@ -419,6 +455,9 @@ function connectNewWallet() {
     /* Hide scrollbar in IE 10+ */
     -ms-overflow-style: none;
     /* IE and old Edge */
+
+    /* ensure enough room above the OS keyboard when open */
+    padding-bottom: calc(1rem + var(--keyboard-height, 0px));
 }
 
 /* Hide WebKit/Blink scrollbars (Chrome, Edge Chromium, Safari, Android) */
