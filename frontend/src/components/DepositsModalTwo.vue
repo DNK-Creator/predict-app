@@ -268,12 +268,6 @@ onBeforeUnmount(() => {
     }
 })
 
-// compute whether amount > 0
-const validAmount = computed(() => {
-    const num = parseFloat(amount.value)
-    return !isNaN(num) && num > 0
-})
-
 const shortenedAddress = computed(() => {
     if (!address) return ''
     if (!address.value) return ''
