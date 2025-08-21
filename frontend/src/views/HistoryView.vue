@@ -345,6 +345,14 @@ onMounted(async () => {
     spinnerShow.value = false;
 })
 
+onMounted(async () => {
+    // every time DepositView is shown again…
+    if (appStoreObj.walletAddress) {
+        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+        walletBalance.value = +freshBal.toFixed(2)
+    }
+})
+
 onActivated(async () => {
     // every time DepositView is shown again…
     if (appStoreObj.walletAddress) {

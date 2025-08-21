@@ -422,7 +422,7 @@ async function cancelDepositIntentOnServer(txId) {
 async function reconnectWallet() {
     console.log('Reconnecting')
     // If already connected, drop the session
-    if (ton.value.connected) {
+    if (ton.value.connected || appStoreObj.walletAddress !== null) {
         appStoreObj.walletAddress = null
         await ton.value.disconnect();
         const { error } = await supabase

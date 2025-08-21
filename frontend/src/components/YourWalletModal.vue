@@ -17,7 +17,7 @@
                     <h1 v-if="balance" class="item-balance">
                         {{ balance }} TON
                     </h1>
-                    <h1 v-else="balance" class="item-balance">
+                    <h1 v-else class="item-balance">
                         Неизвестен
                     </h1>
                 </div>
