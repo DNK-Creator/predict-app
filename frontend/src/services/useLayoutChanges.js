@@ -124,32 +124,71 @@ export function updateLayoutVars(
     }
 }
 
-function applyToastTopInset() {
-    const docEl = document.documentElement
-    const top = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px'
-    const header = getComputedStyle(docEl).getPropertyValue('--app-header-height').trim() || '56px'
-    const extra = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '20px'
+let _toastObserver = null
 
+function applyToastTopInset() {
+    const docEl = document.documentElement;
+    const top = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px';
+    const header = getComputedStyle(docEl).getPropertyValue('--app-header-height').trim() || '56px';
+    const extra = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '20px';
+
+    // compute px robustly
+    let topPx = 0;
     try {
-        const pxTop = parseInt(top, 10) || 0
-        const pxHeader = parseInt(header, 10) || 56
-        const pxExtra = parseInt(extra, 10) || 20
-        const topPx = pxTop + pxHeader + pxExtra + 8
-        document.querySelectorAll('.Toastify__toast-container').forEach(el => {
-            el.style.top = `${topPx}px`
-            el.style.zIndex = '1200'
-        })
+        const pxTop = parseInt(top, 10) || 0;
+        const pxHeader = parseInt(header, 10) || 56;
+        const pxExtra = parseInt(extra, 10) || 20;
+        topPx = pxTop + pxHeader + pxExtra + 8;
     } catch (e) {
-        // fallback: set CSS calc string (keeps the var chain)
-        document.querySelectorAll('.Toastify__toast-container').forEach(el => {
-            el.style.top = `calc(var(--app-top-offset, 0px) + var(--app-top-extra, 20px) + var(--app-header-height, 56px) + 8px)`
-            el.style.zIndex = '1200'
-        })
+        topPx = 56 + 20 + 8; // safe fallback
+    }
+
+    // Apply inline styles to any existing containers
+    const containers = Array.from(document.querySelectorAll('.Toastify__toast-container'));
+    if (containers.length) {
+        containers.forEach(el => {
+            el.style.top = `${topPx}px`;
+            el.style.zIndex = '1200';
+        });
+    }
+
+    // If no container exists yet, observe the DOM and style container(s) as soon as they appear.
+    // This handles the lazy-creation case (first toast).
+    if (!containers.length) {
+        try {
+            // create observer once
+            if (!_toastObserver) {
+                _toastObserver = new MutationObserver((mutations) => {
+                    for (const m of mutations) {
+                        for (const node of m.addedNodes) {
+                            try {
+                                if (node && node.nodeType === 1) {
+                                    // the toast container might be added directly or inside a wrapper
+                                    if (node.matches && node.matches('.Toastify__toast-container')) {
+                                        node.style.top = `${topPx}px`;
+                                        node.style.zIndex = '1200';
+                                    } else {
+                                        // also check descendants
+                                        const found = node.querySelector && node.querySelector('.Toastify__toast-container');
+                                        if (found) {
+                                            found.style.top = `${topPx}px`;
+                                            found.style.zIndex = '1200';
+                                        }
+                                    }
+                                }
+                            } catch (inner) {
+                                // ignore any match errors for exotic nodes
+                            }
+                        }
+                    }
+                });
+                _toastObserver.observe(document.body, { childList: true, subtree: true });
+            }
+        } catch (e) {
+            // final fallback: do nothing (CSS override will still help)
+        }
     }
 }
-
-
-
 
 // optionally expose simple setter for keyboard height CSS var
 export function setKeyboardHeight(px) {
@@ -220,6 +259,12 @@ export function disposeLayout() {
     try { if (window.visualViewport && _vvScroll) window.visualViewport.removeEventListener('scroll', _vvScroll) } catch (e) { }
     try { if (_mutationObserver) _mutationObserver.disconnect() } catch (e) { }
 
+
+    if (_toastObserver) {
+        try { _toastObserver.disconnect() } catch (e) { /* ignore */ }
+        _toastObserver = null;
+    }
+    
     try {
         if (_tgInstance && _tgListener) {
             if (typeof _tgInstance.offEvent === 'function') _tgInstance.offEvent('viewportChanged', _tgListener)

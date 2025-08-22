@@ -76,6 +76,15 @@ body.keyboard-open .modal-container {
   z-index: var(--toastify-toast-zindex, 1100) !important;
 }
 
+/* Ensure toast container always respects our safe top offset */
+.Toastify__toast-container {
+  top: var(--toastify-toast-top, 12px) !important;
+  z-index: var(--toastify-toast-zindex, 1200) !important;
+  transition: top 160ms ease;
+  /* keep horizontal positioning untouched (library defaults) */
+}
+
+
 
 /* scroll container: ensure content clears header and bottom nav */
 .app-scroll-container {
