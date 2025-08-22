@@ -1,6 +1,6 @@
 // src/services/useTon.js
 import { ref } from 'vue'
-import { getTonConnect } from '@/services/tonConnect'
+import { getTonConnect } from '@/services/ton-connect-ui.js'
 
 const ton = ref(null)
 
