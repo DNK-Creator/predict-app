@@ -222,11 +222,11 @@ function onAmountFocus() {
     setTimeout(() => {
         try {
             // first try to bring the input into view (this helps some Android variants)
-            amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+            amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
         } catch (_) { }
         // then do our fine-grained scroll
         scrollModalToBottom(true)
-    }, 80)
+    }, 500)
 
     // visualViewport: update CSS var for keyboard height & re-scroll when it changes
     if (window.visualViewport) {
@@ -244,7 +244,7 @@ function onAmountFocus() {
         // fallback: some browsers don't have visualViewport — use window resize and a small delay
         windowResizeListener = () => {
             // avoid thrashing — small timeout
-            setTimeout(() => scrollModalToBottom(false), 50)
+            setTimeout(() => scrollModalToBottom(false), 200)
         }
         window.addEventListener('resize', windowResizeListener)
     }
