@@ -86,11 +86,20 @@
                 </div>
 
                 <div class="buttons-group">
-                    <button class="action-btn-one" @click="close">Закрыть</button>
-                    <button v-if="selectedDeposit === 'TON'" class="action-btn-two" @click="$emit('deposit', amount)">
+                    <!-- wire the handlers so we can animate and debounce -->
+                    <button type="button" class="action-btn-one" :class="{ pressed: pressingBtn === 'one' }"
+                        @click="onBtnOneClick">
+                        Закрыть
+                    </button>
+
+                    <button type="button" v-if="selectedDeposit === 'TON'" class="action-btn-two"
+                        :class="{ pressed: pressingBtn === 'two', disabled: depositBlocked }" :disabled="depositBlocked"
+                        @click="onBtnTwoClick">
                         <span>{{ actionText }}</span>
                     </button>
-                    <button v-else class="action-btn-two" @click="openRelayerChat">
+
+                    <button v-else type="button" class="action-btn-two" :class="{ pressed: pressingBtn === 'two' }"
+                        @click="onBtnTwoClick">
                         <span>{{ actionText }}</span>
                     </button>
                 </div>
@@ -98,6 +107,7 @@
         </transition>
     </Teleport>
 </template>
+
 <script setup>
 import { ref, watch, nextTick, onUnmounted, computed, onDeactivated, toRef, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
@@ -149,12 +159,60 @@ const hideOverlay = computed(() =>
 
 const visible = computed(() => modelValue.value === true && hideOverlay.value === false)
 
+// Button press animation state
+const pressingBtn = ref(null)
+function triggerPress(which, duration = 180) {
+    pressingBtn.value = which
+    // clear previous timer if any — using setTimeout is fine here
+    setTimeout(() => {
+        if (pressingBtn.value === which) pressingBtn.value = null
+    }, duration)
+}
+
+// deposit block (3s after emitting a deposit)
+const depositBlocked = ref(false)
+function blockDepositFor(ms = 3000) {
+    depositBlocked.value = true
+    setTimeout(() => { depositBlocked.value = false }, ms)
+}
+
 watch(visible, (v) => {
     console.log('[DepositsModalTwo] visible changed ->', v)
 })
 
+function sendDepositRequest() {
+    // If blocked, early-return — caller handles animation
+    if (depositBlocked.value) return
+
+    emit('deposit', amount.value)
+    // start 3 second block after emitting
+    blockDepositFor(3000)
+}
+
 function openRelayerChat() {
     tg.openTelegramLink('https://t.me/giftspredictrelayer')
+}
+
+// handlers that animate then perform action
+async function onBtnOneClick() {
+    triggerPress('one')
+    // allow the press animation to be visible
+    await new Promise(r => setTimeout(r, 140))
+    close()
+}
+
+async function onBtnTwoClick() {
+    triggerPress('two')
+    // short delay to let animation show
+    await new Promise(r => setTimeout(r, 140))
+
+    if (selectedDeposit.value === 'TON') {
+        // deposit: send only if not blocked
+        if (depositBlocked.value) return
+        sendDepositRequest()
+    } else {
+        openRelayerChat()
+    }
 }
 
 async function scrollModalToBottom(smooth = true) {
@@ -209,7 +267,6 @@ async function scrollModalToBottom(smooth = true) {
 
 // called when user clicks “TON”
 function focusAmountInput() {
-    // focus the input so the keyboard appears & the cursor is active
     if (amountInput.value) {
         amountInput.value.focus()
     }
@@ -221,29 +278,22 @@ function onAmountFocus() {
     // run initial scroll after short delay to let keyboard show
     setTimeout(() => {
         try {
-            // first try to bring the input into view (this helps some Android variants)
             amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
         } catch (_) { }
-        // then do our fine-grained scroll
         scrollModalToBottom(true)
     }, 500)
 
-    // visualViewport: update CSS var for keyboard height & re-scroll when it changes
     if (window.visualViewport) {
         vvResizeListener = () => {
             const kv = window.visualViewport
             const kbHeight = Math.max(0, window.innerHeight - kv.height)
             document.documentElement.style.setProperty('--keyboard-height', `${kbHeight}px`)
-            // re-align modal content immediately (non-smooth to avoid being ignored)
             scrollModalToBottom(false)
         }
         window.visualViewport.addEventListener('resize', vvResizeListener)
-        // call once immediately to set initial spacing
         vvResizeListener()
     } else {
-        // fallback: some browsers don't have visualViewport — use window resize and a small delay
         windowResizeListener = () => {
-            // avoid thrashing — small timeout
             setTimeout(() => scrollModalToBottom(false), 200)
         }
         window.addEventListener('resize', windowResizeListener)
@@ -253,7 +303,6 @@ function onAmountFocus() {
 function onAmountBlur() {
     document.body.classList.remove('keyboard-open')
 
-    // remove visualViewport listener
     if (window.visualViewport && vvResizeListener) {
         window.visualViewport.removeEventListener('resize', vvResizeListener)
         vvResizeListener = null
@@ -263,11 +312,9 @@ function onAmountBlur() {
         windowResizeListener = null
     }
 
-    // cleanup CSS var (optional)
     document.documentElement.style.removeProperty('--keyboard-height')
 }
 
-// sanitize + format input
 function onAmountInput(e) {
     let v = e.target.value.replace(/,/g, '.')
         .replace(/[^\d.]/g, '')
@@ -300,7 +347,6 @@ function onAmountInput(e) {
     lastInputtedNumber.value = v
 }
 
-// safety: if component unmounts, remove listeners
 onBeforeUnmount(() => {
     if (window.visualViewport && vvResizeListener) {
         window.visualViewport.removeEventListener('resize', vvResizeListener)
@@ -323,7 +369,7 @@ function selectDeposit(code) {
     if (animOne && animTwo) {
         if (code === 'TON') {
             animOne.play()
-            animTwo.stop()
+            if (animTwo) animTwo.stop()
         }
         else {
             animOne.stop()
@@ -341,7 +387,6 @@ async function loadTgsJson(url) {
 }
 
 async function ensureTgs(media) {
-    // use media as cache key (works for imported static assets)
     if (!parsedTgsCache[media]) {
         parsedTgsCache[media] = await loadTgsJson(media)
     }
@@ -353,15 +398,12 @@ function destroyAnims() {
     if (animTwo && typeof animTwo.destroy === 'function') { animTwo.destroy(); animTwo = null }
 }
 
-
 async function initAnimations() {
-    // wait for DOM to be rendered (svgContainer refs to exist)
     await nextTick()
 
     try {
         const data = await ensureTgs(TonMedia)
 
-        // always destroy previous to avoid duplicates
         destroyAnims()
 
         if (svgContainerOne.value) {
@@ -385,7 +427,6 @@ async function initAnimations() {
             })
         }
 
-        // play correct one
         if (animOne) {
             if (selectedDeposit.value === 'TON') {
                 animOne.play()
@@ -400,18 +441,17 @@ async function initAnimations() {
     }
 }
 
-// watch the combined visible flag (handles both opening modal and returning from route)
 watch(
     visible,
     async (isVisible) => {
-        console.log('[DepositsModalTwo] visible ->', isVisible) // helpful for debugging
+        console.log('[DepositsModalTwo] visible ->', isVisible)
         if (isVisible) {
             await initAnimations()
         } else {
             destroyAnims()
         }
     },
-    { immediate: true } // init on mount if already visible
+    { immediate: true }
 )
 
 onUnmounted(() => {
@@ -422,10 +462,9 @@ onDeactivated(() => {
     destroyAnims()
 })
 
-// optional: close helper that respects v-model and emits close
 function close() {
-    emit('update:modelValue', false) // update v-model
-    emit('close') // keep your custom callback too
+    emit('update:modelValue', false)
+    emit('close')
 }
 
 function connectNewWallet() {
@@ -477,26 +516,13 @@ function connectNewWallet() {
 .settings-modal__body {
     flex: 1 1 auto;
     overflow: auto;
-    /* optional: give inner spacing so content doesn't butt to edges */
     padding-bottom: 0.5rem;
-
-
-    /* iOS momentum scrolling */
     -webkit-overflow-scrolling: touch;
-
-    /* Hide scrollbar in Firefox */
     scrollbar-width: none;
-    /* Firefox */
-
-    /* Hide scrollbar in IE 10+ */
     -ms-overflow-style: none;
-    /* IE and old Edge */
-
-    /* ensure enough room above the OS keyboard when open */
     padding-bottom: calc(1rem + var(--keyboard-height, 0px));
 }
 
-/* Hide WebKit/Blink scrollbars (Chrome, Edge Chromium, Safari, Android) */
 .settings-modal__body::-webkit-scrollbar {
     width: 0;
     height: 0;
@@ -563,7 +589,6 @@ function connectNewWallet() {
     transition: background-color 200ms, color 200ms;
 }
 
-/* active state */
 .option.active {
     background-color: #3b82f6;
     color: white;
@@ -580,7 +605,6 @@ function connectNewWallet() {
 
 .buttons-group {
     display: flex;
-    /* single place to tweak gap */
     --btn-gap: 0.75rem;
     gap: var(--btn-gap);
 
@@ -593,7 +617,6 @@ function connectNewWallet() {
 .action-btn-one,
 .action-btn-two {
     display: inline-flex;
-    /* calc((100% - gap) / 2) ensures both sum to 100% with the gap between them */
     flex: 0 0 calc((100% - var(--btn-gap)) / 2);
     max-width: calc((100% - var(--btn-gap)) / 2);
     align-items: center;
@@ -605,11 +628,26 @@ function connectNewWallet() {
     padding: 15px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
-
-    /* clamp long text: change to `white-space: normal` if you want wrapping instead */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+
+    /* prepare for transform animation */
+    transform-origin: center center;
+    transition: transform 160ms cubic-bezier(.2, .9, .3, 1), box-shadow 160ms ease, opacity 160ms ease;
+}
+
+/* pressed state: float up a few pixels and scale up ~4% */
+.action-btn-one.pressed,
+.action-btn-two.pressed {
+    transform: translateY(-4px) scale(1.04);
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
+}
+
+/* also offer a native :active fallback for immediate press feedback */
+.action-btn-one:active,
+.action-btn-two:active {
+    transform: translateY(-3px) scale(1.03);
 }
 
 .action-btn-one {
@@ -626,6 +664,14 @@ function connectNewWallet() {
 .action-btn-two span {
     color: white;
     outline: none;
+}
+
+/* disabled visual style when deposit is blocked */
+.action-btn-two.disabled,
+.action-btn-two[disabled] {
+    opacity: 0.95;
+    pointer-events: none;
+    box-shadow: none;
 }
 
 .close-btn {
@@ -701,7 +747,6 @@ function connectNewWallet() {
     font-weight: 600;
 }
 
-/* WALLET TON POP UP STYLES */
 .deposit-ton-body {
     padding: 0.75rem 0.5rem 0.25rem 0.5rem;
     text-align: center;
@@ -728,8 +773,6 @@ function connectNewWallet() {
     cursor: pointer;
 }
 
-/* Make wallet info modal overlay to be on top of deposit modal! */
-
 .wallet-connect-container {
     width: 70%;
     background-color: #3b82f6;
@@ -747,7 +790,6 @@ function connectNewWallet() {
     width: 16px;
 }
 
-/* Wrapper ensures group is centered */
 .amount-wrapper {
     width: 100%;
     display: flex;
@@ -755,26 +797,17 @@ function connectNewWallet() {
     margin: 1rem 0;
 }
 
-/* Use flex (not inline-flex) with no wrapping, and a small gap */
 .amount-group {
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    /* replace negative margins with a proper gap */
     white-space: nowrap;
-    /* prevent children from wrapping to next line */
 }
 
-/* Input width now based on number of characters */
 .amount-input {
-    /* compute width = number-of-chars * 1ch + extra space for padding */
     width: calc(var(--chars, 1) * 1ch + 1rem);
-
-    /* padding and box model */
     padding: 0.35rem 0.5rem;
     box-sizing: content-box;
-    /* width above excludes padding (we added +1rem) */
-
     font-size: 2.25rem;
     color: white;
     background: #292a2a;
@@ -783,16 +816,11 @@ function connectNewWallet() {
     outline: none;
     appearance: textfield;
     font-family: inherit;
-
     flex: 0 0 auto;
-    /* don't grow/shrink */
     min-width: 1ch;
-    /* at least one character */
     max-width: 70vw;
-    /* prevent overflow on tiny screens */
 }
 
-/* Optional: scale down fonts on narrow screens so they fit */
 @media (max-width: 420px) {
     .amount-input {
         font-size: 1.6rem;
@@ -804,14 +832,12 @@ function connectNewWallet() {
     }
 }
 
-/* remove spin buttons */
 .amount-input::-webkit-outer-spin-button,
 .amount-input::-webkit-inner-spin-button {
     -webkit-appearance: none;
     margin: 0;
 }
 
-/* Currency label stays fixed beside input */
 .amount-currency {
     font-size: 1.5rem;
     color: #aaa;
@@ -820,7 +846,6 @@ function connectNewWallet() {
     flex: 0 0 auto;
 }
 
-/* FADE TRANSITION FOR OVERLAY OPACITY */
 .fade-enter-active,
 .fade-leave-active {
     transition:
@@ -834,7 +859,6 @@ function connectNewWallet() {
     backdrop-filter: blur(0px);
 }
 
-/* SLIDE-UP TRANSITION FOR MODAL */
 .slide-up-enter-active,
 .slide-up-leave-active {
     transition: transform 300ms ease-out;

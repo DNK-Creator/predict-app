@@ -61,7 +61,7 @@
 import { defineProps, defineEmits, ref, onMounted, onActivated, computed, watch } from 'vue'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
-import { Address } from '@ton/core'
+import { Address, beginCell, toNano } from '@ton/core'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
@@ -398,14 +398,17 @@ async function cancelDepositIntentOnServer(txId) {
         } catch (readErr) {
             // body read/parse error
             console.error('[client] failed to read/parse response body', readErr);
+            toast.error('Не удалось прочитать ответ: ', readErr)
             throw new Error('Invalid server response');
         }
     } catch (err) {
         if (err.name === 'AbortError') {
             console.error('[client] cancelDepositIntentOnServer: request timed out');
+            toast.error('Отмена пополнения на сервере: время вышло')
             throw new Error('timeout');
         }
         console.error('[client] cancelDepositIntentOnServer error', err);
+        toast.error('Ошибка на сервере: ', err)
         throw err;
     }
 }
