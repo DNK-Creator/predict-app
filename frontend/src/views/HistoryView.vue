@@ -32,7 +32,7 @@
 import 'vue3-toastify/dist/index.css'
 import supabase from '@/services/supabase'
 import { toast } from 'vue3-toastify'
-import { ref, onMounted, computed, onActivated } from 'vue'
+import { ref, onMounted, computed, onActivated, watch } from 'vue'
 import { getLastWithdrawalTime } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
@@ -343,21 +343,41 @@ onMounted(async () => {
     spinnerShow.value = false;
 })
 
-onMounted(async () => {
+onActivated(async () => {
     // every time DepositView is shown again…
-    if (app.walletAddress) {
-        const freshBal = await fetchTonBalance(app.walletAddress)
+    if (ton.value?.connected && appStoreObj.walletAddress) {
+        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
         walletBalance.value = +freshBal.toFixed(2)
     }
 })
 
-onActivated(async () => {
-    // every time DepositView is shown again…
-    if (app.walletAddress) {
-        const freshBal = await fetchTonBalance(app.walletAddress)
-        walletBalance.value = +freshBal.toFixed(2)
-    }
-})
+watch(
+    () => walletAddress.value,
+    async (addr) => {
+        if (!addr) {
+            walletStatus.value = 'Подключите кошелёк'
+            walletBalance.value = null
+            return
+        }
+
+        // set status quickly (shortened form)
+        try {
+            const parsed = Address.parse(addr).toString({ urlSafe: true, bounceable: false })
+            walletStatus.value = `Ваш кошелёк ${parsed.slice(0, 4)}...${parsed.slice(-3)}`
+        } catch (_) {
+            walletStatus.value = 'Подключите кошелёк'
+        }
+
+        // fetch fresh balance
+        try {
+            const bal = await fetchTonBalance(addr)
+            walletBalance.value = (typeof bal === 'number') ? +bal.toFixed(2) : null
+        } catch (err) {
+            walletBalance.value = null
+        }
+    },
+    { immediate: true }
+)
 
 </script>
 
