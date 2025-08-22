@@ -487,8 +487,7 @@ onActivated(async () => {
 })
 
 function setupTonConnectListener() {
-    // grab your one & only TonConnectUI
-    ton.value = getTonConnect();
+    ensureTon()
 
     // 2) only register status change once
     if (!ton.value._statusListenerRegistered) {

@@ -40,22 +40,15 @@ const effectIdTwo = "5046509860389126442"
 
 const app = express()
 app.use(express.json())
-// 2) Enable CORS *only* from your front-end domain
-app.use(cors({
-    origin: 'https://giftspredict.ru',
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true
-}))
+
+app.use(cors({ origin: 'https://giftspredict.ru', methods: ['GET', 'POST', 'PUT', 'DELETE'], credentials: true }))
 
 // If your app runs behind a single trusted proxy (e.g. nginx), set:
 app.set('trust proxy', 1);
 
-// debug request logging - remove or tone down in production
 app.use((req, res, next) => {
-    // log basic request line
     console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
-
-    // for non-GETs, show the body (small bodies only)
+    // for non-GETs, show the body (small bodies only) 
     if (req.method !== 'GET' && req.body && Object.keys(req.body).length <= 50) {
         console.log('[req.body]', JSON.stringify(req.body));
     } else if (req.method !== 'GET') {
@@ -63,8 +56,6 @@ app.use((req, res, next) => {
     }
     next();
 });
-
-console.log(`[main] pid=${process.pid} ppid=${process.ppid} argv=${process.argv.join(' ')} env.SUPERVISOR_CHILD=${process.env.SUPERVISOR_CHILD ?? '0'}`);
 
 
 // Light rate limiting for deposit-intent to reduce abuse
