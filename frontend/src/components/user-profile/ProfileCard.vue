@@ -459,17 +459,14 @@ async function cancelDepositIntentOnServer(txId) {
         } catch (readErr) {
             // body read/parse error
             console.error('[client] failed to read/parse response body', readErr);
-            toast.error('Не удалось прочитать ответ: ', readErr)
             throw new Error('Invalid server response');
         }
     } catch (err) {
         if (err.name === 'AbortError') {
             console.error('[client] cancelDepositIntentOnServer: request timed out');
-            toast.error('Отмена пополнения на сервере: время вышло')
             throw new Error('timeout');
         }
         console.error('[client] cancelDepositIntentOnServer error', err);
-        toast.error('Ошибка на сервере: ', err)
         throw err;
     }
 }

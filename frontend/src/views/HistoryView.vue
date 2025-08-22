@@ -345,8 +345,8 @@ onMounted(async () => {
 
 onActivated(async () => {
     // every time DepositView is shown again…
-    if (ton.value?.connected && appStoreObj.walletAddress) {
-        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+    if (ton.value?.connected && app.walletAddress) {
+        const freshBal = await fetchTonBalance(app.walletAddress)
         walletBalance.value = +freshBal.toFixed(2)
     }
 })
