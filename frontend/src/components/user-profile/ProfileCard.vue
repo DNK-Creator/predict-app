@@ -67,6 +67,7 @@ import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { useRouter } from 'vue-router'
+import { useTon } from '@/services/useTon'
 import DepositsModalTwo from '../DepositsModalTwo.vue'
 import YourWalletModal from '../YourWalletModal.vue'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
@@ -74,7 +75,9 @@ import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
 
-const { user, tg } = useTelegram()
+const { user } = useTelegram()
+
+const { ton, ensureTon } = useTon()
 
 const appStoreObj = useAppStore()
 
@@ -152,21 +155,23 @@ const parsedWalletAddress = computed(() => {
     }
 })
 
-// Called when user clicks “Пополнить”
 async function handleDeposit(amount) {
     if (!walletAddress.value) {
         try {
+            ensureTon()
             const wallet = await ton.value.connectWallet()
             if (wallet) {
                 await handleConnected(wallet)
+                // continue the deposit now that wallet is connected
+                await onDeposit(amount)
             }
         } catch (e) {
-            console.error("Could not connect:", e);
+            console.error('Could not connect:', e)
+            toast.error('Не удалось подключить кошелёк.')
         }
-        return;
-    }
-    else {
-        onDeposit(amount)
+        return
+    } else {
+        await onDeposit(amount)
     }
 }
 
@@ -175,6 +180,7 @@ async function openWalletInfo() {
         showWalletInfo.value = true
     }
     else {
+        ensureTon()
         const wallet = await ton.value.connectWallet()
         if (wallet) {
             await handleConnected(wallet)
@@ -234,7 +240,7 @@ async function handleConnected(wallet) {
 async function onDeposit(amount) {
     // 1) If no wallet yet, open selector
     if (!ton.value) {
-        ton.value = await getTonConnect();
+        ton.value = getTonConnect();
     }
 
     const amountTON = +amount
@@ -411,8 +417,8 @@ async function cancelDepositIntentOnServer(txId) {
 
 async function reconnectWallet() {
     console.log('Reconnecting')
-    if(!ton.value) {
-        ton.value = await getTonConnect()
+    if (!ton.value) {
+        ton.value = getTonConnect()
     }
     // If already connected, drop the session
     if (ton.value.connected || appStoreObj.walletAddress !== null) {
@@ -429,6 +435,7 @@ async function reconnectWallet() {
     walletStatus.value = 'Подключите кошелек'
     walletBalance.value = null
     // Then always open the wallet selector
+    ensureTon()
     const wallet = await ton.value.connectWallet()
     if (wallet) {
         await handleConnected(wallet)

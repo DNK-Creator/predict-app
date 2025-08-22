@@ -51,6 +51,7 @@ import { useAppStore } from '@/stores/appStore.js'
 import { useTelegram } from '@/services/telegram.js'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { Address } from '@ton/core'
+import { useTon } from './services/useTon'
 import supabase from './services/supabase'
 import Navbar from './components/Navbar.vue'
 import Header from './components/Header.vue'
@@ -62,6 +63,8 @@ import ChannelFollowModal from './components/ChannelFollowModal.vue'
 const appDataLoading = ref(true)
 const loadingStage = ref(0)
 const app = useAppStore()
+
+const { ton, ensureTon } = useTon()
 
 const DuckMedia = ref('https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/DuckClicking.tgs')
 
@@ -277,8 +280,7 @@ watch(
 )
 
 async function reconnectWallet() {
-  ton.value = getTonConnect();
-
+  ensureTon()
   // If already connected, drop the session
   if (ton.value.connected) {
     app.walletAddress = null

@@ -40,12 +40,15 @@ import { Address } from '@ton/core'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { v4 as uuidv4 } from 'uuid'
 import { fetchBotMessageTransaction } from '@/services/payments'
+import { useTon } from '@/services/useTon'
 import TransactionsTable from '@/components/TransactionsTable.vue'
 import YourWalletModal from '@/components/YourWalletModal.vue'
 import WithdrawModal from '@/components/WithdrawalModal.vue'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
 
 const app = useAppStore()
+
+const { ton, ensureTon } = useTon()
 
 const transactions = ref([])
 const spinnerShow = ref(true)
@@ -87,8 +90,8 @@ async function openWalletInfo() {
     }
     else {
         // after (works)
-        const tc = getTonConnect()
-        const wallet = await tc.connectWallet()
+        ensureTon()
+        const wallet = await ton.value.connectWallet()
         if (wallet) {
             await handleConnected(wallet)
         }
@@ -102,12 +105,7 @@ async function closeWalletInfo() {
 async function openWithdrawalModal() {
     if (app.walletAddress === null || app.walletAddress === undefined) {
         try {
-            ton.value = getTonConnect();
-        } catch (err) {
-            console.error('Error while connecting ton: ', err)
-        }
-
-        try {
+            ensureTon()
             const wallet = await ton.value.connectWallet()
             if (wallet) {
                 await handleConnected(wallet)
@@ -123,9 +121,8 @@ async function openWithdrawalModal() {
 }
 
 async function reconnectWallet() {
-    ton.value = getTonConnect();
-
     // If already connected, drop the session
+    ensureTon()
     if (ton.value.connected) {
         app.walletAddress = null
         await ton.value.disconnect()
@@ -148,6 +145,7 @@ async function reconnectWallet() {
 
 // Called when user clicks “Вывод”
 async function handleWithdraw(amount) {
+    ensureTon()
     if (!walletAddress.value) {
         try {
             const wallet = await ton.value.connectWallet()
