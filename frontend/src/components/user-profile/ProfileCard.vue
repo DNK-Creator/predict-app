@@ -493,6 +493,8 @@ function setupTonConnectListener() {
     if (!ton.value._statusListenerRegistered) {
         ton.value._statusListenerRegistered = true
         ton.value.onStatusChange(async (wallet) => {
+            console.log('TON CONNECT onStatusChange — wallet:', wallet);
+            console.log('TON CONNECT — walletInfo:', ton.value?.walletInfo);
             try {
                 await handleConnected(wallet)
             } catch (err) {
