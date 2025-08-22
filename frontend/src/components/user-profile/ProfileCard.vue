@@ -62,6 +62,7 @@ import { defineProps, defineEmits, ref, onMounted, onActivated, computed, watch 
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 import { Address, beginCell, toNano } from '@ton/core'
+import { UserRejectsError } from '@tonconnect/sdk'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
@@ -269,39 +270,99 @@ async function onDeposit(amount) {
         .storeStringTail(txId)
         .endCell()
 
-    const req = {
+    // --- detect wallet network (DEFENSIVE) ---
+    // Where wallets expose it can vary. We try common locations.
+    const walletObj = ton.value?.wallet || null;
+    const walletInfo = ton.value?.walletInfo || null;
+    console.log('[deposit] walletObj:', walletObj);
+    console.log('[deposit] walletInfo:', walletInfo);
+
+    const walletNetwork =
+        walletObj?.items?.[0]?.network ??
+        walletObj?.network ??
+        walletInfo?.network ??
+        null;
+
+    // Build base request WITHOUT forcing a network yet
+    const baseReq = {
         validUntil: Math.floor(Date.now() / 1000) + 600,
-        network: 'mainnet',
         messages: [{
             address: depositAddress,
             amount: toNano(amountTON).toString(),
             payload: commentCell.toBoc().toString('base64')
         }]
+    };
+
+    if (walletNetwork) {
+        baseReq.network = walletNetwork;
+    } else {
+        // fallback: you can either omit `network` (let wallet use its selected network)
+        // or set 'mainnet' if you're certain. Safer to omit:
+        // baseReq.network = 'mainnet'
     }
 
+    // Try send, and if we receive a *bad network* error, attempt a one-time fallback.
     try {
-        // prompt wallet & broadcast
-        await ton.value.sendTransaction(req)
-
-        // Tell the user the transaction was broadcast
-        toast.info('Транзакция отправлена. Ожидайте подтверждения — баланс обновится автоматически.')
-
-        // do NOT wait for TONCenter from frontend. Rely on backend worker to detect on-chain and update DB.
-        // Your realtime supabase subscription will pick up the final status row update.
-
+        await ton.value.sendTransaction(baseReq)
+        toast.info('Транзакция отправлена. Ожидайте подтверждения.')
+        return
     } catch (e) {
+        // User canceled
         if (e instanceof UserRejectsError) {
-            // user cancelled
             console.warn('[deposit] user rejected tx')
-
-            // inform backend the intent was cancelled (optional but recommended)
             await cancelDepositIntentOnServer(txId)
-
             toast.info('Транзакция отменена.')
-        } else {
-            console.error('Transaction error:', e)
-            toast.error('Ошибка отправки транзакции. Проверьте кошелек и попробуйте снова.')
+            return
         }
+
+        console.error('[deposit] initial sendTransaction error:', e)
+        // === one-time fallback attempt ===
+        // If we originally sent 'mainnet' but walletNetwork is '-239', or vice-versa,
+        // try the other commonly accepted alternative.
+        const tried = new Set([String(baseReq.network ?? '')])
+
+        // produce alternative candidates
+        const altCandidates = []
+
+        // If walletNetwork is numeric -239 and we didn't set it, try setting it
+        if (walletNetwork && String(walletNetwork) !== String(baseReq.network)) {
+            altCandidates.push(String(walletNetwork))
+        }
+
+        // If we used 'mainnet' previously, try '-239' as fallback
+        if (!tried.has('-239')) altCandidates.push('-239')
+
+        // If we used '-239', try 'mainnet'
+        if (!tried.has('mainnet')) altCandidates.push('mainnet')
+
+        // Try candidates once each until one succeeds
+        for (const candidate of altCandidates) {
+            if (!candidate) continue
+            if (tried.has(candidate)) continue
+            tried.add(candidate)
+
+            const tryReq = { ...baseReq, network: candidate }
+            console.log('[deposit] retrying with alternative network:', candidate, tryReq)
+
+            try {
+                await ton.value.sendTransaction(tryReq)
+                toast.info('Транзакция отправлена. Ожидайте подтверждения.')
+                return
+            } catch (err2) {
+                if (err2 instanceof UserRejectsError) {
+                    console.warn('[deposit] user rejected tx on retry')
+                    await cancelDepositIntentOnServer(txId)
+                    toast.info('Транзакция отменена.')
+                    return
+                }
+                console.error(`[deposit] retry sendTransaction failed for network=${candidate}`, err2)
+                // continue to next candidate
+            }
+        }
+
+        // All attempts failed
+        console.error('[deposit] All sendTransaction attempts failed')
+        toast.error('Ошибка отправки транзакции. Проверьте кошелек и попробуйте снова.')
     }
 }
 
