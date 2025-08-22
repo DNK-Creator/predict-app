@@ -257,7 +257,7 @@ async function handleConnected(wallet) {
 
         // fetch balance (guard with try/catch)
         try {
-            const tonBal = await fetchTonBalance(appStoreObj.walletAddress)
+            const tonBal = await fetchTonBalance(app.walletAddress)
             walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
         } catch (err) {
             console.warn('Failed to fetch TON balance', err)
@@ -347,16 +347,16 @@ onMounted(async () => {
 
 onMounted(async () => {
     // every time DepositView is shown again…
-    if (appStoreObj.walletAddress) {
-        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+    if (app.walletAddress) {
+        const freshBal = await fetchTonBalance(app.walletAddress)
         walletBalance.value = +freshBal.toFixed(2)
     }
 })
 
 onActivated(async () => {
     // every time DepositView is shown again…
-    if (appStoreObj.walletAddress) {
-        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+    if (app.walletAddress) {
+        const freshBal = await fetchTonBalance(app.walletAddress)
         walletBalance.value = +freshBal.toFixed(2)
     }
 })

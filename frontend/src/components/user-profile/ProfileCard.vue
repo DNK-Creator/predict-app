@@ -233,26 +233,16 @@ async function handleConnected(wallet) {
 // ——— Deposit flow ———
 async function onDeposit(amount) {
     // 1) If no wallet yet, open selector
-    if (!appStoreObj.walletAddress) {
-        try {
-            const wallet = await ton.value.connectWallet()
-            if (wallet) {
-                await handleConnected(wallet)
-            }
-        } catch (e) {
-            console.error("Could not connect:", e)
-            toast.error('Не удалось подключить кошелек.')
-        }
-        return
-    }
-    if (!ton.value) return
-
-    if (!amount || amount === undefined || amount <= 0.01) {
-        toast.warn('Пополнения от 0.01 TON.')
-        return
+    if (!ton.value) {
+        ton.value = await getTonConnect();
     }
 
-    const amountTON = amount
+    const amountTON = +amount
+
+    if (!amountTON || amountTON === undefined || amountTON <= 0.1) {
+        toast.warn('Пополнения от 0.1 TON.')
+        return
+    }
 
     // create deposit intent server-side (server will create the transaction row)
     let intent
@@ -421,6 +411,9 @@ async function cancelDepositIntentOnServer(txId) {
 
 async function reconnectWallet() {
     console.log('Reconnecting')
+    if(!ton.value) {
+        ton.value = await getTonConnect()
+    }
     // If already connected, drop the session
     if (ton.value.connected || appStoreObj.walletAddress !== null) {
         appStoreObj.walletAddress = null

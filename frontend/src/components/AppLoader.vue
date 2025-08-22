@@ -11,6 +11,9 @@
 
             <span class="sr-only">{{ Math.round((currentStage / 5) * 100) }}% complete</span>
         </div>
+        <div class="helper-text">
+            <span>{{ Math.round((currentStage / 5) * 100) }}%..</span>
+        </div>
     </div>
 </template>
 
@@ -156,7 +159,7 @@ onBeforeUnmount(() => {
 .empty-media {
     width: 13rem;
     height: 13rem;
-    margin-bottom: 2.5rem;
+    margin-bottom: 2rem;
 }
 
 /* Progress bar container (unfilled color) */
@@ -167,9 +170,16 @@ onBeforeUnmount(() => {
     background: rgb(75, 77, 80);
     /* unfilled color */
     border-radius: 999px;
+    margin-bottom: 1.5rem;
     overflow: hidden;
-    margin-bottom: 10rem;
     box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.helper-text {
+    color: white;
+    margin-bottom: 6rem;
+    font-family: "Montserrat", sans-serif;
+    font-weight: 600;
 }
 
 /* Fill - we do NOT use CSS transition so JS controls the motion precisely */
@@ -182,7 +192,7 @@ onBeforeUnmount(() => {
     transform-origin: left center;
     transform: scaleX(0);
     /* controlled by inline style bound to currentStage */
-    background: rgb(68, 133, 238);
+    background: rgb(39, 115, 238);
     /* fill color specified */
     border-radius: inherit;
     will-change: transform;
