@@ -238,14 +238,9 @@ async function handleConnected(wallet) {
 
 // ——— Deposit flow ———
 async function onDeposit(amount) {
-    // 1) If no wallet yet, open selector
-    if (!ton.value) {
-        ton.value = getTonConnect();
-    }
-
     const amountTON = +amount
 
-    if (!amountTON || amountTON === undefined || amountTON <= 0.1) {
+    if (!amountTON || amountTON === undefined || amountTON < 0.1) {
         toast.warn('Пополнения от 0.1 TON.')
         return
     }
