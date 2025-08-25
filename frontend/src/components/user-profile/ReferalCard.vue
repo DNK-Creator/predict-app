@@ -492,6 +492,9 @@ watch(
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow-x: hidden;
+    overscroll-behavior-x: contain;
+    /* avoid horizontal bounce on mobile */
 }
 
 /* header */
@@ -548,6 +551,9 @@ watch(
     position: relative;
     max-height: 27vh;
     overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-x: contain;
+    /* avoid horizontal bounce on mobile */
     padding-right: 6px;
     -webkit-overflow-scrolling: touch;
     scroll-behavior: smooth;
@@ -750,6 +756,11 @@ watch(
     background: rgba(0, 0, 0, 0.15);
     padding: 10px;
     border-radius: 10px;
+    min-width: 0;
+    /* <-- crucial: lets flex children shrink in constrained containers */
+    box-sizing: border-box;
+    overflow: hidden;
+    /* hide any accidental overflow inside an item */
 }
 
 /* referral-row hover lift */
@@ -785,6 +796,22 @@ watch(
     display: flex;
     gap: 12px;
     align-items: center;
+}
+
+/* Allow left / right flex children to shrink instead of overflowing */
+.ref-left,
+.ref-right {
+    min-width: 0;
+    /* allow text to truncate / wrap instead of pushing width */
+}
+
+/* Make sure images never push layout */
+.ref-header-image img,
+.event-logo,
+.value-and-image img {
+    max-width: 100%;
+    height: auto;
+    display: block;
 }
 
 .winnings,
