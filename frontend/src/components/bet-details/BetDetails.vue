@@ -1222,6 +1222,7 @@ function onResize() { updateCaretPosition(); }
     width: 100%;
     height: 10rem;
     z-index: 3;
+    user-select: none;
 }
 
 .info-object-one,

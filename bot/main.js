@@ -535,7 +535,7 @@ async function handleStart(ctx) {
         return ctx.replyWithPhoto(
             { url: "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png" },
             {
-                caption: "Welcome to Gifts Predict! 🔮 Forecast future Telegram and Crypto related events and earn rewards!",
+                caption: "Welcome to Gifts Predict! 🔮 Earn TON by predicting the future of Telegram and Crypto related events.",
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([

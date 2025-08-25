@@ -509,11 +509,14 @@ function connectNewWallet() {
 .settings-modal {
     display: flex;
     flex-direction: column;
+    align-self: center;
+    margin: auto auto;
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     height: 75vh;
+    max-width: 620px;
     background: #292a2a;
     color: White;
     font-family: "Inter", sans-serif;

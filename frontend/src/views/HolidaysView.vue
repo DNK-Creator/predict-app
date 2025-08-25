@@ -281,6 +281,7 @@ onMounted(async () => {
     margin-bottom: 12px;
 }
 
+/* Use the same look as your other buttons (keeps visual consistency) */
 .catalog-btn {
     padding: 0.5rem 0.9rem;
     border-radius: 10px;
@@ -295,12 +296,19 @@ onMounted(async () => {
     text-align: center;
 }
 
+/* Active state — visually prominent */
 .catalog-btn.active {
     background: #fff;
     color: #000;
     border-color: #fff;
 }
 
+/* Small hover active */
+.catalog-btn.active:hover {
+    background: rgba(255, 255, 255, 0.96);
+}
+
+/* Small hover */
 .catalog-btn:hover {
     background: rgba(255, 255, 255, 0.06);
 }
