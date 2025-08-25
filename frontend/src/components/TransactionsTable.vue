@@ -67,6 +67,10 @@ function translateStatus(status) {
         return app.language === 'ru' ? 'Пополнение подарком' : 'Gift Deposit'
     } else if (status === 'Успешный вывод' || status === 'Вывод успешен' || status === 'Завершенный вывод') {
         return app.language === 'ru' ? 'Успешный вывод' : 'Successful Withdrawal'
+    } else if (status === 'Отмененное пополнение' || status === 'Отменённое пополнение' || status === 'Пополнение отменено') {
+        return app.language === 'ru' ? 'Отменённое пополнение' : 'Canceled Deposit'
+    } else if (status === 'Отмененный вывод' || status === 'Вывод отменён' || status === 'Отменённый вывод') {
+        return app.language === 'ru' ? 'Отменённый вывод' : 'Canceled Withdrawal'
     }
 }
 

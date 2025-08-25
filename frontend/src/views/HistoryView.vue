@@ -218,7 +218,7 @@ async function onWithdraw(amount) {
         .eq('telegram', user?.id ?? 99)
 
     try {
-        fetchBotMessageTransaction(`💎 Запрос на получение ${amountTON} TON сохранен.\nТекущий баланс: ${app.points} TON`, user?.id)
+        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON} TON is saved.\nCurrent balance: ${app.points} TON`, user?.id)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }

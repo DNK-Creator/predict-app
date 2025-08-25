@@ -270,7 +270,7 @@ app.post("/api/botmessage", async (req, res) => {
             parse_mode: 'HTML', // optionally; or 'MarkdownV2' / omit
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Открыть кошелек", url: "https://t.me/giftspredict_bot?startapp" }]
+                    [{ text: "Open profile", url: "https://t.me/giftspredict_bot?startapp" }]
                 ]
             }
         };
@@ -535,16 +535,16 @@ async function handleStart(ctx) {
         return ctx.replyWithPhoto(
             { url: "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png" },
             {
-                caption: "Ты попал в <b>Gifts Predict! 🔮 </b> Предсказывай всевозможные события в Телеграме и зарабатывай призы!",
+                caption: "Welcome to Gifts Predict! 🔮 Forecast future Telegram and Crypto related events and earn rewards!",
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([
                     [Markup.button.url(
-                        "🕹️ Открыть приложение",
+                        "🕹️ Open App",
                         `https://t.me/giftspredict_bot?startapp=${ctx.session.ref || ""}`
                     )],
                     [Markup.button.url(
-                        "📢 Комьюнити",
+                        "📢 Community",
                         `https://t.me/giftspredict`
                     )]
                 ]),
@@ -553,7 +553,7 @@ async function handleStart(ctx) {
     }
     catch (err) {
         console.error("❌ start handler failed:", err)
-        return ctx.reply("Произошла ошибка, попробуйте позже.")
+        return ctx.reply("An error occured, please try again later.")
     }
 }
 
@@ -571,7 +571,7 @@ async function handleNewUser(ctx) {
     }
     catch (err) {
         console.error("❌ start handler failed:", err)
-        return ctx.reply("Произошла ошибка, попробуйте позже.")
+        return ctx.reply("An error occured, please try again later.")
     }
 }
 
