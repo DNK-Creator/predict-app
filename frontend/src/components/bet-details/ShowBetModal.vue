@@ -8,13 +8,12 @@
             <header class="modal-header">
                 <div class="modal-header-description">
                     <h2>{{ bet.name }}</h2>
-                    <span>Предсказание..</span>
                 </div>
                 <button class="close-btn" @click="close">×</button>
             </header>
 
             <section class="modal-body">
-                <p class="connected-wallet">Ставка на "{{ sideText }}"</p>
+                <p class="connected-wallet">{{ $t('bet-on') }} "{{ sideText }}"</p>
 
                 <div class="amount-wrapper">
                     <div class="amount-row">
@@ -50,18 +49,25 @@
                     <div class="potential-panel" v-if="bet && potentialPayout > 0">
                         <div class="potential-row">
                             <div class="potential-left">
-                                <div class="lbl">Вероятность "Да"</div>
-                                <div class="values">
+                                <div class="lbl">{{ $t('probability') }}</div>
+
+                                <div v-if="sideText === 'Yes'" class="values">
                                     <div class="old">{{ fmtPct(currentYesProb) }}</div>
                                     <div class="arrow">→</div>
                                     <div class="new">{{ fmtPct(newYesProb) }}</div>
                                 </div>
+
+                                <div v-else class="values">
+                                    <div class="old">{{ fmtPct(currentNoProb) }}</div>
+                                    <div class="arrow">→</div>
+                                    <div class="new">{{ fmtPct(newNoProb) }}</div>
+                                </div>
                             </div>
 
                             <div class="potential-right">
-                                <div class="lbl">При выигрыше</div>
+                                <div class="lbl">{{ $t('to-win') }}</div>
                                 <div class="big">{{ fmtTon(potentialPayout) }}</div>
-                                <div class="sub-profit">Прибыль {{ fmtTon(potentialProfit) }}</div>
+                                <div class="sub-profit">{{ $t('profit') }} {{ fmtTon(potentialProfit) }}</div>
                             </div>
                         </div>
 
@@ -69,22 +75,22 @@
 
                     <!-- quick add -->
                     <div class="quick-add">
-                        <span class="quick-add-label">Быстрые действия</span>
+                        <span class="quick-add-label">{{ $t('quick-actions') }}</span>
                         <div class="quick-add-buttons">
-                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 5 }"
-                                @pointerdown="() => pressQuick(5)" @pointerup="releaseQuick"
+                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 2 }"
+                                @pointerdown="() => pressQuick(2)" @pointerup="releaseQuick"
                                 @pointercancel="releaseQuick" @mouseleave="releaseQuick"
-                                @click="() => quickAdd(5)">+5</button>
+                                @click="() => quickAdd(2)">+2</button>
 
-                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 20 }"
-                                @pointerdown="() => pressQuick(20)" @pointerup="releaseQuick"
+                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 4.5 }"
+                                @pointerdown="() => pressQuick(4.5)" @pointerup="releaseQuick"
                                 @pointercancel="releaseQuick" @mouseleave="releaseQuick"
-                                @click="() => quickAdd(20)">+20</button>
+                                @click="() => quickAdd(4.5)">+4.5</button>
 
-                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 100 }"
-                                @pointerdown="() => pressQuick(100)" @pointerup="releaseQuick"
+                            <button type="button" class="quick-btn" :class="{ pressed: pressedQuick === 10 }"
+                                @pointerdown="() => pressQuick(10)" @pointerup="releaseQuick"
                                 @pointercancel="releaseQuick" @mouseleave="releaseQuick"
-                                @click="() => quickAdd(100)">+100</button>
+                                @click="() => quickAdd(10)">+10</button>
                         </div>
                     </div>
                 </div>
@@ -92,7 +98,7 @@
 
             <footer class="modal-footer">
                 <button class="action-btn" :disabled="!validAmount" @click="placeBet">
-                    {{ loading ? 'Обрабатываем..' : 'Поставить' }}
+                    {{ loading ? translateValidating() : translateBet() }}
                 </button>
             </footer>
         </div>
@@ -127,8 +133,21 @@ const pressedQuick = ref(null)
 
 const modalRef = ref(null)   // NEW: used to scope outside-click blur
 
-const sideText = computed(() => (props.side === 'Yes' ? 'Да' : 'Нет'))
-const chosenSideLabel = computed(() => (props.side === 'Yes' ? 'ставите на "Да"' : 'ставите на "Нет"'))
+function translateValidating() {
+    return app.language === 'ru' ? 'Подтверждаем..' : 'Confirming..'
+}
+
+function translateBet() {
+    return app.language === 'ru' ? 'Поставить' : 'Place'
+}
+
+const sideText = computed(() => {
+    if (props.side === 'Yes') {
+        return app.language === 'ru' ? 'Да' : 'Yes'
+    } else {
+        return app.language === 'ru' ? 'Нет' : 'No'
+    }
+})
 
 watch(() => props.visible, (v) => {
     if (v) {
@@ -278,12 +297,14 @@ async function placeBet() {
     loading.value = true
     try {
         await placeBetRequest(props.bet.id, props.side, +amount.value)
-        toast.success('Ставка успешно поставлена!')
+        let messageText = app.language === 'ru' ? 'Ставка успешно поставлена!' : 'Bet placed successfully!'
+        toast.success(messageText)
         emit('placed', { side: props.side, amount: +amount.value })
         app.points -= Number(amount.value)
         close()
     } catch (err) {
-        toast.error(err.message || 'Не удалось поставить ставку.')
+        let messageText = app.language === 'ru' ? 'Не удалось поставить ставку.' : 'Unable to place bet.'
+        toast.error(err.message || messageText)
     } finally {
         loading.value = false
     }
@@ -420,6 +441,23 @@ function readVolumeObject(vol) {
 
 /* compute yes/no volumes from props.bet.volume (preferred source) */
 const volParts = computed(() => readVolumeObject(props.bet?.volume))
+
+/* currentNoProb: prefer volumes when possible (equivalent to 1 - currentYesProb) */
+const currentNoProb = computed(() => {
+    // simply invert the computed currentYesProb so we stay consistent with volume fallback logic
+    const yes = Number(volParts.value.yes) || 0
+    const no = Number(volParts.value.no) || 0
+    const total = yes + no
+    if (total > 0) return no / total
+
+    // fallback: invert current_odds (which is yes-prob)
+    return 1 - currentYesProb.value
+})
+
+/* newNoProb: inverted newYesProb */
+const newNoProb = computed(() => {
+    return 1 - newYesProb.value
+})
 
 /* currentYesProb: prefer computing from explicit volumes when possible */
 const currentYesProb = computed(() => {
@@ -616,6 +654,7 @@ onBeforeUnmount(() => {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    align-content: center;
     padding: 1rem 1rem 0 1rem;
     font-size: 1.25rem;
     font-family: Inter;
@@ -643,7 +682,6 @@ onBeforeUnmount(() => {
     background: transparent;
     border: none;
     font-size: 2.25rem;
-    margin-bottom: 1.2rem;
     cursor: pointer;
     color: white;
 }

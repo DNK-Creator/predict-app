@@ -2,18 +2,19 @@
     <div class="bets-history-container">
         <!-- Filter Panel -->
         <div class="filter-panel" role="region" aria-label="Фильтр предсказаний">
-            <label for="filter-select" class="filter-label">Фильтр</label>
+            <label for="filter-select" class="filter-label">{{ $t('filter') }}</label>
             <select id="filter-select" v-model="filter" @change="onFilterChange" class="filter-select">
-                <option value="all">Все</option>
-                <option value="won">Выигранные</option>
-                <option value="lost">Проигранные</option>
+                <option value="all">{{ $t('all') }}</option>
+                <option value="won">{{ $t('won') }}</option>
+                <option value="lost">{{ $t('lost') }}</option>
             </select>
         </div>
 
         <!-- Bets List -->
         <div class="bets-history-list" role="list">
             <div v-for="bet in filteredBets" :key="bet.id" :class="['bet-item', bet.won ? 'won' : 'lost']"
-                role="listitem" tabindex="0" :aria-label="bet.name + (bet.won ? ' — выигрыш' : ' — проигрыш')">
+                role="listitem" tabindex="0"
+                :aria-label="`${bet.name} ${bet.won ? t('result-won') : t('result-lost')}`">
                 <!-- left accent + date -->
                 <div class="left-col">
                     <div class="accent" aria-hidden="true"></div>
@@ -26,13 +27,13 @@
                 <!-- main content -->
                 <router-link :to="{ name: 'BetDetails', params: { id: bet.id } }" class="bet-content" tabindex="-1">
                     <div class="bet-name">{{ bet.name }}</div>
-                    <div class="bet-meta">Поставлено {{ bet.stake }} TON на {{ formatSide(bet.side) }}</div>
+                    <div class="bet-meta">{{ t('placed_on', { stake: bet.stake, side: formatSide(bet.side) }) }}</div>
                 </router-link>
 
                 <!-- result chip (compact) -->
                 <div class="result-col">
                     <span class="result-chip" :class="bet.won ? 'chip-won' : 'chip-lost'"
-                        :aria-label="bet.won ? 'Выиграно' : 'Проиграно'" role="status">
+                        :aria-label="bet.won ? t('result-won') : t('result-lost')" role="status">
                         <span class="chip-icon" aria-hidden="true">
                             <svg v-if="bet.won" width="12" height="12" viewBox="0 0 24 24" fill="none"
                                 xmlns="http://www.w3.org/2000/svg">
@@ -45,13 +46,13 @@
                                     stroke-linecap="round" stroke-linejoin="round" />
                             </svg>
                         </span>
-                        <span class="chip-text">{{ bet.won ? 'Выиграно' : 'Проиграно' }}</span>
+                        <span class="chip-text">{{ bet.won ? t('result-won') : t('result-lost') }}</span>
                     </span>
                 </div>
             </div>
 
             <div v-if="filteredBets.length === 0" class="empty-state" role="status">
-                Нет {{ formatFilterWord(filter) }} предсказаний.
+                {{ $t('no') }} {{ formatFilterWord(filter) }} {{ $t('predictions') }}
             </div>
         </div>
     </div>
@@ -61,11 +62,25 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getUsersHistoryBets } from '@/services/bets-requests.js'
+import { useAppStore } from '@/stores/appStore'
+import { useI18n } from 'vue-i18n'
+
+const app = useAppStore()
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n({ useScope: 'global' })
+
 const historyBets = ref([])
 const filter = ref(route.query.filter ?? 'all')
+
+function formatWon() {
+    return t('result-won-short') || (app.language === "ru" ? "- выигрыш" : "- winning")
+}
+
+function formatLost() {
+    return t('result-lost-short') || (app.language === "ru" ? "- проигрыш" : "- lose")
+}
 
 onMounted(async () => {
     try {
@@ -93,20 +108,48 @@ function onFilterChange() {
 }
 
 function formatFilterWord(word) {
-    if (word === 'won') return 'выигранных'
-    if (word === 'lost') return 'проигранных'
-    return 'завершенных'
+    // prefer i18n keys where available
+    if (word === 'won') return t('filter-word-won') || (app.language === 'ru' ? 'выигранных' : 'won')
+    if (word === 'lost') return t('filter-word-lost') || (app.language === 'ru' ? 'проигранных' : 'lost')
+    return t('filter-word-past') || (app.language === 'ru' ? 'завершённых' : 'past')
 }
 
-function formatDate(dateString, opts) {
-    // Russian localized months (short) and day format
-    return new Date(dateString).toLocaleDateString('ru-RU', opts)
+function formatDate(dateInput, opts = {}) {
+    // defensive: invalid/missing date
+    if (!dateInput) return ''
+    const d = new Date(dateInput)
+    if (Number.isNaN(d.getTime())) return ''
+
+    // decide which locale to use based on app.language
+    const lang = (app.language ?? 'en').toLowerCase()
+    // map short codes to full locales for predictable output
+    let locale = 'en-US'
+    if (lang.startsWith('ru')) locale = 'ru-RU'
+    else if (lang.startsWith('en')) locale = 'en-US'
+    else locale = lang // allow custom stored locales
+
+    try {
+        return d.toLocaleDateString(locale, opts)
+    } catch (e) {
+        // fallback to ISO-ish pieces if toLocaleDateString fails
+        if (opts.month === 'short') {
+            return d.toLocaleString('en-US', { month: 'short' })
+        }
+        if (opts.day === 'numeric') {
+            return String(d.getDate())
+        }
+        return d.toLocaleString()
+    }
 }
 
 function formatSide(side) {
     if (!side) return ''
     const s = String(side).trim().toLowerCase()
-    return s === 'yes' || s === 'да' ? 'Да' : (s === 'no' || s === 'нет' ? 'Нет' : side)
+    // map booleans/strings to localized Yes/No
+    if (s === 'yes' || s === 'да' || s === 'true' || s === '1') return t('yes') || (app.language === 'ru' ? 'Да' : 'Yes')
+    if (s === 'no' || s === 'нет' || s === 'false' || s === '0') return t('no') || (app.language === 'ru' ? 'Нет' : 'No')
+    // otherwise return original (but try to localize via i18n if you have keys)
+    return s
 }
 </script>
 

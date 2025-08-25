@@ -4,7 +4,7 @@
             <div class="overlay" @click.self="close">
                 <div class="modal">
                     <header class="modal-header">
-                        <h2 class="modal-title">{{ holiday.name }}</h2>
+                        <h2 class="modal-title">{{ translatedTitle(holiday.name, holiday.name_en) }}</h2>
                         <button class="modal-close" @click="close" aria-label="Close">✖</button>
                     </header>
 
@@ -13,13 +13,13 @@
 
                     <section class="modal-body">
                         <span class="date-text"> {{ holidayDateTransform(holiday.date) }} </span>
-                        <p>{{ holiday.description }}</p>
+                        <p>{{ translatedDescription(holiday.description, holiday.description_en) }}</p>
                     </section>
 
                     <button class="action-btn" @click="shareHolidayMessage">
                         <div class="btn-content">
                             <img :src="shareImg">
-                            <span>Поделиться праздником</span>
+                            <span>{{ $t("share-holiday") }}</span>
                         </div>
                     </button>
                 </div>
@@ -30,13 +30,17 @@
 
 <script setup>
 import { useTelegram } from '@/services/telegram.js'
+import { useAppStore } from '@/stores/appStore'
 import shareImg from '@/assets/icons/Share_Icon.png'
+
+const app = useAppStore()
 
 const { user } = useTelegram()
 const { tg } = useTelegram()
 
 const props = defineProps({
     visible: Boolean,
+    language: String,
     holiday: {
         type: Object,
         required: true
@@ -45,8 +49,19 @@ const props = defineProps({
 })
 const emit = defineEmits(['close'])
 
+function translatedTitle(titleRu, titleEn) {
+    return props.language === "ru" ? titleRu : titleEn
+}
+
+function translatedDescription(descriptionRu, descriptionEn) {
+    return props.language === "ru" ? descriptionRu : descriptionEn
+}
+
 /**
- * Format a holiday date into Russian short form: "23 июля", "15 августа", "1 декабря"
+ * Format a holiday date depending on props.language:
+ * - "ru" => "23 июля"
+ * - "en" => "July 23"
+ *
  * Accepts Date objects, numeric timestamps, or date strings (ISO). Returns empty string for invalid input.
  */
 function holidayDateTransform(holDate) {
@@ -68,18 +83,34 @@ function holidayDateTransform(holDate) {
 
     if (Number.isNaN(d.getTime())) return ''
 
-    // Intl provides proper Russian month in genitive ("июля"), and respects locale
+    // choose locale and options based on props.language
+    const lang = props.language === 'ru' ? 'ru' : 'en' // default to 'en' for anything else
+    const locale = lang === 'ru' ? 'ru-RU' : 'en-US'
+    const options = lang === 'ru'
+        ? { day: 'numeric', month: 'long' }      // "23 июля"
+        : { month: 'long', day: 'numeric' }     // "July 23"
+
     try {
-        return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(d)
+        return new Intl.DateTimeFormat(locale, options).format(d)
     } catch (e) {
         // fallback to manual small lookup (shouldn't be needed in modern environments)
-        const months = [
-            'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
-            'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
-        ]
-        const day = d.getDate()
-        const month = months[d.getMonth()]
-        return `${day} ${month}`
+        if (lang === 'ru') {
+            const monthsRu = [
+                'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+                'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'
+            ]
+            const day = d.getDate()
+            const month = monthsRu[d.getMonth()]
+            return `${day} ${month}`
+        } else {
+            const monthsEn = [
+                'January', 'February', 'March', 'April', 'May', 'June',
+                'July', 'August', 'September', 'October', 'November', 'December'
+            ]
+            const day = d.getDate()
+            const month = monthsEn[d.getMonth()]
+            return `${month} ${day}`
+        }
     }
 }
 
@@ -90,7 +121,12 @@ function close() {
 function shareHolidayMessage() {
     let ref = user?.id ?? ""
     let shareLink = 'https://t.me/GiftsPredict_Bot?startapp=' + ref
-    let messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет ${props.holiday.name} 🔔%0A%0AПОДАРКИ В 03:00 ❓❓❓`
+    let messageText = ''
+    if (app.language === 'ru') {
+        messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет ${props.holiday.name} 🔔%0A%0AПОДАРКИ В 03:00 ❓❓❓`
+    } else {
+        messageText = `%0ASoon as ${holidayDateTransform(props.holiday.date)} there will be a ${props.holiday.name_en} 🔔%0A%0AGIFTS AT 3 AM ❓❓❓`
+    }
     tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
     close()
 }

@@ -4,7 +4,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-house icon" :aria-hidden="true"></i>
-                <span class="menu-label">Главная</span>
+                <span class="menu-label">{{ $t('main-page') }}</span>
             </div>
         </RouterLink>
 
@@ -12,7 +12,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-calendar-days icon" :aria-hidden="true"></i>
-                <span class="menu-label">Праздники</span>
+                <span class="menu-label">{{ $t('holidays') }}</span>
             </div>
         </RouterLink>
 
@@ -20,7 +20,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-user icon" :aria-hidden="true"></i>
-                <span class="menu-label">Профиль</span>
+                <span class="menu-label">{{ $t('profile') }}</span>
             </div>
         </RouterLink>
 
@@ -28,7 +28,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-clock-rotate-left icon" :aria-hidden="true"></i>
-                <span class="menu-label">История</span>
+                <span class="menu-label">{{ $t('history') }}</span>
             </div>
         </RouterLink>
     </div>

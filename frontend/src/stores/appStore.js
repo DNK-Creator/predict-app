@@ -6,10 +6,16 @@ import { useTelegram } from '@/services/telegram.js'
 // inside appStore actions
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
+function normalizeLangCode(lc) {
+  if (!lc) return 'en'
+  if (typeof lc !== 'string') return 'en'
+  return lc.split('-')[0].toLowerCase()
+}
 
 export const useAppStore = defineStore('app', {
   state: () => ({
     user: null,         // DB user row
+    language: "en",
     points: 0,
     referrals: [],      // [{ telegram, username, total_winnings, commission }]
     loadingReferrals: false,
@@ -24,10 +30,14 @@ export const useAppStore = defineStore('app', {
       const tStart = Date.now()
 
       const { user: tgUser, ready } = useTelegram()
+
+      const languageCode = tgUser?.language_code ?? 'en'
+
+      console.log(languageCode)
+
       debug('[app.init] telegram raw user', { tgUser })
 
       try { if (typeof ready === 'function') await ready() } catch (e) { warn('[app.init] tg.ready threw', { e }) }
-
 
       const telegramId = Number(tgUser?.id ?? 99)
       if (!telegramId) {
@@ -41,7 +51,7 @@ export const useAppStore = defineStore('app', {
       // fetch/create the user row (RPC or function you created)
       try {
         debug('[app.init] calling getOrCreateUser', { telegramId })
-        this.user = await getOrCreateUser(telegramId)
+        this.user = await getOrCreateUser(telegramId, languageCode)
         info('[app.init] getOrCreateUser OK', { userId: this.user?.id, telegram: this.user?.telegram })
       } catch (err) {
         console.error('Failed to get/create user row', err)
@@ -58,7 +68,7 @@ export const useAppStore = defineStore('app', {
           debug('[app.init] registering referral', { inviterId, telegramId })
           await registerRef(inviterId, null, telegramId, tgUser?.username ?? 'Anonymous')
           // refresh user after register
-          this.user = await getOrCreateUser(telegramId)
+          this.user = await getOrCreateUser(telegramId, languageCode)
           info('[app.init] registerRef OK & user refreshed', { user: this.user })
         } else {
           debug('[app.init] no valid inviterId or inviter equals self', { inviterId })
@@ -86,6 +96,19 @@ export const useAppStore = defineStore('app', {
         info('[app.init] points fetched & subscriptions set', { points: this.points })
       } catch (err) {
         warn('[app.init] points/subscriptions failed', { err: err?.message ?? err })
+      }
+
+      // after this.user assignment in init
+      // prefer DB row's language; fallback to telegram language_code we passed
+      try {
+        const dbLang = this.user?.language ?? null
+        // languageCode variable from earlier in init still available
+        const finalLang = normalizeLangCode(dbLang ?? languageCode ?? 'en')
+        this.language = finalLang
+        debug('[app.init] language set on store', { language: this.language, dbLang, languageCode })
+      } catch (e) {
+        // defensive: don't break init on language issues
+        console.warn('Failed to set language in store', e)
       }
 
       info('[app.init] finished', { durationMs: Date.now() - tStart })
@@ -141,6 +164,69 @@ export const useAppStore = defineStore('app', {
       this._pointsChannel = channel
     },
 
+    /* LANGUAGE */
+    async fetchLanguage() {
+      if (!this.user?.telegram) return
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('language')
+          .eq('telegram', Number(this.user.telegram))
+          .single()
+        if (error) {
+          console.error('fetchLanguage error', error)
+          return
+        }
+        this.language = String(data?.language ?? 'en')
+      } catch (err) {
+        console.error('fetchLanguage unexpected', err)
+      }
+    },
+
+    // Add this helper to set language locally (synchronous)
+    setLanguage(lang) {
+      try {
+        const code = normalizeLangCode(lang)
+        this.language = code
+      } catch (e) {
+        console.warn('setLanguage failed', e)
+      }
+    },
+
+    // Persist language to Supabase and update local state (async)
+    async changeLanguage(lang) {
+      const code = normalizeLangCode(lang)
+      // optimistic local update so UI reacts immediately
+      this.language = code
+
+      // if we have a logged-in DB user row, update the users table
+      if (this.user?.telegram) {
+        try {
+          const { error } = await supabase
+            .from('users')
+            .update({ language: code })
+            .eq('telegram', Number(this.user.telegram))
+
+          if (error) {
+            console.error('changeLanguage: supabase update error', error)
+            // revert? keeping optimistic update is fine; caller can react on failure
+            return false
+          }
+
+          // also keep the in-memory user row in sync if present
+          try { this.user.language = code } catch (e) { /* ignore */ }
+
+          return true
+        } catch (err) {
+          console.error('changeLanguage unexpected', err)
+          return false
+        }
+      }
+
+      // no DB user row: just updated local store (useful in early init or anonymous)
+      return true
+    },
+
     subscribeUserChanges() {
       // subscribe to changes on the user row so we can refresh referrals/bonus when needed
       if (!this.user?.telegram) return
@@ -177,6 +263,10 @@ export const useAppStore = defineStore('app', {
 
         if (!error && data) {
           this.user = data
+          // sync language if user row contains it
+          try {
+            this.language = normalizeLangCode(data?.language ?? this.language)
+          } catch (e) { /* ignore */ }
           // reload referrals if friends object changed or referred_by logic changed
           await this.loadReferrals()
         }

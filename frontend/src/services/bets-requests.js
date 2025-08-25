@@ -88,7 +88,7 @@ export async function getUsersHistoryBets() {
 export async function getBetById(betId) {
     const { data, error } = await supabase
         .from('bets')
-        .select('id, name, description, image_path, result, prizes_given, date, volume, close_time, current_odds')
+        .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume, close_time, current_odds')
         .eq('id', betId)
         .single()
     if (error) throw error

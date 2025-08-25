@@ -9,13 +9,29 @@
             @placed="onBetPlaced" />
 
         <div v-show="!spinnerShow" class="bet-details">
-            <!-- Header -->
-            <div class="header">
-                <div class="header-left-group">
-                    <img :src="questionImg">
-                    <h1 class="header__text">{{ bet.name }}</h1>
-                </div>
-                <CircleGauge :percent="currentBetPercent" />
+
+            <div class="header-two">
+                <h1 class="header__text" ref="headerContainer" aria-label="bet title">
+                    <!-- iterate tokens (word or single-space tokens) -->
+                    <template v-for="(token, tIdx) in tokens" :key="tIdx">
+                        <!-- word tokens: keep word intact with nowrap and render each char inside -->
+                        <span v-if="token.type === 'word'" class="word">
+                            <span v-for="(ch, cIdx) in token.chars" :key="`t${tIdx}-c${cIdx}`" class="char"
+                                :class="{ visible: (token.start + cIdx) < displayedCount }"
+                                :ref="el => setCharRef(el, token.start + cIdx)"
+                                v-html="ch === ' ' ? '&nbsp;' : ch"></span>
+                        </span>
+
+                        <!-- space tokens: use &nbsp; so the parser doesn't collapse the character -->
+                        <span v-else class="space" :class="{ visible: token.start < displayedCount }"
+                            :ref="el => setCharRef(el, token.start)" v-html="'&nbsp;'">
+                        </span>
+
+                    </template>
+
+                    <!-- JS caret that is absolutely positioned inside the header -->
+                    <span class="typing-caret" ref="caretEl" aria-hidden="true"></span>
+                </h1>
             </div>
 
             <!-- overlay that sits under header but above content when keyboard open -->
@@ -25,20 +41,57 @@
             <main ref="scrollArea" class="content" @scroll.passive="handleScroll">
                 <!-- 🎉 Celebration Banner -->
                 <div v-if="showCelebration" class="celebration-banner">
-                    <h2 v-if="user"> Поздравляем, {{ user?.username }}! </h2>
-                    <h2 v-else> Поздравляем, игрок! </h2>
-                    <p>Выигрыш скоро будет зачислен на твой баланс.</p>
+                    <h2 v-if="user"> {{ $t('congrats') }}, {{ user?.username }}! </h2>
+                    <h2 v-else> {{ $t('congrats-user') }} </h2>
+                    <p>{{ $t('winning-soon') }}</p>
                 </div>
 
                 <section class="content__chart">
-                    <Chart :data="history" :closeTime="bet.close_time" />
+                    <MemoryOrb :inside_image="bet.inside_image" :bet_name="bet.name" />
                 </section>
+
+                <div class="informations-container">
+                    <div class="info-object-one">
+                        <div class="chance-row">
+                            <span v-if="volume.Yes && volume.No">{{ volume.Yes + volume.No }}</span>
+                            <span v-else-if="volume.Yes">{{ volume.Yes }}</span>
+                            <span v-else-if="volume.No">{{ volume.No }}</span>
+                            <span v-else>0</span>
+                            <img :src="tonIcon" class="ton-image">
+                        </div>
+                        <span>{{ $t('volume') }}</span>
+                    </div>
+
+                    <!-- <-- moved visualization into this card (square above, percent below in a row) -->
+                    <div class="info-object-two">
+                        <!-- square visualization (2x2 grid) -->
+                        <div class="square-wrap" aria-hidden="true" title="Type">
+                            <div class="top-right-square" role="img" aria-hidden="true">
+                                <span v-for="(c, i) in dotColors" :key="i" class="grid-dot"
+                                    :style="{ backgroundColor: c }"></span>
+                            </div>
+                        </div>
+
+                        <!-- percent + hint in a single row under the square -->
+                        <div class="chance-row" role="group" aria-label="Chance">
+                            <span class="info-value">{{ calculatedOdds }}%</span>
+                            <span class="info-hint">{{ $t('chance') }}</span>
+                        </div>
+                    </div>
+
+                    <div class="info-object-three">
+                        <span class="info-value">{{ timeRemaining }}</span>
+                        <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
+                            $t('time-left')
+                            }}</span>
+                    </div>
+                </div>
 
                 <section class="card info-card">
                     <div class="info-header">
-                        <h2 class="card__title">Информация</h2>
+                        <h2 class="card__title">{{ $t('information') }}</h2>
                         <button class="info-toggle" @click="showInfo = !showInfo">
-                            {{ showInfo ? 'Скрыть' : 'Раскрыть' }}
+                            {{ showInfo ? translateHide() : translateExpand() }}
                             <span :class="['arrow', showInfo ? 'up' : 'down']"></span>
                         </button>
                     </div>
@@ -56,58 +109,61 @@
                         </p>
 
                         <!-- your other info fields -->
-                        <div class="volume_info">
-                            <span>До закрытия:</span>
+                        <!-- <div class="volume_info">
+                            <span>{{ $t('time-left') }}:</span>
                             <span>{{ timeRemaining }}</span>
                         </div>
                         <div class="volume_info">
-                            <span>Статус:</span>
-                            <span v-if="bet.result !== 'undefined'">Результат: "{{ formatUsersSide(bet.result)
+                            <span>{{ $t('status') }}:</span>
+                            <span v-if="bet.result !== 'undefined'">{{ $t('result') }}: "{{ formatUsersSide(bet.result)
                             }}"</span>
-                            <span v-else-if="betStatus !== '000' && betStatus !== '111'">{{ betStatus }}</span>
-                            <span v-else-if="betStatus === '111'">Открыта</span>
-                            <span v-else>Ожидание разрешения ставки</span>
+                            <span v-else-if="betStatus !== '000' && betStatus !== '111'">{{ translateStatus(betStatus)
+                                }}</span>
+                            <span v-else-if="betStatus === '111'">{{ $t('open') }}</span>
+                            <span v-else>{{ $t('waiting-bet') }}</span>
                         </div>
                         <div class="volume_info">
-                            <span>Объём:</span>
+                            <span>{{ $t('volume') }}:</span>
                             <span v-if="volume.Yes && volume.No">{{ volume.Yes + volume.No }} TON</span>
                             <span v-else-if="volume.Yes">{{ volume.Yes }} TON</span>
                             <span v-else-if="volume.No">{{ volume.No }} TON</span>
                             <span v-else>0 TON</span>
-                        </div>
+                        </div> -->
                     </div>
                 </section>
 
                 <section class="grid">
                     <div v-if="userBetAmount.stake > 0" class="card grid__item grid__full">
-                        <span> Ваша ставка: {{ userBetAmount.stake }} TON на {{ formatUsersSide(userBetAmount.result) }}
+                        <span> {{ $t('your-bet') }}: {{ userBetAmount.stake }} TON {{ $t('on-something') }} {{
+                            formatUsersSide(userBetAmount.result) }}
                         </span>
                     </div>
                     <div v-else-if="betStatus !== '000'" class="card grid__item grid__full">
-                        <span>Вы еще не поставили ставку.</span>
+                        <span>{{ $t('didnt-place-bet') }}</span>
                     </div>
                 </section>
 
                 <section class="card comments">
-                    <h2 class="card__title">Обсуждения</h2>
+                    <h2 class="card__title">{{ $t('comments') }}</h2>
 
                     <div v-if="canComment" class="comments__input-row">
                         <input ref="commentsInput" v-model="newComment" type="text" maxlength="205"
-                            placeholder="Напишите комментарий" class="comments__input" :disabled="cooldownRemaining > 0"
-                            @keyup.enter="tryPostComment" @focus="onCommentsFocus" @blur="onCommentsBlur" />
+                            :placeholder="translatePlaceholder()" class="comments__input"
+                            :disabled="cooldownRemaining > 0" @keyup.enter="tryPostComment" @focus="onCommentsFocus"
+                            @blur="onCommentsBlur" />
 
                         <button class="comments__post" :disabled="isSendDisabled" @click="tryPostComment"
-                            :aria-label="cooldownRemaining > 0 ? `Ожидайте ${formattedCooldown}` : 'Отправить комментарий'">
+                            :aria-label="cooldownRemaining > 0 ? `${translateWait()} ${formattedCooldown}` : translateSendComment()">
                             <span v-if="cooldownRemaining > 0">{{ formattedCooldown }}</span>
-                            <span v-else>Отправить</span>
+                            <span v-else>{{ $t('send') }}</span>
                         </button>
                     </div>
 
                     <div v-if="betStatus === '000'" class="comments__warning">
-                        Обсуждения доступны только поставившим ставку.
+                        {{ $t('comments-limited-one') }}
                     </div>
                     <div v-else-if="!canComment" class="comments__warning">
-                        Только пользователи, поставившие ставку, могут комментировать.
+                        {{ $t('comments-limited-two') }}
                     </div>
 
                     <div class="comments__list">
@@ -123,14 +179,14 @@
                     @pointerdown="onPointerDown('yes')" @pointerup="onPointerUp('yes')"
                     @pointercancel="onPointerUp('yes')" @mouseleave="onPointerUp('yes')"
                     @touchstart.passive="onPointerDown('yes')" @touchend.passive="onPointerUp('yes')">
-                    Купить Да
+                    {{ $t('yes') }}
                 </button>
 
                 <button :class="['footer__no', { pressed: pressingNo }]" @click="openBetModal('No')"
                     @pointerdown="onPointerDown('no')" @pointerup="onPointerUp('no')" @pointercancel="onPointerUp('no')"
                     @mouseleave="onPointerUp('no')" @touchstart.passive="onPointerDown('no')"
                     @touchend.passive="onPointerUp('no')">
-                    Купить Нет
+                    {{ $t('no') }}
                 </button>
             </div>
         </div>
@@ -139,6 +195,7 @@
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, nextTick, watch } from 'vue'
+import { useAppStore } from '@/stores/appStore'
 import { useRoute } from 'vue-router'
 import { updateLayoutVars, setKeyboardHeight } from '@/services/useLayoutChanges.js'
 import {
@@ -152,16 +209,17 @@ import {
     computeBetStatus,
     getUserLastCommentTime,
 } from '@/services/bets-requests.js'
-import Chart from '@/components/bet-details/BetChart.vue'
+import MemoryOrb from './MemoryOrb.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
 import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
-import CircleGauge from '@/components/bet-details/CircleGauge.vue'
 import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
 import confetti from 'canvas-confetti'
+import { toast } from 'vue3-toastify'
+import 'vue3-toastify/dist/index.css'
 import { v4 as uuidv4 } from 'uuid'
-import questionImg from '@/assets/icons/Bet_Icon.png'
+import tonIcon from '@/assets/icons/TON_Icon.png'
 
 // accept id as optional prop (router can pass params as props when configured)
 const props = defineProps({
@@ -171,8 +229,44 @@ const props = defineProps({
     },
 })
 
+const app = useAppStore()
+
 const pressingYes = ref(false)
 const pressingNo = ref(false)
+
+const route = useRoute()
+
+const commentsInput = ref(null)
+
+// create a reactive boolean the template can use
+const isKeyboardOpen = ref(false)
+
+let bodyClassObserver = null
+
+function translatePlaceholder() {
+    return app.language === 'ru' ? 'Напишите комментарий..' : 'Post a comment..'
+}
+
+function translateStatus(status) {
+    if (status === 'Закрыто' || status === 'закрыто') {
+        return app.language === 'ru' ? 'Закрыто' : 'Closed'
+    }
+}
+
+function translateHide() {
+    return app.language === 'ru' ? 'Скрыть' : 'Hide'
+}
+function translateExpand() {
+    return app.language === 'ru' ? 'Раскрыть' : 'Expand'
+}
+
+function translateWait() {
+    return app.language === 'ru' ? 'Ожидайте' : 'Wait'
+}
+
+function translateSendComment() {
+    return app.language === 'ru' ? 'Отправить комментарий' : 'Send a comment'
+}
 
 function onPointerDown(side) {
     if (side === 'yes') pressingYes.value = true
@@ -183,15 +277,6 @@ function onPointerUp(side) {
     if (side === 'yes') pressingYes.value = false
     else pressingNo.value = false
 }
-
-const route = useRoute()
-
-const commentsInput = ref(null)
-
-// create a reactive boolean the template can use
-const isKeyboardOpen = ref(false)
-
-let bodyClassObserver = null
 
 function updateIsKeyboardOpen() {
     // guard for SSR / tests
@@ -233,10 +318,10 @@ const spinnerShow = ref(true)
 const showCelebration = ref(false)
 
 const bet = ref({})
+
 const betStatus = computed(() => {
     return computeBetStatus(bet.value.close_time)
 })
-//CREATE CHECK FUNCTION TO SEE IF NOW PASSED THE BET.VALUE.CLOSE_TIME
 
 const history = ref([])
 const comments = ref([])
@@ -262,8 +347,41 @@ const initialViewportHeight = ref(window.innerHeight) // fallback baseline
 let vvResizeListener = null
 let windowResizeListener = null
 
-
 const { user } = useTelegram()
+
+const opacities = [0.25, 0.5, 1.0, 0.5];
+
+// helper: parse numeric chance robustly (strip % etc.)
+function parseChance(value) {
+    if (value == null) return 0
+    if (typeof value === 'number') return value
+    const s = String(value).replace('%', '').trim()
+    const n = parseFloat(s)
+    return Number.isFinite(n) ? n : 0
+}
+
+// choose base color (hex) by chance
+const baseHex = computed(() => {
+    const n = parseChance(bet.value.current_odds) * 100
+    if (n > 75) return '#2ecc71' // green
+    if (n >= 26) return '#1d7abd' // blue (close to previous teal)
+    return '#e55353' // red
+})
+
+function hexToRgb(hex) {
+    const h = hex.replace('#', '');
+    const full = h.length === 3 ? h.split('').map(ch => ch + ch).join('') : h;
+    const r = parseInt(full.substr(0, 2), 16);
+    const g = parseInt(full.substr(2, 2), 16);
+    const b = parseInt(full.substr(4, 2), 16);
+    return { r, g, b };
+}
+
+const dotColors = computed(() => {
+    const rgb = hexToRgb(baseHex.value || '#1d7abd');
+    return opacities.map(a => `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${a})`);
+});
+
 
 // computed simple helpers
 const isSendDisabled = computed(() => {
@@ -350,9 +468,9 @@ function onCommentsBlur() {
 
 function formatUsersSide(side) {
     if (side === 'Yes' || side === 'yes' || side === 'YES') {
-        return 'Да'
+        return app.language === 'ru' ? 'Да' : 'Yes'
     }
-    return 'Нет'
+    return app.language === 'ru' ? 'Нет' : 'No'
 }
 
 /* Volume parsing helpers (same as before) */
@@ -390,57 +508,77 @@ const calculatedOdds = computed(() => {
     const yes = Number(volParts.value.yes) || 0
     const no = Number(volParts.value.no) || 0
     const total = yes + no
-    if (total > 0) return yes / total
+    let decNumber = Number(yes / total).toFixed(2)
+    if (total > 0) return decNumber * 100
     const p = Number(bet.current_odds)
     return isFinite(p) ? Math.max(0, Math.min(1, p)) : 0
 })
 
-const currentBetPercent = computed(() => Math.round(calculatedOdds.value * 100))
-
 // description helpers
 const firstSentence = computed(() => {
-    const text = bet.value.description || ''
+    const text = app.language === 'ru' ? bet.value.description || '' : bet.value.description_en || ''
     const matched = text.match(/^(.+?[.!?])(\s|$)/)
     return matched ? matched[1] : text
 })
 
 const restDescription = computed(() => {
-    const text = bet.value.description || ''
+    const text = app.language === 'ru' ? bet.value.description || '' : bet.value.description_en || ''
     const fs = firstSentence.value
     return text.length > fs.length ? text.slice(fs.length).trim() : ''
 })
-
 // time remaining helper
 const now = ref(Date.now())
 let timer = null
 
+// Russian plural helper (keeps original behaviour)
 function ruPlural(n, [one, few, many]) {
-    const mod10 = n % 10
-    const mod100 = n % 100
+    const mod10 = Math.abs(n) % 10
+    const mod100 = Math.abs(n) % 100
     if (mod10 === 1 && mod100 !== 11) return one
     if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return few
     return many
 }
 
-function formatUnit(n, type) {
-    if (type === 'day') {
-        return `${n} ${ruPlural(n, ['день', 'дня', 'дней'])}`
-    } else if (type === 'hour') {
-        return `${n} ${ruPlural(n, ['час', 'часа', 'часов'])}`
-    } else if (type === 'minute') {
-        return `${n} ${ruPlural(n, ['минута', 'минуты', 'минут'])}`
+/**
+ * formatUnit - return localized unit string for a number
+ * type: 'day' | 'hour' | 'minute'
+ * language: 'ru' | 'en' (defaults to app.language or 'ru')
+ */
+function formatUnit(n, type, language = (app?.language ?? 'ru')) {
+    const lang = (language === 'ru') ? 'ru' : 'en'
+
+    if (lang === 'ru') {
+        if (type === 'day') {
+            return `${n} ${ruPlural(n, ['день', 'дня', 'дней'])}`
+        } else if (type === 'hour') {
+            return `${n} ${ruPlural(n, ['час', 'часа', 'часов'])}`
+        } else if (type === 'minute') {
+            return `${n} ${ruPlural(n, ['минута', 'минуты', 'минут'])}`
+        }
+        return `${n}`
+    } else {
+        // English: simple singular/plural
+        const enForms = {
+            day: ['day', 'days'],
+            hour: ['hour', 'hours'],
+            minute: ['minute', 'minutes']
+        }
+        const forms = enForms[type] || ['unit', 'units']
+        return `${n} ${n === 1 ? forms[0] : forms[1]}`
     }
-    return `${n}`
 }
 
 const timeRemaining = computed(() => {
     const raw = bet?.value?.close_time
+    const language = (app?.language === 'ru') ? 'ru' : 'en'
+
     if (!raw) return ''
 
     let closeDate
     try {
         if (typeof raw === 'string') {
-            closeDate = parseISO(raw)
+            // parseISO may be available in your project (date-fns). Fallback to Date if not.
+            closeDate = (typeof parseISO === 'function') ? parseISO(raw) : new Date(raw)
         } else if (typeof raw === 'number') {
             closeDate = new Date(raw)
         } else if (raw instanceof Date) {
@@ -455,10 +593,10 @@ const timeRemaining = computed(() => {
     if (Number.isNaN(closeDate.getTime())) return ''
 
     const diffMs = closeDate.getTime() - now.value
-    if (diffMs <= 0) return 'Закрыто'
+    if (diffMs <= 0) return language === 'ru' ? 'Закрыто' : 'Closed'
 
     const totalMinutes = Math.floor(diffMs / 60000)
-    if (totalMinutes < 1) return 'меньше 1 минуты'
+    if (totalMinutes < 1) return language === 'ru' ? 'меньше 1 минуты' : 'less than a minute'
 
     const days = Math.floor(totalMinutes / (60 * 24))
     const hours = Math.floor((totalMinutes % (60 * 24)) / 60)
@@ -466,18 +604,22 @@ const timeRemaining = computed(() => {
 
     const parts = []
     if (days > 0) {
-        parts.push(formatUnit(days, 'day'))
-        if (hours > 0) parts.push(formatUnit(hours, 'hour'))
-        if (minutes > 0) parts.push(formatUnit(minutes, 'minute'))
+        parts.push(formatUnit(days, 'day', language))
+        if (hours > 0) parts.push(formatUnit(hours, 'hour', language))
+        if (minutes > 0) parts.push(formatUnit(minutes, 'minute', language))
     } else if (hours > 0) {
-        parts.push(formatUnit(hours, 'hour'))
-        if (minutes > 0) parts.push(formatUnit(minutes, 'minute'))
+        parts.push(formatUnit(hours, 'hour', language))
+        if (minutes > 0) parts.push(formatUnit(minutes, 'minute', language))
     } else {
-        parts.push(formatUnit(minutes, 'minute'))
+        parts.push(formatUnit(minutes, 'minute', language))
     }
 
+    // Join parts with a space; this produces:
+    // ru: "3 дня 4 часа 5 минут"
+    // en: "3 days 4 hours 5 minutes"
     return parts.join(' ')
 })
+
 
 // confetti helper
 function runConfetti() {
@@ -517,7 +659,6 @@ async function loadData(idToLoad) {
 
         const betResultNorm = normalizeResult(bet.value?.result)
         const userResultNorm = normalizeResult(userBetAmount.value?.result)
-
         if (
             betResultNorm &&
             betResultNorm !== 'undefined' &&            // keep your original "undefined" guard
@@ -598,6 +739,8 @@ onMounted(async () => {
         }
     }
 
+    window.addEventListener('resize', onResize);
+
     // set initial value when component mounts
     updateIsKeyboardOpen()
 
@@ -633,6 +776,7 @@ onMounted(async () => {
     spinnerShow.value = false
 })
 
+
 onBeforeUnmount(() => {
     if (timer) clearInterval(timer)
     if (cooldownInterval) clearInterval(cooldownInterval)
@@ -643,6 +787,9 @@ onBeforeUnmount(() => {
         window.visualViewport.removeEventListener('scroll', vvResizeListener)
         vvResizeListener = null
     }
+
+    cancelTyping();
+    window.removeEventListener('resize', onResize);
 
     // cleanup observer
     if (bodyClassObserver) {
@@ -715,6 +862,8 @@ async function postComment() {
             // start countdown with what server says (in seconds)
             startCooldown(err.remaining)
             // optional: show toast/message to user that they must wait
+            let messageText = app.language === 'ru' ? `Необходимо подождать еще ${err.remaining}` : `Need to wait for ${err.remaining}`
+            toast.warn(messageText)
             console.warn(`You must wait ${err.remaining} seconds before posting another comment.`)
         } else {
             // fallback: log and optionally show generic error UI
@@ -744,6 +893,156 @@ watch(betId, async (newId, oldId) => {
     await loadData(newId)
     await refreshUserLastCommentTime()
 })
+
+// typing speed (ms per character)
+const CHAR_DELAY = 35;
+
+// sourceText already derived earlier in your file; if not, keep your existing sourceText logic:
+function getBetName() {
+    return app.language === 'ru' ? bet.value.name : bet.value.name_en
+}
+
+// derive the source text from app.language + bet row (falls back to name if localized missing)
+const sourceText = computed(() => {
+    // choose localized text: prefer explicit en field when language isn't ru
+    const nameRu = String(bet.value?.name ?? '')
+    const nameEn = String(bet.value?.name_en ?? '')
+    return (app.language === 'ru') ? nameRu : (nameEn || nameRu)
+})
+
+// Tokenize into tokens: words (sequence of non-space chars) and single-space tokens.
+// This returns an array of { type: 'word'|'space', chars: [...], start: <global char index> }
+const tokens = computed(() => {
+    const s = String(sourceText.value || '')
+    // match either runs of non-space characters (\S+) or single whitespace char (\s)
+    const re = /(\S+|\s)/g
+    const matches = s.match(re) || []
+    let globalIndex = 0
+    return matches.map((tok) => {
+        const isSpace = /^\s$/.test(tok)
+        const chars = Array.from(tok) // for words: array of letters; for space tok: [' ']
+        const start = globalIndex
+        globalIndex += chars.length
+        return { type: isSpace ? 'space' : 'word', chars, start }
+    })
+})
+
+// total character count (sum of all token char lengths)
+const totalChars = computed(() => tokens.value.reduce((sum, t) => sum + t.chars.length, 0))
+
+// exposed typing state consumed by template:
+const displayedCount = ref(0);
+let typingTimer = null;
+let cancelled = false;
+
+// refs & helpers for measuring characters for caret
+const charRefs = []; // charRefs[idx] = DOM node for that character (word char or space span)
+function setCharRef(el, idx) {
+    // Vue may call this with null when nodes unmount — guard
+    if (!idx && idx !== 0) return;
+    charRefs[idx] = el;
+}
+
+const headerContainer = ref(null);
+const caretEl = ref(null);
+
+function cancelTyping() {
+    cancelled = true;
+    if (typingTimer) {
+        clearTimeout(typingTimer);
+        typingTimer = null;
+    }
+}
+
+async function startTyping() {
+    cancelTyping();
+    cancelled = false;
+    displayedCount.value = 0;
+    await nextTick();
+    updateCaretPosition();
+
+    const total = totalChars.value;
+    for (let i = 0; i < total; i++) {
+        await new Promise((res) => { typingTimer = setTimeout(res, CHAR_DELAY); });
+        if (cancelled) break;
+        displayedCount.value = i + 1;
+        await nextTick();
+        updateCaretPosition();
+    }
+
+    updateCaretPosition();
+    typingTimer = null;
+}
+
+// measure and position caret to right edge of last visible char (works for spaces too)
+function updateCaretPosition() {
+    const container = headerContainer.value;
+    const caret = caretEl.value;
+    if (!container || !caret) return;
+
+    const containerRect = container.getBoundingClientRect();
+
+    if (displayedCount.value === 0) {
+        // place at start of first char or at container left
+        const first = charRefs[0];
+        if (first) {
+            const r = first.getBoundingClientRect();
+            const left = Math.max(0, r.left - containerRect.left);
+            caret.style.left = `${left}px`;
+            caret.style.top = `${Math.max(0, r.top - containerRect.top)}px`;
+            caret.style.height = `${r.height}px`;
+        } else {
+            caret.style.left = `0px`;
+            caret.style.top = `0px`;
+            caret.style.height = `${containerRect.height}px`;
+        }
+        return;
+    }
+
+    // last visible char index (may be a space token)
+    const idx = Math.min(displayedCount.value - 1, charRefs.length - 1);
+    const el = charRefs[idx];
+    if (el) {
+        const r = el.getBoundingClientRect();
+        const left = Math.max(0, r.right - containerRect.left);
+        caret.style.left = `${left}px`;
+        caret.style.top = `${Math.max(0, r.top - containerRect.top)}px`;
+        caret.style.height = `${r.height}px`;
+    } else {
+        caret.style.left = `${containerRect.width}px`;
+        caret.style.top = `0px`;
+        caret.style.height = `${containerRect.height}px`;
+    }
+}
+
+// Whenever the localized sourceText changes we must replay typing.
+// Clear any cached char refs first so measurement is fresh.
+watch(
+    sourceText,
+    async () => {
+        // clear char refs so old DOM node pointers aren't reused
+        charRefs.length = 0
+
+        // restart typing animation
+        // cancelTyping/startTyping handle displayedCount reset and caret update
+        await nextTick()
+        startTyping()
+    },
+    { immediate: true }
+)
+
+// Optionally also restart when the component's bet id/data changes (if you want double-safety)
+watch(
+    () => [bet.value?.name, bet.value?.name_en, app.language],
+    async () => {
+        charRefs.length = 0
+        await nextTick()
+        startTyping()
+    }
+)
+
+function onResize() { updateCaretPosition(); }
+
 </script>
 
 <style lang="css" scoped>
@@ -754,6 +1053,87 @@ watch(betId, async (newId, oldId) => {
     height: 100vh;
     position: relative;
     margin-top: 1.25rem;
+}
+
+.header-two {
+    display: flex;
+    min-height: 4rem;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    user-select: none;
+}
+
+/* container needs position:relative so caret (absolute) can be placed inside */
+.header__text {
+    font-size: 1.5rem;
+    font-weight: 600;
+    width: 80%;
+    color: #F7F9FB;
+    font-family: "Compliance Sans", sans-serif;
+    white-space: pre-wrap;
+    /* preserve spaces and allow wrapping */
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    hyphens: auto;
+
+    position: relative;
+    /* for absolute caret */
+    display: inline-block;
+    line-height: 1.2;
+}
+
+/* ensure words don't split mid-word */
+.header__text .word {
+    display: inline-block;
+    white-space: nowrap;
+    /* important — prevents wrapping inside a word */
+}
+
+/* space token: a measurable inline element, allows breaks between words */
+.header__text .space {
+    display: inline-block;
+    white-space: pre;
+    /* preserve the actual space character inside */
+    width: auto;
+    /* keep the space visually small; its actual width comes from the font */
+}
+
+/* each character still inline-block for precise measurement */
+.header__text .char {
+    display: inline-block;
+    visibility: hidden;
+}
+
+/* reveal typed characters instantly (no fading) */
+.header__text .char.visible {
+    visibility: visible;
+}
+
+/* caret styling unchanged */
+.typing-caret {
+    position: absolute;
+    width: 1px;
+    background: currentColor;
+    left: 0;
+    top: 0;
+    height: 1em;
+    pointer-events: none;
+    animation: caret-blink 1s steps(2, start) infinite;
+}
+
+@keyframes caret-blink {
+    0% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: 1;
+    }
 }
 
 /* Header (allow wrapping; don't force full-viewport width) */
@@ -786,29 +1166,6 @@ watch(betId, async (newId, oldId) => {
     width: 25px;
 }
 
-/* Title: take remaining space, but don't force the gauge to shrink.
-   min-width: 0 is required so the flex child can actually shrink and wrap. */
-.header__text {
-    flex: 1 1 auto;
-    /* grow when there's space, shrink and wrap when needed */
-    min-width: 0;
-    /* allow wrapping inside flex container */
-    margin-left: 0.55rem;
-    margin-right: 0.75rem;
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: #F7F9FB;
-    font-family: "Inter", sans-serif;
-    white-space: normal;
-    /* allow wrapping to next line */
-    overflow-wrap: anywhere;
-    /* break long words / symbols safely */
-    word-break: break-word;
-    /* fallback to avoid overflow on weird tokens */
-    hyphens: auto;
-    /* optional: adds hyphenation where supported */
-}
-
 .loader-center {
     height: 100vh;
     width: 100vw;
@@ -817,6 +1174,8 @@ watch(betId, async (newId, oldId) => {
 }
 
 .content {
+    display: flex;
+    flex-direction: column;
     flex: 1;
     padding-left: 16px;
     padding-right: 16px;
@@ -824,19 +1183,24 @@ watch(betId, async (newId, oldId) => {
     --bottom-space: 95px;
     /* default combined footer + navbar space you had before */
     padding-bottom: calc(var(--bottom-space) + var(--keyboard-height, 0px));
+
+    justify-content: center;
+    align-items: center;
 }
 
 .content__chart {
-    margin: 24px 0;
+    display: flex;
+    margin: auto auto;
+    align-self: center;
 }
 
 /* Card */
 .card {
+    width: 90%;
     background: #313131;
     border-radius: 12px;
     padding: 16px;
-    padding-top: 14px;
-    margin-bottom: 26px;
+    margin-bottom: 16px;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
     user-select: none;
 }
@@ -848,6 +1212,386 @@ watch(betId, async (newId, oldId) => {
     color: #F7F9FB;
     font-family: "Inter", sans-serif;
     font-weight: 600;
+}
+
+.informations-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-around;
+    gap: 12px;
+    width: 100%;
+    height: 10rem;
+    z-index: 3;
+}
+
+.info-object-one,
+.info-object-two,
+.info-object-three {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    border-radius: 16px;
+    gap: 4px;
+    width: 9rem;
+    height: 7rem;
+    background-color: #292a2a;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+
+    /* FROSTED GLASS */
+    background: rgba(255, 255, 255, 0.04);
+    /* subtle light tint */
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    /* soft edge */
+    overflow: hidden;
+    /* contain sheen */
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+    backdrop-filter: blur(15px) saturate(120%);
+    /* blur the content behind */
+    box-shadow:
+        0 10px 30px rgba(8, 10, 12, 0.75),
+        /* main shadow */
+        inset 0 1px 0 rgba(255, 255, 255, 0.02);
+    /* tiny inner highlight */
+
+    /* performance hint */
+    will-change: transform;
+    transform-origin: center;
+    /* animation: name duration timing infinite and staggered by per-class delay below */
+    animation: float-breathe 6s ease-in-out infinite;
+}
+
+/* ---------- Frosted glass base for info cards + .card / .information / .comments ---------- */
+.info-object-one,
+.info-object-two,
+.info-object-three,
+.card,
+.information,
+.comments {
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
+    /* contain overlays */
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+    backdrop-filter: blur(10px) saturate(120%);
+    box-shadow:
+        0 10px 30px rgba(8, 10, 12, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.02);
+}
+
+/* glossy sheen overlay (shared) */
+.info-object-one::before,
+.info-object-two::before,
+.info-object-three::before,
+.card::before,
+.information::before,
+.comments::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    background: linear-gradient(180deg,
+            rgba(255, 255, 255, 0.06) 0%,
+            rgba(255, 255, 255, 0.02) 30%,
+            rgba(255, 255, 255, 0.00) 60%);
+    mix-blend-mode: overlay;
+    opacity: 0.9;
+}
+
+/* subtle color tints -- small opacity so effect is delicate */
+/* Info card tints (three distinct casts) */
+.info-object-one::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(120, 80, 255, 0.035), rgba(255, 255, 255, 0));
+    mix-blend-mode: soft-light;
+}
+
+.info-object-two::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(0, 200, 180, 0.03), rgba(255, 255, 255, 0));
+    mix-blend-mode: soft-light;
+}
+
+.info-object-three::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(135deg, rgba(255, 120, 80, 0.035), rgba(255, 255, 255, 0));
+    mix-blend-mode: soft-light;
+}
+
+/* Default tint for other cards/blocks (very subtle) */
+.card::after,
+.information::after,
+.comments::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background: linear-gradient(180deg, rgba(100, 120, 255, 0.02), rgba(255, 255, 255, 0));
+    mix-blend-mode: soft-light;
+}
+
+/* tweak text colors so they read well on top of the frosted background */
+.card,
+.information,
+.comments,
+.info-object-one,
+.info-object-two,
+.info-object-three {
+    color: #fff;
+    /* keep strong contrast */
+}
+
+/* optional: slight color tint per card (uncomment if you want) */
+
+.info-object-one::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(120, 80, 255, 0.04), transparent 70%);
+    pointer-events: none;
+}
+
+.info-object-two::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(0, 200, 180, 0.03), transparent 70%);
+    pointer-events: none;
+}
+
+.info-object-three::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(255, 120, 80, 0.03), transparent 70%);
+    pointer-events: none;
+}
+
+/* Fallback for browsers without backdrop-filter */
+@supports not ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
+
+    .info-object-one,
+    .info-object-two,
+    .info-object-three,
+    .card,
+    .information,
+    .comments {
+        background: linear-gradient(180deg, rgba(41, 42, 42, 0.9), rgba(41, 42, 42, 0.75));
+        border: 1px solid rgba(255, 255, 255, 0.04);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.6);
+    }
+
+    /* reduce/disable the tint overlays in the fallback so there's no weird blending */
+    .info-object-one::after,
+    .info-object-two::after,
+    .info-object-three::after,
+    .card::after,
+    .information::after,
+    .comments::after {
+        display: none;
+    }
+
+    .info-object-one::before,
+    .info-object-two::before,
+    .info-object-three::before,
+    .card::before,
+    .information::before,
+    .comments::before {
+        display: none;
+    }
+}
+
+/* --------------------
+   CARD 1 (manual rotation + stagger)
+   -------------------- */
+.info-object-one {
+    /* explicit initial rotation (fallback before animation starts) */
+    transform: rotate(2deg);
+    animation: float-breathe-one 6s ease-in-out infinite;
+    animation-delay: 0s;
+}
+
+@keyframes float-breathe-one {
+    0% {
+        transform: rotate(2deg) translateY(0) scale(1);
+    }
+
+    25% {
+        transform: rotate(2.4deg) translateY(-3px) scale(1.01);
+    }
+
+    50% {
+        transform: rotate(2.8deg) translateY(-6px) scale(1.03);
+    }
+
+    75% {
+        transform: rotate(2.4deg) translateY(-3px) scale(1.01);
+    }
+
+    100% {
+        transform: rotate(2deg) translateY(0) scale(1);
+    }
+}
+
+/* --------------------
+   CARD 2 (manual rotation + stagger)
+   -------------------- */
+.info-object-two {
+    transform: rotate(-0.25deg);
+    animation: float-breathe-two 6s ease-in-out infinite;
+    animation-delay: 0.6s;
+    gap: 8px;
+    /* space between square and percent row */
+    padding: 8px 10px;
+    /* make a little breathing room */
+    /* staggered */
+}
+
+/* square wrapper centers the grid */
+.square-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0;
+    /* spacing handled by parent gap */
+}
+
+/* 2x2 square visualization — slightly larger so it's readable above text */
+.top-right-square {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 3px;
+    box-sizing: border-box;
+}
+
+/* grid dots — colors provided via :style (dotColors) */
+.top-right-square .grid-dot {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    display: block;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.25) inset;
+}
+
+/* chance row: percent + hint in a single horizontal row */
+.chance-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 2px;
+}
+
+.ton-image {
+    height: 24px;
+    width: 24px;
+}
+
+@keyframes float-breathe-two {
+    0% {
+        transform: rotate(-0.25deg) translateY(0) scale(1);
+    }
+
+    25% {
+        transform: rotate(0.5deg) translateY(-3px) scale(1.01);
+    }
+
+    50% {
+        transform: rotate(0deg) translateY(-6px) scale(1.03);
+    }
+
+    75% {
+        transform: rotate(-1deg) translateY(-3px) scale(1.01);
+    }
+
+    100% {
+        transform: rotate(-0.25deg) translateY(0) scale(1);
+    }
+}
+
+/* --------------------
+   CARD 3 (manual rotation + stagger)
+   -------------------- */
+.info-object-three {
+    transform: rotate(-3deg);
+    animation: float-breathe-three 6s ease-in-out infinite;
+    animation-delay: 1.2s;
+    /* staggered */
+}
+
+@keyframes float-breathe-three {
+    0% {
+        transform: rotate(-3deg) translateY(0) scale(1);
+    }
+
+    25% {
+        transform: rotate(-3.4deg) translateY(-3px) scale(1.01);
+    }
+
+    50% {
+        transform: rotate(-3.8deg) translateY(-6px) scale(1.03);
+    }
+
+    75% {
+        transform: rotate(-3.4deg) translateY(-3px) scale(1.01);
+    }
+
+    100% {
+        transform: rotate(-3deg) translateY(0) scale(1);
+    }
+}
+
+.info-object-image {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+}
+
+/* accessibility: respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+
+    .info-object-one,
+    .info-object-two,
+    .info-object-three {
+        animation: none;
+        transition: none;
+    }
+}
+
+.info-value {
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 1.05rem;
+    line-height: 1;
+}
+
+.info-hint {
+    color: rgb(211, 211, 211, 0.78);
+    font-size: 0.85rem;
 }
 
 .volume_info,
@@ -951,7 +1695,7 @@ watch(betId, async (newId, oldId) => {
 
 /* style the always-visible first sentence if you like */
 .first-sentence {
-    margin-bottom: 20px;
+    margin-bottom: 4px;
 }
 
 /* Comments */
@@ -1035,8 +1779,6 @@ watch(betId, async (newId, oldId) => {
 .footer__yes,
 .footer__no {
     touch-action: manipulation;
-    /* hint to browser we don't want pinch/scroll here */
-    -webkit-transform: translateZ(0);
     /* promote to its own layer on iOS */
     position: relative;
     /* needed for ::after rail */
@@ -1148,6 +1890,18 @@ watch(betId, async (newId, oldId) => {
 /* Reduce motion preference */
 @media (prefers-reduced-motion: reduce) {
 
+    .info-object-one,
+    .info-object-two,
+    .info-object-three,
+    .card,
+    .information,
+    .comments {
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+        animation: none !important;
+        transition: none !important;
+    }
+
     .footer__yes,
     .footer__no {
         transition: none !important;
@@ -1160,7 +1914,7 @@ watch(betId, async (newId, oldId) => {
     padding: 16px;
     background: linear-gradient(135deg, #22c55e, #10b981);
     color: #F7F9FB;
-    border-radius: 12px;
+    border-radius: 48px;
     text-align: center;
     animation: fadeInDown 0.5s ease-out;
 }

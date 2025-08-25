@@ -1,17 +1,21 @@
 <template>
-    <LoaderPepe v-if="spinnerShow" />
-    <div v-show="!spinnerShow">
-        <ReferalShareModal :show="showReferalModal" @close="closeReferalModal" />
-        <ProfileCard :user="user" :totalVolume="volume" :betsMade="betsMade" :betsWon="betsWon"
-            @view-previous-bets="previousBetsHistory" @view-won-bets="wonBetsHistory" />
-        <ActiveBetsList />
-        <ReferalCard @open-referal-modal="openReferalModal" />
-    </div>
+    <!-- <LoaderPepe v-if="spinnerShow" /> -->
+
+    <!-- animated content: appears after spinnerHide -->
+    <transition name="profile-fade" appear>
+        <div v-show="showProfile" class="profile-view-container">
+            <ReferalShareModal :show="showReferalModal" @close="closeReferalModal" />
+            <ProfileCard :user="user" :totalVolume="volume" :betsMade="betsMade" :betsWon="betsWon"
+                @view-previous-bets="previousBetsHistory" @view-won-bets="wonBetsHistory" />
+            <ActiveBetsList />
+            <ReferalCard @open-referal-modal="openReferalModal" />
+        </div>
+    </transition>
 </template>
 
 <script setup>
 // Vue & reactivity
-import { ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onActivated, onBeforeUnmount, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 // Your services
@@ -35,6 +39,7 @@ const volume = ref(0)
 
 const spinnerShow = ref(true)
 const loading = ref(false)
+const showProfile = ref(false)
 
 const showReferalModal = ref(false)
 
@@ -86,8 +91,34 @@ onMounted(() => {
     loadProfileSummary()
 })
 
-// also refresh when component is re-activated (useful for <keep-alive>)
-onActivated(() => {
+// when spinnerShow changes, show content only after spinner is hidden
+watch(spinnerShow, async (spinnerIsVisible) => {
+    if (spinnerIsVisible) {
+        // spinner showing → hide profile content
+        showProfile.value = false
+        return
+    }
+
+    // spinner hidden → show content after a paint to avoid flicker
+    await nextTick()
+    requestAnimationFrame(() => { showProfile.value = true })
+}, { immediate: true })
+
+// also re-trigger when kept-alive component is activated
+onActivated(async () => {
+    // if spinner is currently visible, don't run the show/hide dance
+    if (spinnerShow.value) {
+        // still loading — refresh data and bail out
+        await loadProfileSummary()
+        return
+    }
+
+    // otherwise briefly hide then show so the transition runs again when returning
+    showProfile.value = false
+    await nextTick()
+    requestAnimationFrame(() => { showProfile.value = true })
+
+    // refresh data
     loadProfileSummary()
 })
 
@@ -104,3 +135,31 @@ onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
+
+<style scoped>
+/* profile view appear animation */
+.profile-fade-enter-active,
+.profile-fade-leave-active {
+    transition: opacity 260ms cubic-bezier(.22, .9, .32, 1), transform 260ms ease;
+    will-change: opacity, transform;
+}
+
+.profile-fade-enter-from,
+.profile-fade-leave-to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.996);
+    pointer-events: none;
+}
+
+.profile-fade-enter-to,
+.profile-fade-leave-from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+/* optional container sizing so layout doesn't jump */
+.profile-view-container {
+    min-height: 1px;
+    /* keep layout behaviour same as before; adjust if you need full viewport height */
+}
+</style>

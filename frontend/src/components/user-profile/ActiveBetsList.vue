@@ -17,11 +17,11 @@
                     {{ bet.name }}
                 </div>
                 <div class="bet-meta">
-                    Поставлено {{ bet.stake }} TON на {{ formattedSide(bet.side) }}
+                    {{ $t('placed') }} {{ bet.stake }} TON {{ $t('on-something') }} {{ formattedSide(bet.side) }}
                 </div>
             </router-link>
         </div>
-<!-- 
+        <!-- 
         <div v-if="activeBets.length === 0" class="empty-state">
             Нет активных предсказаний.
         </div> -->
@@ -31,6 +31,9 @@
 <script setup>
 import { ref, onMounted, onActivated, onBeforeUnmount } from 'vue'
 import { getUsersActiveBets } from '@/services/bets-requests.js'
+import { useAppStore } from '@/stores/appStore'
+
+const app = useAppStore()
 
 const activeBets = ref([])
 const loading = ref(false)
@@ -64,38 +67,62 @@ function handleVisibilityChange() {
         loadActiveBets()
     }
 }
+
+function resolveLocale() {
+    // normalize app.language like: 'ru', 'ru-RU', 'en', 'en-US'
+    const lang = String(app.language ?? '').toLowerCase()
+    if (!lang) return 'en-US' // fallback
+    if (lang.startsWith('ru')) return 'ru-RU'
+    if (lang.startsWith('en')) return 'en-US'
+    // add other mappings if you need them in future (e.g. 'uk' -> 'uk-UA')
+    return 'en-US'
+}
+
+function formatDate(dateString, opts = { day: '2-digit', month: 'short', year: 'numeric' }) {
+    if (!dateString) return '—'
+    try {
+        const locale = resolveLocale()
+        return new Date(dateString).toLocaleDateString(locale, opts)
+    } catch (e) {
+        // fallback: ISO-like short
+        return String(dateString).slice(0, 10)
+    }
+}
+
+function formattedSide(side) {
+    const s = String(side ?? '').toLowerCase()
+    const isYes = s === 'yes'
+    if (String(app.language ?? '').toLowerCase().startsWith('ru')) {
+        return isYes ? 'ДА' : 'НЕТ'
+    }
+    // English (keep uppercase like the Russian UI)
+    return isYes ? 'YES' : 'NO'
+}
+
 document.addEventListener('visibilitychange', handleVisibilityChange)
 
 // cleanup listener when component unmounts
 onBeforeUnmount(() => {
     document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
-
-// helper date/label utilities (unchanged)
-function formatDate(dateString, opts) {
-    return new Date(dateString).toLocaleDateString('ru-RU', opts)
-}
-
-function formattedSide(side) {
-    if(side === 'Yes' || side === 'yes' || side === 'YES') {
-        return 'Да'
-    }
-    return 'Нет'
-}
 </script>
 
 
 <style scoped>
 .active-bets-list {
     max-width: 480px;
-    width: 89.5vw;
+    width: 87.5vw;
     margin: 0 auto;
-    padding: 14px;
-    padding-top: 0px;
+    padding: 12px;
     display: flex;
     flex-direction: column;
     gap: 12px;
     user-select: none;
+}
+
+.header-text {
+    color: rgb(215, 215, 215, 0.88);
+    text-align: center;
 }
 
 /* Each bet row */
@@ -103,7 +130,7 @@ function formattedSide(side) {
     display: flex;
     /* background-color: #292a2a; */
     background: linear-gradient(to right, #2D83EC, #1AC9FF);
-    border-radius: 12px;
+    border-radius: 24px;
     overflow: hidden;
     transition: background-color 0.2s ease;
 }
@@ -115,13 +142,13 @@ function formattedSide(side) {
 /* Date badge on the left */
 .date-badge {
     flex-shrink: 0;
-    width: 56px;
+    width: 58px;
     background-color: #1f2937;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    padding: 8px 0;
+    padding: 12px 4px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
 }

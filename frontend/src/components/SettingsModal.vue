@@ -2,53 +2,57 @@
     <Teleport to="body">
         <!-- backdrop -->
         <transition name="fade">
-            <div v-if="show" class="overlay overlay--visible" @click.self="$emit('close')" />
+            <div v-if="show" class="overlay overlay--visible" @click.self="onClose" />
         </transition>
 
         <!-- modal -->
         <transition name="slide-up">
-            <div v-if="show" class="settings-modal">
+            <div v-if="show" class="settings-modal" role="dialog" aria-modal="true" aria-label="Settings">
                 <div class="footer">
-                    <h2>Настройки</h2>
-                    <button class="close-btn" @click="$emit('close')">✖</button>
+                    <h2>{{ $t('settings') }}</h2>
+                    <button class="close-btn" @click="onClose" :disabled="saving">✖</button>
                 </div>
+
                 <div class="items-group">
-                    <h2 class="item-header">ЯЗЫК</h2>
+                    <h2 class="item-header">{{ $t('language-caps') }}</h2>
                     <div class="options-grid">
-                        <!-- <button class="option" :class="{ active: selectedLanguage === 'EN' }"
-                            @click="selectLanguage('EN')">
-                            <img :src="EnIcon" alt="">
+                        <button class="option" :class="{ active: selectedLanguage === 'EN' }"
+                            @click="selectLanguage('EN')" :disabled="saving" aria-pressed="selectedLanguage === 'EN'">
+                            <img :src="EnIcon" alt="EN">
                             <span>EN</span>
-                        </button> -->
+                        </button>
+
                         <button class="option" :class="{ active: selectedLanguage === 'RU' }"
-                            @click="selectLanguage('RU')">
-                            <img :src="RuIcon" alt="">
+                            @click="selectLanguage('RU')" :disabled="saving" aria-pressed="selectedLanguage === 'RU'">
+                            <img :src="RuIcon" alt="RU">
                             <span>RU</span>
                         </button>
                     </div>
                 </div>
+
                 <div class="items-group">
-                    <h2 class="item-header">УВЕДОМЛЕНИЯ ПО СОБЫТИЯМ</h2>
+                    <h2 class="item-header">{{ $t('events-alerts-caps') }}</h2>
                     <div class="options-grid">
                         <button class="option" :class="{ active: selectedNotifyBets === 'yes' }"
-                            @click="selectNotifyBets('yes')">
-                            <span>ВКЛ</span>
+                            @click="selectNotifyBets('yes')" :disabled="saving">
+                            <span>{{ $t('on') }}</span>
                         </button>
                         <button class="option" :class="{ active: selectedNotifyBets === 'no' }"
-                            @click="selectNotifyBets('no')">
-                            <span>ВЫКЛ</span>
+                            @click="selectNotifyBets('no')" :disabled="saving">
+                            <span>{{ $t('off') }}</span>
                         </button>
                     </div>
                 </div>
+
                 <div class="items-group">
                     <div class="buttons-group">
-                        <button class="action-btn-one" @click="$emit('open-privacy')">
-                            <img :src="PrivacyIcon">
-                            Соглашение
+                        <button class="action-btn-one" @click="$emit('open-privacy')" :disabled="saving">
+                            <img :src="PrivacyIcon" alt="">
+                            {{ $t('agreement') }}
                         </button>
-                        <button class="action-btn-two" @click="$emit('open-support')">
-                            <img :src="ContactIcon">
-                            <span>Поддержка</span>
+                        <button class="action-btn-two" @click="$emit('open-support')" :disabled="saving">
+                            <img :src="ContactIcon" alt="">
+                            <span>{{ $t('support') }}</span>
                         </button>
                     </div>
                 </div>
@@ -59,10 +63,14 @@
 
 <script setup>
 import RuIcon from '@/assets/icons/Ru_Icon.png'
-// import EnIcon from '@/assets/icons/En_Icon.png'
+import EnIcon from '@/assets/icons/En_Icon.png'
 import ContactIcon from '@/assets/icons/Contact_Icon.png'
 import PrivacyIcon from '@/assets/icons/Privacy_Icon.png'
-import { ref } from 'vue'
+import { ref, watch, computed } from 'vue'
+import { useAppStore } from '@/stores/appStore'
+import { useI18n } from 'vue-i18n'
+import { toast } from 'vue3-toastify'
+import 'vue3-toastify/dist/index.css'
 
 defineProps({
     /** whether the modal is visible */
@@ -70,24 +78,63 @@ defineProps({
 })
 const emit = defineEmits(['close', 'open-privacy', 'open-support'])
 
-// track selected
-const selectedLanguage = ref('RU')
+const store = useAppStore()
+const { t } = useI18n({ useScope: 'global' })
 
-// handler
-function selectLanguage(code) {
+// saving state
+const saving = ref(false)
+
+// initialize selectedLanguage from the store (store.language is normalized e.g. 'en'/'ru')
+const selectedLanguage = ref((store.language ?? 'en').toUpperCase())
+
+// keep selectedLanguage in sync if store changes elsewhere
+watch(
+    () => store.language,
+    (v) => {
+        selectedLanguage.value = (v ?? 'en').toUpperCase()
+    },
+    { immediate: true }
+)
+
+// language selection handler
+async function selectLanguage(code) {
+    if (!code) return
+    if (selectedLanguage.value === code) return
+
+    saving.value = true
     selectedLanguage.value = code
-    // optionally notify parent: emit('update:lang', code)
+
+    // convert to normalized lower-case lang code (en, ru)
+    const langCode = String(code).toLowerCase()
+
+    try {
+        // call store action which persists to Supabase and updates store.language
+        const ok = await store.changeLanguage(langCode)
+        if (ok) {
+            toast.success(t('language-saved') || 'Language saved')
+        } else {
+            toast.error(t('language-save-failed') || 'Failed to save language')
+        }
+    } catch (err) {
+        console.error('selectLanguage error', err)
+        toast.error(t('language-save-failed') || 'Failed to save language')
+    } finally {
+        saving.value = false
+    }
 }
 
-// track selected
+// Notifications toggle (keeps the original logic)
 const selectedNotifyBets = ref('yes')
-
-// handler
 function selectNotifyBets(option) {
     selectedNotifyBets.value = option
-    // optionally notify parent: emit('update:lang', code)
+    // TODO: persist user preference if you store it server-side
 }
 
+function onClose() {
+    // do not allow closing while saving to avoid race conditions
+    if (saving.value) return
+    emit('close')
+}
 </script>
 
 <style scoped>

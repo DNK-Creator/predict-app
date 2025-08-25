@@ -1,5 +1,5 @@
 <template>
-    <LoaderPepe v-if="spinnerShow" />
+    <!-- <LoaderPepe v-if="spinnerShow" /> -->
     <div v-show="!spinnerShow" class="deposit-details">
         <!-- WITHDRAWAL MODAL  -->
         <WithdrawModal v-model="showWithdrawalModal" :address="parseWalletAddress(walletAddress)"

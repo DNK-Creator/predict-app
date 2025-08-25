@@ -7,37 +7,44 @@
     <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" :balance="walletBalance"
         @reconnect-wallet="reconnectWallet" @close="closeWalletInfo" />
 
-    <div class="wallet-wrapper">
-        <div class="wallet-top-header" @click="openWalletInfo">
-            <div class="status-container">
-                <img :src="walletIcon">
-                <span class="wallet-status-text"> {{ walletStatus }} </span>
+    <!-- animated wrapper -->
+    <transition name="history-fade" appear>
+        <div v-show="showView" class="transactions-view-container">
+            <div v-if="transactions.length > 0" class="wallet-wrapper">
+                <div class="wallet-top-header" @click="openWalletInfo">
+                    <div class="status-container">
+                        <img :src="walletIcon">
+                        <span class="wallet-status-text"> {{ walletStatus }} </span>
+                    </div>
+
+                    <div class="wallet-action-text" v-if="app.walletAddress"> {{ $t("connected") }} </div>
+                    <div class="wallet-action-text" v-else> {{ $t("connect-plus") }} </div>
+                </div>
+                <div class="wallet">
+                    <h3 class="wallet-balance-hint">{{ $t("gifts-predict-balance") }}</h3>
+                    <h1 class="wallet-balance">{{ app.points }} TON</h1>
+                    <div class="wallet-buttons">
+                        <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
+                        }}</button>
+                    </div>
+                </div>
             </div>
 
-            <div class="wallet-action-text" v-if="app.walletAddress"> Подключён </div>
-            <div class="wallet-action-text" v-else> Подключить + </div>
+            <TransactionsTable :transactions="transactions" :loaded="transactionsShow" />
         </div>
-        <div class="wallet">
-            <h3 class="wallet-balance-hint">Баланс Gifts Predict</h3>
-            <h1 class="wallet-balance">{{ app.points }} TON</h1>
-            <div class="wallet-buttons">
-                <button class="wallet-button-withdraw" @click="openWithdrawalModal">Вывод ↑</button>
-            </div>
-        </div>
-    </div>
-    <TransactionsTable :transactions="transactions" />
+    </transition>
 </template>
+
 
 <script setup>
 import 'vue3-toastify/dist/index.css'
 import supabase from '@/services/supabase'
 import { toast } from 'vue3-toastify'
-import { ref, onMounted, computed, onActivated, watch } from 'vue'
+import { ref, onMounted, computed, onActivated, watch, nextTick } from 'vue'
 import { getLastWithdrawalTime } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 import { Address } from '@ton/core'
-import { getTonConnect } from '@/services/ton-connect-ui'
 import { v4 as uuidv4 } from 'uuid'
 import { fetchBotMessageTransaction } from '@/services/payments'
 import { useTon } from '@/services/useTon'
@@ -52,6 +59,11 @@ const { ton, ensureTon } = useTon()
 
 const transactions = ref([])
 const spinnerShow = ref(true)
+const transactionsShow = ref(false)
+
+// inside setup: add this ref
+const showView = ref(false)
+
 const showWithdrawalModal = ref(false)
 const showWalletInfo = ref(false)
 
@@ -67,7 +79,7 @@ const walletStatus = computed(() => {
     if (app.walletAddress) {
         return `${app.walletAddress.slice(0, 4)}...${app.walletAddress.slice(-3)}`
     }
-    return 'Подключите кошелёк'
+    return app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
 })
 
 const lastWithdrawalRequest = ref(null)
@@ -212,7 +224,6 @@ async function onWithdraw(amount) {
     }
 }
 
-
 function canRequestWithdrawal(lastWithdrawalRequest) {
     const MS_PER_DAY = 24 * 60 * 60 * 1000;
     const now = Date.now();
@@ -340,10 +351,32 @@ onMounted(async () => {
         channel.subscribe()
     }
 
-    spinnerShow.value = false;
+    spinnerShow.value = false
+    transactionsShow.value = true
 })
 
+// toggle the view when spinner hides (avoid flicker by waiting a paint)
+watch(spinnerShow, async (spinnerIsVisible) => {
+    if (spinnerIsVisible) {
+        // still loading -> hide content
+        showView.value = false
+        return
+    }
+    // spinner hidden -> show content after paint
+    await nextTick()
+    requestAnimationFrame(() => { showView.value = true })
+}, { immediate: true })
+
+// update onMounted remains (you already set spinnerShow=false and transactionsShow=true there)
+// but the watch will pick it up and showView will become true
+
+// enhance onActivated so animation replays when returning to this kept-alive view
 onActivated(async () => {
+    // otherwise replay appear animation
+    showView.value = false
+    await nextTick()
+    requestAnimationFrame(() => { showView.value = true })
+
     // every time DepositView is shown again…
     if (ton.value?.connected && app.walletAddress) {
         const freshBal = await fetchTonBalance(app.walletAddress)
@@ -355,7 +388,7 @@ watch(
     () => walletAddress.value,
     async (addr) => {
         if (!addr) {
-            walletStatus.value = 'Подключите кошелёк'
+            walletStatus.value = app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
             walletBalance.value = null
             return
         }
@@ -363,9 +396,9 @@ watch(
         // set status quickly (shortened form)
         try {
             const parsed = Address.parse(addr).toString({ urlSafe: true, bounceable: false })
-            walletStatus.value = `Ваш кошелёк ${parsed.slice(0, 4)}...${parsed.slice(-3)}`
+            walletStatus.value = app.language === 'ru' ? `Ваш кошелёк ${parsed.slice(0, 4)}...${parsed.slice(-3)}` : `Your wallet ${parsed.slice(0, 4)}...${parsed.slice(-3)}`
         } catch (_) {
-            walletStatus.value = 'Подключите кошелёк'
+            walletStatus.value = app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
         }
 
         // fetch fresh balance
@@ -516,5 +549,31 @@ watch(
 .status-container img {
     height: 12px;
     width: 12px;
+}
+
+/* history view appear animation */
+.history-fade-enter-active,
+.history-fade-leave-active {
+    transition: opacity 260ms cubic-bezier(.22, .9, .32, 1), transform 260ms ease;
+    will-change: opacity, transform;
+}
+
+.history-fade-enter-from,
+.history-fade-leave-to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.996);
+    pointer-events: none;
+}
+
+.history-fade-enter-to,
+.history-fade-leave-from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+}
+
+/* container so layout won't jump */
+.transactions-view-container {
+    /* keep layout same as before; use min-height if you need consistent height */
+    min-height: 1px;
 }
 </style>

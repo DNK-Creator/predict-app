@@ -13,14 +13,14 @@
                         <img :src="ShareIcon">
                     </div>
                     <h1 class="card-title">
-                        Приглашайте друзей
+                        {{ $t('invite-friends') }}
                     </h1>
                     <p class="ref-description">
-                        Поделитесь своей реферальной ссылкой и получайте 50% от комиссии с выигрышей пользователей
+                        {{ $t('share-your-link') }}
                     </p>
                     <div class="starter-statistics-container">
                         <div class="large-link-show">
-                            <span class="large-link-header">Ваша реферальная ссылка:</span>
+                            <span class="large-link-header">{{ $t('your-link') }}</span>
                             <div class="small-link-show">
                                 <span>https://t.me/giftspredict_bot?startapp={{ user?.id ?? '' }}</span>
                             </div>
@@ -32,7 +32,7 @@
                                 <span class="copy-text">{{ inviteText }}</span>
                             </button>
                             <button class="action-btn-two" @click="shareReferal">
-                                <span>Поделиться</span>
+                                <span>{{ $t('share') }}</span>
                             </button>
                         </div>
                     </div>
@@ -44,12 +44,15 @@
 
 <script setup>
 import ShareIcon from '@/assets/icons/Share_Icon.png'
-import { ref, defineEmits, defineProps } from 'vue'
+import { ref, defineEmits, defineProps, onMounted } from 'vue'
 import { useTelegram } from '@/services/telegram'
+import { useAppStore } from '@/stores/appStore'
+
+const app = useAppStore()
 
 const { user } = useTelegram()
 
-const inviteText = ref('Скопировать ссылку')
+const inviteText = ref('Copy Link')
 
 const props = defineProps({
     /** whether the modal is visible */
@@ -66,14 +69,19 @@ function copyLink() {
     const ref = user?.id ?? ''
     const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
     navigator.clipboard.writeText(shareLink)
-    inviteText.value = 'Ссылка скопирована!'
-    setTimeout(() => (inviteText.value = 'Скопировать ссылку'), 1800)
+    inviteText.value = app.language === 'ru' ? "Ссылка скопирована!" : "Copied Link!"
+    setTimeout(() => (inviteText.value = app.language === 'ru' ? "Скопировать ссылку" : "Copy Link"), 1800)
 }
 
 function shareReferal() {
     const ref = user?.id ?? ''
     const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
-    const messageText = `%0AПрисоединяйся ко мне в Gifts Predict и зарабатывай TON!`
+    let messageText = ""
+    if (app.language === 'ru') {
+        messageText = `%0AПрисоединяйся ко мне в Gifts Predict и зарабатывай TON!`
+    } else {
+        messageText = `%0AJoin me in Gifts Predict and earn TON!`
+    }
     try {
         tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
     } catch (e) {
@@ -82,7 +90,9 @@ function shareReferal() {
     }
 }
 
-const copied = ref(false)
+onMounted(() => {
+    inviteText.value = app.language === 'ru' ? "Скопировать ссылку" : "Copy Link"
+})
 
 </script>
 
@@ -395,7 +405,7 @@ const copied = ref(false)
 .action-btn-one,
 .action-btn-two {
     display: flex;
-    width: 80%;
+    width: max(80%, 130px);
     height: 100px;
     align-items: center;
     justify-content: center;
@@ -403,7 +413,7 @@ const copied = ref(false)
     border: none;
     border-radius: 16px;
     font-size: 1.25rem;
-    padding: 16px;
+    padding: 16px 24px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
     text-align: center;

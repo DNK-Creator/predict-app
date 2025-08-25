@@ -11,12 +11,12 @@
                 <div class="badge badge--pool">
                     <img class="badge__currency-logo" :src="tonLogo" alt="TON" />
                     <span class="badge__amount">{{ pool }} </span>
-                    <span class="badge__currency">Объём</span>
+                    <span class="badge__currency">{{ $t('volume') }}</span>
                 </div>
             </div>
 
             <div class="badge badge--chance">
-                <span class="chance-text">Шанс</span>
+                <span class="chance-text">{{ $t('chance') }}</span>
 
                 <!-- small top-right square icon (inline 2x2 grid), colors bound from JS -->
                 <div class="top-right-square" aria-hidden="true" title="Type">
@@ -34,7 +34,6 @@
                     <img :src="eventLogo" class="event-logo" alt="event" />
                     <!-- <img src="https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/PlushPepes.webp"
                         class="event-logo" alt="event" /> -->
-
                 </div>
             </div>
 
@@ -70,48 +69,104 @@ import shareIcon from '@/assets/icons/Upload_Icon_Updated.png'
 
 const props = defineProps({
     title: { type: String, default: '$BTC price below $104,000 on June 1, 20:00 UTC?' },
+    app: { type: Object, default: () => ({ language: 'ru' }) },
     eventLogo: { type: String, default: '' },
     pool: { type: [Number, String], default: '10' },
     chance: { type: [Number, String], default: 70 },
     status: { type: String, default: 'Открыто' },
     betTypeText: { type: String, default: 'Крипто событие' },
-    endsAt: { type: String, default: '' } // iso string or human text (we format)
+    endsAt: { type: [String, Date, Number], default: '' } // iso string, Date, or timestamp (we format)
 })
 
-const timePrefix = computed(() => props.status === "Открыто" ? 'До' : 'Прошло')
+/* ---------- timePrefix: localized and robust ---------- */
+const timePrefix = computed(() => {
+    const lang = props.app?.language === 'ru' ? 'ru' : 'en'
+    const st = String(props.status || '').toLowerCase()
 
-const endsISO = computed(() => props.endsAt || '')
+    const isOpen = lang === 'ru'
+        ? /открыт/i.test(props.status ?? '') || st.includes('открыт') || st.includes('открыто')
+        : /open/i.test(props.status ?? '') || st.includes('open')
 
-const endsText = computed(() => {
-    if (!props.endsAt) return '1 сен, 15:00' // fallback example in Russian
-
-    try {
-        const d = new Date(props.endsAt)
-        if (Number.isNaN(d.getTime())) return props.endsAt
-
-        // Use Russian locale explicitly and get parts so we can control punctuation
-        const dtf = new Intl.DateTimeFormat('ru-RU', {
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit'
-        })
-
-        const parts = dtf.formatToParts(d)
-        const day = parts.find(p => p.type === 'day')?.value || String(d.getDate())
-        // month might come with a trailing dot (e.g. "авг.") in some engines — remove it and lowercase
-        let month = parts.find(p => p.type === 'month')?.value || d.toLocaleString('ru-RU', { month: 'short' })
-        month = month.replace(/\.$/, '').toLowerCase()
-
-        const hour = parts.find(p => p.type === 'hour')?.value ?? String(d.getHours()).padStart(2, '0')
-        const minute = parts.find(p => p.type === 'minute')?.value ?? String(d.getMinutes()).padStart(2, '0')
-
-        return `${day} ${month}, ${hour}:${minute}`
-    } catch (e) {
-        return props.endsAt
+    if (lang === 'ru') {
+        return isOpen ? 'До' : 'Прошло'
+    } else {
+        return isOpen ? 'Until' : 'Closed'
     }
 })
 
+/* ---------- endsISO: provide proper machine-readable datetime when possible ---------- */
+const endsISO = computed(() => {
+    if (!props.endsAt && props.endsAt !== 0) return ''
+    const d = (props.endsAt instanceof Date) ? props.endsAt : new Date(props.endsAt)
+    if (!d || Number.isNaN(d.getTime())) return String(props.endsAt || '')
+    return d.toISOString()
+})
+
+/* ---------- endsText: localized human-readable date + time ---------- */
+const endsText = computed(() => {
+    if (!props.endsAt && props.endsAt !== 0) return '' // nothing to show
+
+    const raw = props.endsAt
+    const d = (raw instanceof Date) ? raw : new Date(raw)
+    if (!d || Number.isNaN(d.getTime())) {
+        // couldn't parse -> show raw text fallback
+        return String(raw)
+    }
+
+    const lang = props.app?.language === 'ru' ? 'ru' : 'en'
+
+    try {
+        if (lang === 'ru') {
+            // month short in some engines can be "авг." — remove trailing dot and lowercase
+            const dtf = new Intl.DateTimeFormat('ru-RU', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            })
+            const parts = dtf.formatToParts(d)
+            const day = parts.find(p => p.type === 'day')?.value || String(d.getDate())
+            let month = parts.find(p => p.type === 'month')?.value || d.toLocaleString('ru-RU', { month: 'short' })
+            month = String(month).replace(/\.$/, '').toLowerCase()
+            const hour = parts.find(p => p.type === 'hour')?.value ?? String(d.getHours()).padStart(2, '0')
+            const minute = parts.find(p => p.type === 'minute')?.value ?? String(d.getMinutes()).padStart(2, '0')
+            return `${day} ${month}, ${hour}:${minute}`
+        } else {
+            // English: "Sep 1, 15:00" (24h)
+            const dtf = new Intl.DateTimeFormat('en-US', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            })
+            // formatToParts to ensure we can control spacing/punctuation if needed
+            const parts = dtf.formatToParts(d)
+            const month = parts.find(p => p.type === 'month')?.value || d.toLocaleString('en-US', { month: 'short' })
+            const day = parts.find(p => p.type === 'day')?.value || String(d.getDate())
+            const hour = parts.find(p => p.type === 'hour')?.value ?? String(d.getHours()).padStart(2, '0')
+            const minute = parts.find(p => p.type === 'minute')?.value ?? String(d.getMinutes()).padStart(2, '0')
+            return `${month} ${day}, ${hour}:${minute}`
+        }
+    } catch (e) {
+        // fallback: simple manual formatting
+        const day = d.getDate()
+        const monthIdx = d.getMonth()
+        const hour = String(d.getHours()).padStart(2, '0')
+        const minute = String(d.getMinutes()).padStart(2, '0')
+
+        if (lang === 'ru') {
+            const monthsGenShort = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+            return `${day} ${monthsGenShort[monthIdx]}, ${hour}:${minute}`
+        } else {
+            const monthsEnShort = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+            return `${monthsEnShort[monthIdx]} ${day}, ${hour}:${minute}`
+        }
+    }
+})
+
+/* ---------- rest of original helpers / UI colors (unchanged) ---------- */
 
 // helper: parse numeric chance robustly (strip % etc.)
 function parseChance(value) {
@@ -151,12 +206,13 @@ const dotColors = computed(() => {
 // background style (optionally you can wire bgImage prop in future)
 const bgStyle = computed(() => {
     return {
-        background: 'linear-gradient(rgba(30, 30, 30, 0.7) 6%, rgba(59, 130, 246, 0.55) 75%)'
+        background: 'linear-gradient(rgba(30, 30, 30, 0.8) 8%, rgba(59, 130, 246, 0.85) 85%)'
     }
 })
 
 defineEmits(['click', 'share'])
 </script>
+
 
 <style scoped lang="css">
 /* Card shell */

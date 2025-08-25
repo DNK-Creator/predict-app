@@ -9,16 +9,16 @@
         <transition name="slide-up">
             <div v-if="show" class="wallet-info-modal">
                 <div class="footer">
-                    <h2>Ваш кошелек</h2>
+                    <h2>{{ $t('your-wallet') }}</h2>
                     <button class="close-btn" @click="close">✖</button>
                 </div>
                 <div class="items-group">
-                    <h2 class="item-header">БАЛАНС</h2>
+                    <h2 class="item-header">{{ $t('balance-caps') }}</h2>
                     <h1 v-if="balance" class="item-balance">
                         {{ balance }} TON
                     </h1>
                     <h1 v-else class="item-balance">
-                        Неизвестен
+                        {{ $t('unknown') }}
                     </h1>
                 </div>
                 <div class="items-group">
@@ -28,7 +28,7 @@
                         <span v-if="!copied" class="wallet-text">
                             {{ shortenedAddress(address) }}
                         </span>
-                        <span v-else class="wallet-text"> Скопировано! </span>
+                        <span v-else class="wallet-text"> {{ $t('copied') }} </span>
 
                         <img class="copy-icon" :src="CopyIcon" alt="copy icon" />
                     </button>
@@ -36,7 +36,7 @@
                 <div class="items-group">
                     <div class="buttons-group">
                         <button class="action-btn-two" @click="reconnectWallet">
-                            <span>Переподключить</span>
+                            <span>{{ $t('reconnect') }}</span>
                         </button>
                     </div>
                 </div>

@@ -6,12 +6,18 @@
       <Header :balance="app.points" :address="walletAddress" @deposit-click="openDepositWindow"
         @settings-click="openSettings" @wallet-connect="reconnectWallet" />
 
-      <!-- RouterView always mounted. keep-alive preserved. -->
+      <!-- RouterView with a quick out-in fade for route changes -->
       <RouterView v-slot="{ Component }">
-        <keep-alive>
-          <component :is="Component" />
-        </keep-alive>
+        <transition name="route-fade" mode="out-in" appear>
+          <!-- single element root for the transition -->
+          <div :key="route.fullPath" class="route-transition-wrapper">
+            <keep-alive>
+              <component :is="Component" />
+            </keep-alive>
+          </div>
+        </transition>
       </RouterView>
+
     </div>
 
     <!-- SETTINGS MODAL & BLUR OVERLAY -->
@@ -31,8 +37,9 @@
     </div>
   </transition>
 
-  <TutorialOverlay :show="showTutorialOverlay" :images="tutorialImages" :tgsFiles="[null, null, DuckMedia]"
-    @close="closeTutorial" @finished="onTutorialFinished" />
+  <TutorialOverlay :show="showTutorialOverlay" :images="tutorialImages" :titles="tutorialTitles"
+    :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
+
 
   <ChannelFollowModal :show="showChannelFollowModal" channel="@giftspredict" @close="closeChannelModal"
     @subscribe="onSubscribeToChannel" />
@@ -49,7 +56,6 @@ import { getReferralFromUrl } from './services/urlParamsParse'
 import { userFirstTimeOpening } from './api/requests'
 import { useAppStore } from '@/stores/appStore.js'
 import { useTelegram } from '@/services/telegram.js'
-import { getTonConnect } from '@/services/ton-connect-ui'
 import { Address } from '@ton/core'
 import { useTon } from './services/useTon'
 import supabase from './services/supabase'
@@ -97,17 +103,74 @@ const showTutorialOverlay = ref(false)
 const showChannelFollowModal = ref(false)
 
 /* ---------- Tutorial configuration ---------- */
-/*
- Replace these with the actual tutorial image paths in your project.
- If your images are in /src/assets/tutorial1.png you can use:
-   import t1 from '@/assets/tutorial1.png'
- or just provide absolute/relative URLs if served from public/.
-*/
-const tutorialImages = [
-  'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PromoTutorialFirst.png',
-  'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PhoneDepositPng.png',
-  'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/LipsDay.png'
-]
+
+// helper to normalise language code to primary subtag (e.g. "en-US" -> "en")
+const normalizeLang = (lc) => {
+  if (!lc) return 'en'
+  if (typeof lc !== 'string') return 'en'
+  return lc.split('-')[0].toLowerCase()
+}
+
+// compute active language: prefer store's app.language, fallback to Telegram user language_code, then 'en'
+const language = computed(() => {
+  return normalizeLang(app.language ?? user?.language_code ?? 'en')
+})
+
+// localized content for tutorial. Add other languages as needed.
+const TUTORIAL_BY_LANG = {
+  en: {
+    images: [
+      // english image set (3 images)
+      'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/EN_PromoTutorialFirst.png',
+      'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/EN_PhoneDepositPromo.png',
+      ''
+    ],
+    titles: [
+      'Welcome to Gifts Predict!',
+      'Top up & Withdraw',
+      'Together is better'
+    ],
+    subtitles: [
+      'Predict upcoming events from Telegram, Gifts and Crypto and win rewards.',
+      'Top up your balance with TON or Telegram gifts. Withdrawals are processed daily.',
+      'Invite friends with your referral link and earn a percentage of their winnings.'
+    ],
+    tgsFiles: [null, null, DuckMedia.value ?? null]
+  },
+  // default language (ru) — keep your original images and copy
+  ru: {
+    images: [
+      'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PromoTutorialFirst.png',
+      'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PhoneDepositPng.png',
+      ''
+    ],
+    titles: [
+      'Привет! Это Gifts Predict',
+      'Пополнение и вывод',
+      'Вместе - веселее'
+    ],
+    subtitles: [
+      'Здесь ты можешь предсказывать будущие события из мира Telegram, Подарков и Криптовалюты.',
+      'Пополняй баланс, используя TON или Телеграм подарки. Выдача призов происходит ежедневно.',
+      'С помощью реферальной программы пользователи могут приглашать друзей, делиться своей реферальной ссылкой и зарабатывать процент с выигрыша других.'
+    ],
+    tgsFiles: [null, null, DuckMedia.value ?? null]
+  }
+}
+
+// computed wrapper that returns the correct set, falling back to 'ru' then 'en'
+const tutorialContent = computed(() => {
+  const lang = language.value
+  if (TUTORIAL_BY_LANG[lang]) return TUTORIAL_BY_LANG[lang]
+  // fallback: prefer 'en' when unknown, otherwise 'ru'
+  return TUTORIAL_BY_LANG.en
+})
+
+// expose computed arrays individually for easier template binding
+const tutorialImages = computed(() => tutorialContent.value.images)
+const tutorialTitles = computed(() => tutorialContent.value.titles)
+const tutorialSubtitles = computed(() => tutorialContent.value.subtitles)
+const tutorialTgsFiles = computed(() => tutorialContent.value.tgsFiles)
 
 // helper to preload and confirm caching
 function preloadTutorialImages(urls) {
@@ -124,9 +187,7 @@ function preloadTutorialImages(urls) {
   )
 }
 
-
 const currentTutorialIndex = ref(0)
-const isLastTutorialStep = computed(() => currentTutorialIndex.value === (tutorialImages.length - 1))
 
 /* ---------- helper functions for overlays ---------- */
 async function openTutorial() {
@@ -136,15 +197,12 @@ async function openTutorial() {
 
 function closeTutorial() {
   showTutorialOverlay.value = false
-  // optional: persist that user saw tutorial (so userFirstTime stays false next time)
-  // await supabase.from('users').update({ seen_tutorial: true }).eq('telegram', user?.id ?? 99)
 }
 
 function onTutorialFinished() {
   // Called when the user clicked "Я готов!" on the last step
   userFirstTime.value = false
   showTutorialOverlay.value = false
-  // Optionally persist the seen_tutorial flag to supabase here
 }
 
 /* ---------- channel modal handlers ---------- */
@@ -165,11 +223,7 @@ async function onSubscribeToChannel() {
       window.open('https://t.me/giftspredict', '_blank')
     }
 
-    // Give user a moment to subscribe (you might call checkChannelMembership again after a short delay).
-    // For now, close the modal and mark as "not shown".
     showChannelFollowModal.value = false
-    // Optionally re-check membership:
-    // userFollowsChannel.value = await checkChannelMembership()
   } catch (err) {
     console.error('Failed to open channel link', err)
     showChannelFollowModal.value = false
@@ -509,19 +563,6 @@ onMounted(async () => {
     }
   }
 
-  // If user is first-time, prepare & show the tutorial overlay *early*
-  if (userFirstTime.value) {
-    // Preload images so they appear instantly when overlay fades
-    const results = await preloadTutorialImages(tutorialImages)
-    console.log('Preloaded tutorial images:', results)
-
-    // you could also delay showing the tutorial until they are ready:
-    showTutorialOverlay.value = results.every(r => r.ok)
-
-    // We do NOT open channel modal in this case — tutorial is superior
-    showChannelFollowModal.value = false
-  }
-
   // visualViewport settle wait
   debug('[App] waiting for visualViewport settle (180ms max)')
   // Wait for visualViewport to settle OR fallback to short timeout
@@ -584,6 +625,19 @@ onMounted(async () => {
   }
 
   loadingStage.value = 4
+
+  // If user is first-time, prepare & show the tutorial overlay *early*
+  if (userFirstTime.value) {
+    // Preload images so they appear instantly when overlay fades
+    const results = await preloadTutorialImages(tutorialImages.value)
+    console.log('Preloaded tutorial images:', results)
+
+    // you could also delay showing the tutorial until they are ready:
+    showTutorialOverlay.value = results.every(r => r.ok)
+
+    // We do NOT open channel modal in this case — tutorial is superior
+    showChannelFollowModal.value = false
+  }
 
   // set initial state for current route
   updateBackButtonForRoute(router.currentRoute.value)
@@ -796,5 +850,30 @@ onBeforeUnmount(() => {
 .app-scroll-container::-webkit-scrollbar {
   width: 0;
   height: 0;
+}
+
+/* wrapper that doesn't change layout but gives transition an element to animate */
+.route-transition-wrapper {
+  width: 100%;
+  /* let children decide height; if you want full height, use min-height:100vh or flex settings */
+}
+
+/* existing route-fade from before (copy if not present) */
+.route-fade-enter-active,
+.route-fade-leave-active {
+  transition: opacity 200ms cubic-bezier(.22, .9, .32, 1), transform 200ms ease;
+}
+
+.route-fade-enter-from,
+.route-fade-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+}
+
+.route-fade-enter-to,
+.route-fade-leave-from {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>

@@ -1,10 +1,10 @@
 <template>
-    <div class="tx-list-parent">
+    <div v-show="loaded" class="tx-list-parent">
         <!-- Group transactions by date -->
         <div v-if="transactions.length < 1" class="empty-transactions">
             <div ref="svgContainer" class="empty-media"></div>
-            <span class="empty-text">Соверши первую транзакцию</span>
-            <span class="empty-text-two">и начни предсказывать</span>
+            <span class="empty-text">{{ $t("make-tx") }}</span>
+            <span class="empty-text-two">{{ $t("tx-next-hint") }}</span>
         </div>
         <div v-for="(group, date) in groupedTransactions" :key="date" class="day-group">
             <!-- Day header -->
@@ -19,7 +19,7 @@
 
                     <!-- Details: status/name and time -->
                     <div class="transaction-details">
-                        <div class="transaction-name">{{ tx.status }}</div>
+                        <div class="transaction-name">{{ translateStatus(tx.status) }}</div>
                         <div class="transaction-time">{{ formatTime(tx.created_at) }}</div>
                     </div>
 
@@ -41,15 +41,34 @@ import pako from 'pako';
 import EmptyGift from '@/assets/PepeCalendar.tgs'
 import depositImg from '@/assets/icons/Deposit_Icon.png'
 import withdrawalImg from '@/assets/icons/Withdrawal_Icon.png'
+import giftImg from '@/assets/icons/Gift_Icon.png'
+import { useAppStore } from '@/stores/appStore'
 
 const props = defineProps({
     transactions: {
         type: Array,
         required: true
-    }
+    },
+    loaded: Boolean
 })
 
+const app = useAppStore()
+
 const svgContainer = ref(null);
+
+function translateStatus(status) {
+    if (status === 'Незавершённое пополнение' || status === 'Незавершенное пополнение' || status === 'незавершенное пополнение' || status === 'Ожидание пополнения') {
+        return app.language === 'ru' ? 'Незавершённое пополнение' : 'Unfinished deposit'
+    } else if (status === 'Ожидание вывода' || status === 'ожидание вывода' || status === 'Незавершенный вывод') {
+        return app.language === 'ru' ? 'Ожидание выводы' : 'Withdrawal pending'
+    } else if (status === 'Успешное пополнение' || status === 'Пополнение успешно' || status === 'Успешный депозит') {
+        return app.language === 'ru' ? 'Успешное пополнение' : 'Successful Deposit'
+    } else if (status === 'Пополнение подарком' || status === 'Пополнение подарками' || status === 'Подарок') {
+        return app.language === 'ru' ? 'Пополнение подарком' : 'Gift Deposit'
+    } else if (status === 'Успешный вывод' || status === 'Вывод успешен' || status === 'Завершенный вывод') {
+        return app.language === 'ru' ? 'Успешный вывод' : 'Successful Withdrawal'
+    }
+}
 
 // Group transactions by date (YYYY-MM-DD)
 const groupedTransactions = computed(() => {
@@ -61,48 +80,93 @@ const groupedTransactions = computed(() => {
     }, {})
 })
 
-// Format header: 5 АВГУСТА 2025 (month in genitive, uppercase)
-function formatDateHeader(dateString) {
-    const date = new Date(dateString)
-
-    // Preferred: use Intl to get Russian genitive month (when day present, Intl uses genitive)
-    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-        // This usually returns "5 августа 2025" (lowercase month, genitive)
-        const formatted = new Intl.DateTimeFormat('ru-RU', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-        }).format(date)
-
-        // Replace the month word with uppercase (keep day and year as-is)
-        // Handles regular and non-breaking spaces
-        return formatted.replace(/(\d{1,2})\s+([^\s]+)\s+(\d{4})/, (m, d, month, y) => {
-            return `${d} ${month.toUpperCase()} ${y}`
-        })
-    }
-
-    // Fallback: manual genitive month names (uppercase)
-    const monthsGenitive = [
-        'ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ',
-        'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ'
-    ]
-    const day = date.getDate()
-    const month = monthsGenitive[date.getMonth()]
-    const year = date.getFullYear()
-    return `${day} ${month} ${year}`
+/**
+ * Resolve a locale string from app.language
+ * - 'ru' → 'ru-RU'
+ * - 'en' → 'en-US' (you can change to 'en-GB' if you prefer DMY order)
+ * - fallback: 'en-US'
+ */
+function resolveLocale() {
+    const lang = String(app.language ?? '').toLowerCase()
+    if (!lang) return 'en-US'
+    if (lang.startsWith('ru')) return 'ru-RU'
+    if (lang.startsWith('en')) return 'en-US'
+    return 'en-US'
 }
 
-// Format time: "17:42" (24-hour, leading zeros)
+/**
+ * Format header like: "5 АВГУСТА 2025" (Russian genitive month, uppercase)
+ * or for English / other languages: "5 AUGUST 2025" (uppercase month, day-first)
+ *
+ * Uses Intl.formatToParts so we can assemble day / month / year regardless of locale ordering.
+ */
+function formatDateHeader(dateString) {
+    const date = new Date(dateString)
+    if (isNaN(date)) return '—'
+
+    const locale = resolveLocale()
+
+    if (typeof Intl !== 'undefined' && Intl.DateTimeFormat?.prototype?.formatToParts) {
+        try {
+            // Request day/month/year parts; for ru-RU Intl will already return genitive month when day present
+            const parts = new Intl.DateTimeFormat(locale, {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            }).formatToParts(date)
+
+            // extract values
+            const dayPart = parts.find(p => p.type === 'day')?.value ?? String(date.getDate())
+            const monthPart = parts.find(p => p.type === 'month')?.value ?? (date.toLocaleString(locale, { month: 'long' }))
+            const yearPart = parts.find(p => p.type === 'year')?.value ?? String(date.getFullYear())
+
+            return `${dayPart} ${monthPart.toUpperCase()} ${yearPart}`
+        } catch (e) {
+            // fallback to older approach below
+            console.warn('formatDateHeader Intl error', e)
+        }
+    }
+
+    // Fallback: manual Russian genitive mapping if locale is ru, else use simple month name
+    const isRu = resolveLocale().startsWith('ru')
+    if (isRu) {
+        const monthsGenitive = [
+            'ЯНВАРЯ', 'ФЕВРАЛЯ', 'МАРТА', 'АПРЕЛЯ', 'МАЯ', 'ИЮНЯ',
+            'ИЮЛЯ', 'АВГУСТА', 'СЕНТЯБРЯ', 'ОКТЯБРЯ', 'НОЯБРЯ', 'ДЕКАБРЯ'
+        ]
+        const day = date.getDate()
+        const month = monthsGenitive[date.getMonth()]
+        const year = date.getFullYear()
+        return `${day} ${month} ${year}`
+    } else {
+        const months = [
+            'JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE',
+            'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER'
+        ]
+        const day = date.getDate()
+        const month = months[date.getMonth()]
+        const year = date.getFullYear()
+        return `${day} ${month} ${year}`
+    }
+}
+
+// Format time: "17:42" (24-hour, leading zeros) — uses locale but keeps 24-hour for consistency
 function formatTime(iso) {
     const date = new Date(iso)
+    if (isNaN(date)) return '—'
 
-    // Use Intl for consistent 24-hour format in ru-RU
+    const locale = resolveLocale()
+
     if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-        return new Intl.DateTimeFormat('ru-RU', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false
-        }).format(date)
+        try {
+            return new Intl.DateTimeFormat(locale, {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            }).format(date)
+        } catch (e) {
+            console.warn('formatTime Intl error', e)
+        }
     }
 
     // Fallback
@@ -117,6 +181,8 @@ function getIcon(type) {
         return depositImg
     } else if (type === 'Withdrawal') {
         return withdrawalImg
+    } else if (type === 'Gift' || type === 'gift') {
+        return giftImg
     }
     return depositImg
 }
@@ -141,9 +207,10 @@ onMounted(async () => {
 })
 </script>
 
+
 <style scoped>
 .tx-list-parent {
-    max-height: 55vh;
+    max-height: 85vh;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;
@@ -184,7 +251,7 @@ onMounted(async () => {
 .transaction-item {
     display: flex;
     align-items: center;
-    padding: 0.75rem;
+    padding: 0.75rem 0;
     border-bottom: thin solid #626262;
     max-width: 480px;
 }
@@ -229,7 +296,7 @@ onMounted(async () => {
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    height: 40vh;
+    height: 60vh;
     width: auto;
     color: white;
 }

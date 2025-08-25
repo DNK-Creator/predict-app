@@ -38,12 +38,17 @@ export async function userFirstTimeOpening(telegramId) {
     }
 }
 
-export async function getOrCreateUser(telegramId) {
+export async function getOrCreateUser(telegramId, languageCode = null) {
     if (!telegramId || Number.isNaN(Number(telegramId))) {
         throw new Error('getOrCreateUser: telegramId is required and must be a number');
     }
 
-    const { data, error } = await supabase.rpc('get_or_create_user', { p_telegram: Number(telegramId) });
+    const rpcParams = {
+        p_telegram: Number(telegramId),
+        p_language: languageCode ?? null,
+    };
+
+    const { data, error } = await supabase.rpc('get_or_create_user', rpcParams);
 
     if (error) {
         console.error('getOrCreateUser rpc error', error);

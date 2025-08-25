@@ -16,7 +16,7 @@
         <div v-if="balance <= 0 && (address === null || address === undefined)" class="wallet-connect-container"
             @click="walletConnect">
             <img :src="tonIcon" class="wallet-address-icon">
-            <p class="wallet-address">Подключить кошелёк</p>
+            <p class="wallet-address">{{ $t("connect-wallet") }}</p>
         </div>
         <div v-else class="balance-container" @click="onDepositClick">
             <!-- Diamond Icon SVG -->

@@ -1,8 +1,7 @@
 <template>
     <Teleport to="body">
         <transition name="fade">
-            <div v-if="show" class="tutorial-backdrop" @keydown="onKeydown" tabindex="-1"
-                ref="backdropEl">
+            <div v-if="show" class="tutorial-backdrop" @keydown="onKeydown" tabindex="-1" ref="backdropEl">
                 <div class="tutorial-card" role="dialog" aria-modal="true">
 
                     <!-- top dots -->
@@ -43,8 +42,8 @@
                         <!-- footer (below description) -->
                         <div class="tutorial-footer" role="group" aria-label="Tutorial footer">
                             <button class="primary-action" @click="onNext" type="button">
-                                <span v-if="!isLastStep">Далее ></span>
-                                <span v-else>Начать предсказывать!</span>
+                                <span v-if="!isLastStep">{{ $t('next') }} ></span>
+                                <span v-else>{{ $t('start-predicting') }}!</span>
                             </button>
                         </div>
                     </div>
@@ -58,8 +57,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import DuckMedia from '@/assets/DuckClicking.tgs'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import LottieTgs from './LottieTgs.vue'
 
 const props = defineProps({

@@ -1,8 +1,4 @@
 <template>
-    <!-- Global full-screen loader (fixed, centered) -->
-    <div v-if="loadingInitial" class="global-loader" aria-hidden="true">
-        <LoaderPepe />
-    </div>
 
     <!-- root always present to avoid layout jumps -->
     <div class="bets-root" :aria-hidden="loadingInitial ? 'true' : 'false'">
@@ -11,22 +7,22 @@
             <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
                 <button class="catalog-btn" :class="{ active: selectedTab === 'active' }" @click="switchTab('active')"
                     role="tab" :aria-selected="selectedTab === 'active'">
-                    Активные
+                    {{ $t('active') }}
                 </button>
                 <button class="catalog-btn" :class="{ active: selectedTab === 'archived' }"
                     @click="switchTab('archived')" role="tab" :aria-selected="selectedTab === 'archived'">
-                    Прошедшие
+                    {{ $t('past') }}
                 </button>
             </div>
 
             <!-- Empty state when there are no bets in the selected tab -->
             <div v-if="isEmpty && !isLoadingFirstPage" class="empty-state" role="status" aria-live="polite">
                 <div class="empty-icon">🧾</div>
-                <h3 class="empty-title">Здесь пока пусто</h3>
-                <p class="empty-desc">Нет ставок в этой категории. Попробуйте переключиться на другую вкладку.</p>
+                <h3 class="empty-title">{{ $t('empty-now') }}</h3>
+                <p class="empty-desc">{{ $t('no-bets-here') }}</p>
                 <div class="empty-actions">
-                    <button class="catalog-btn" @click="switchTab('active')">Активные</button>
-                    <button class="catalog-btn" @click="switchTab('archived')">Архив</button>
+                    <button class="catalog-btn" @click="switchTab('active')">{{ $t('active') }}</button>
+                    <button class="catalog-btn" @click="switchTab('archived')">{{ $t('past') }}</button>
                 </div>
             </div>
 
@@ -36,9 +32,10 @@
             <transition name="list-fade" mode="out-in">
                 <div class="bets-list" :key="listKey">
                     <div v-for="bet in bets" :key="bet.id">
-                        <BetsCard :title="bet.name" :eventLogo="bet.image_path" :endsAt="bet.close_time"
-                            :pool="getTotalPool(bet)" :betTypeText="bet.event_type" :status="getBetStatus(bet)"
-                            :chance="getBetPercent(bet)" @share="shareBetFunction(bet.name)"
+                        <BetsCard :title="translatedTitle(bet.name, bet.name_en)" :eventLogo="bet.image_path"
+                            :endsAt="bet.close_time" :pool="getTotalPool(bet)"
+                            :betTypeText="translatedTitle(bet.event_type, bet.event_type_en)" :app="app"
+                            :status="getBetStatus(bet)" :chance="getBetPercent(bet)" @share="shareBetFunction(bet.name, bet.name_en)"
                             @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
                     </div>
                 </div>
@@ -53,21 +50,16 @@
 <script setup>
 // Vue
 import { ref, onMounted, watch, computed } from 'vue'
-
-// Components
+import { useTelegram } from '@/services/telegram'
+import supabase from '@/services/supabase'
+import { useAppStore } from '@/stores/appStore'
 import BetsCard from '@/components/bet-details/BetsCard.vue'
 import LoaderPepe from '@/components/LoaderPepe.vue'
 
-import { useTelegram } from '@/services/telegram'
-
-// Supabase client
-import supabase from '@/services/supabase'
+const app = useAppStore()
 
 const { tg, user } = useTelegram()
 
-/* ---------------------------
-   Reactive state
-   --------------------------- */
 const bets = ref([])
 const page = ref(0)
 const pageSize = 6
@@ -83,6 +75,14 @@ const selectedTab = ref('active') // 'active' | 'archived'
 
 // key for the visible list. we bump this after new data is assigned to trigger out-in transition
 const listKey = ref('initial-' + Date.now())
+
+function translatedTitle(titleRu, titleEn) {
+    if (app.language === 'ru') {
+        return titleRu
+    } else {
+        return titleEn
+    }
+}
 
 /* ---------------------------
    Utility / parsing helpers
@@ -262,10 +262,26 @@ function getBetStatus(betObj) {
         }
     }
 
-    if (closeDate && Date.now() < closeDate.getTime()) return 'Открыто'
+    if (closeDate && Date.now() < closeDate.getTime()) {
+        if (app.language === 'ru') {
+            return 'Открыто'
+        } else {
+            return 'Open'
+        }
+    }
     if (isMissing(resultRaw)) {
-        if (closeDate && Date.now() >= closeDate.getTime()) return 'Обработка'
-        return 'Открыто'
+        if (closeDate && Date.now() >= closeDate.getTime()) {
+            if (app.language === 'ru') {
+                return 'Обработка'
+            } else {
+                return 'Validating'
+            }
+        }
+        if (app.language === 'ru') {
+            return 'Открыто'
+        } else {
+            return 'Open'
+        }
     }
 
     let r = resultRaw
@@ -275,20 +291,25 @@ function getBetStatus(betObj) {
     const yesSet = new Set(['yes', 'y', 'да', 'дa', 'true', '1', 'yes!'])
     const noSet = new Set(['no', 'n', 'нет', 'false', '0', 'no!'])
 
-    if (yesSet.has(r)) return 'Результат "Да"'
-    if (noSet.has(r)) return 'Результат "Нет"'
+    if (yesSet.has(r)) return app.language === 'ru' ? 'Результат "Да"' : 'Result "Yes"'
+    if (noSet.has(r)) return app.language === 'ru' ? 'Результат "Нет"' : 'Result "No"'
 
-    return `Результат "${String(resultRaw)}"`
+    return app.language === 'ru' ? `Результат "${String(resultRaw)}"` : `Result "${String(resultRaw)}"`
 }
 
 /* ---------------------------
    Networking & pagination
    --------------------------- */
 
-function shareBetFunction(betName) {
+function shareBetFunction(betName, betNameEn) {
     let ref = user?.id ?? ''
     let shareLink = 'https://t.me/GiftsPredict_Bot?startapp=' + ref
-    let messageText = `%0AПосмотри, что думает комьюнити в телеграме по поводу события - ${betName} 🔔%0A%0AЛегкие TON или прогорят? 💵`
+    let messageText = ''
+    if (app.language === 'ru') {
+        messageText = `%0AПосмотри, что думает комьюнити в телеграме по поводу события - ${betName} 🔔%0A%0AЛегкие TON или прогорят? 💵`
+    } else {
+        messageText = `%0ALook at what the telegram community thinks about - ${betNameEn} 🔔%0A%0AEasy TON or a quick money burn? 💵`
+    }
     tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
 }
 
@@ -358,7 +379,7 @@ async function fetchBetsPage(pageIndex) {
 
     let query = supabase
         .from('bets')
-        .select('id, name, image_path, date, result, close_time, volume, event_type, current_odds')
+        .select('id, name, name_en, image_path, date, result, close_time, volume, event_type, event_type_en, current_odds')
         .order('date', { ascending: true })
         .range(from, to)
 

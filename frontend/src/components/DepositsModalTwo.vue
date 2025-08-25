@@ -14,7 +14,7 @@
 
                 <div class="settings-modal__body" ref="modalBody">
                     <div class="modal-footer">
-                        <h2>Пополнение баланса</h2>
+                        <h2>{{ $t('balance-top-up') }}</h2>
                     </div>
 
                     <div class="options-grid">
@@ -24,7 +24,7 @@
                         </button>
                         <button class="option" :class="{ active: selectedDeposit === 'GIFT' }"
                             @click="selectDeposit('GIFT')">
-                            <span>Подарками</span>
+                            <span>{{ $t('by-gifts') }}</span>
                         </button>
                     </div>
 
@@ -33,15 +33,15 @@
                         <div class="deposit-method-container" v-show="selectedDeposit === 'TON'">
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
-                                <span v-if="!address" class="deposit-text-info">Пополнение через TON Connect</span>
-                                <span v-else="!address" class="deposit-text-info">Баланс на подключённом кошельке: {{
+                                <span v-if="!address" class="deposit-text-info">{{ $t('deposit-ton-connect') }}</span>
+                                <span v-else="!address" class="deposit-text-info">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
                             <!-- Starting Deposit Fields container for TON -->
                             <section class="deposit-ton-body">
                                 <div v-if="!address" class="wallet-connect-container" @click="connectNewWallet">
                                     <img :src="tonIcon" class="wallet-address-icon">
-                                    <p class="wallet-address">Подключить кошелёк</p>
+                                    <p class="wallet-address">{{ $t('connect-wallet') }} </p>
                                 </div>
                                 <div v-else class="wallet-address-container" @click="$emit('open-wallet-info')">
                                     <img :src="walletIcon" class="wallet-address-icon">
@@ -67,18 +67,14 @@
                             <div ref="svgContainerTwo" class="media-method"> </div>
                             <div class="description-texts">
                                 <div class="top-info-gifts">
-                                    <span class="deposit-text-info">Для пополнения баланса подарком отправьте подарок
-                                        нашему
-                                        боту</span>
+                                    <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-one') }}</span>
                                     <button class="bot-button" @click="openRelayerChat">@GiftsPredictRelayer</button>
                                 </div>
                                 <div class="top-info-gifts">
-                                    <button class="list-button" @click="$emit('open-prices')">Подарок
-                                        зачислится на
-                                        баланс TON по рыночной цене из списка.</button>
+                                    <button class="list-button" @click="$emit('open-prices')">{{
+                                        $t('gifts-deposit-instruction-two') }}</button>
                                 </div>
-                                <span class="deposit-text-info">Операция передачи является окончательной, баланс
-                                    обновится моментально.</span>
+                                <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-three') }}</span>
                             </div>
                         </div>
                     </div>
@@ -89,7 +85,7 @@
                     <!-- wire the handlers so we can animate and debounce -->
                     <button type="button" class="action-btn-one" :class="{ pressed: pressingBtn === 'one' }"
                         @click="onBtnOneClick">
-                        Закрыть
+                        {{ $t('close') }}
                     </button>
 
                     <button type="button" v-if="selectedDeposit === 'TON'" class="action-btn-two"
@@ -112,12 +108,15 @@
 import { ref, watch, nextTick, onUnmounted, computed, onDeactivated, toRef, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTelegram } from '@/services/telegram'
+import { useAppStore } from '@/stores/appStore'
 import lottie from 'lottie-web'
 import pako from 'pako'
 import TonMedia from '@/assets/EmptyGift2.tgs'
 import GiftMedia from '@/assets/LootBag.tgs'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
 import tonIcon from '@/assets/icons/TON_White_Icon.png'
+
+const app = useAppStore()
 
 // keep props reactive: use toRef to avoid breaking reactivity
 const props = defineProps({
@@ -131,6 +130,10 @@ const props = defineProps({
 const modelValue = toRef(props, 'modelValue')
 const address = toRef(props, 'address')
 const balance = toRef(props, 'balance')
+
+// add near top of script setup, alongside other locals
+let vvResizeListener = null
+let windowResizeListener = null
 
 const { tg } = useTelegram()
 
@@ -284,19 +287,25 @@ function onAmountFocus() {
     }, 500)
 
     if (window.visualViewport) {
-        vvResizeListener = () => {
-            const kv = window.visualViewport
-            const kbHeight = Math.max(0, window.innerHeight - kv.height)
-            document.documentElement.style.setProperty('--keyboard-height', `${kbHeight}px`)
-            scrollModalToBottom(false)
+        // attach only once
+        if (!vvResizeListener) {
+            vvResizeListener = () => {
+                const kv = window.visualViewport
+                const kbHeight = Math.max(0, window.innerHeight - kv.height)
+                document.documentElement.style.setProperty('--keyboard-height', `${kbHeight}px`)
+                scrollModalToBottom(false)
+            }
+            window.visualViewport.addEventListener('resize', vvResizeListener)
         }
-        window.visualViewport.addEventListener('resize', vvResizeListener)
+        // call immediately to set initial state
         vvResizeListener()
     } else {
-        windowResizeListener = () => {
-            setTimeout(() => scrollModalToBottom(false), 200)
+        if (!windowResizeListener) {
+            windowResizeListener = () => {
+                setTimeout(() => scrollModalToBottom(false), 200)
+            }
+            window.addEventListener('resize', windowResizeListener)
         }
-        window.addEventListener('resize', windowResizeListener)
     }
 }
 
@@ -304,11 +313,11 @@ function onAmountBlur() {
     document.body.classList.remove('keyboard-open')
 
     if (window.visualViewport && vvResizeListener) {
-        window.visualViewport.removeEventListener('resize', vvResizeListener)
+        try { window.visualViewport.removeEventListener('resize', vvResizeListener) } catch (e) { /* ignore */ }
         vvResizeListener = null
     }
     if (windowResizeListener) {
-        window.removeEventListener('resize', windowResizeListener)
+        try { window.removeEventListener('resize', windowResizeListener) } catch (e) { /* ignore */ }
         windowResizeListener = null
     }
 
@@ -349,10 +358,12 @@ function onAmountInput(e) {
 
 onBeforeUnmount(() => {
     if (window.visualViewport && vvResizeListener) {
-        window.visualViewport.removeEventListener('resize', vvResizeListener)
+        try { window.visualViewport.removeEventListener('resize', vvResizeListener) } catch (e) { /* ignore */ }
+        vvResizeListener = null
     }
     if (windowResizeListener) {
-        window.removeEventListener('resize', windowResizeListener)
+        try { window.removeEventListener('resize', windowResizeListener) } catch (e) { /* ignore */ }
+        windowResizeListener = null
     }
 })
 
@@ -361,8 +372,14 @@ const shortenedAddress = computed(() => {
     if (!address.value) return ''
     return `${address.value.slice(0, 4)}...${address.value.slice(-3)}`
 })
-
-const actionText = computed(() => selectedDeposit.value === 'TON' ? 'Пополнить' : 'Отправить подарок')
+const actionText = computed(() => {
+    if (app.language === 'ru') {
+        return selectedDeposit.value === 'TON' ? 'Пополнить' : 'Отправить подарок'
+    }
+    else {
+        return selectedDeposit.value === 'TON' ? 'Deposit' : 'Send a gift'
+    }
+})
 
 function selectDeposit(code) {
     selectedDeposit.value = code
@@ -552,7 +569,7 @@ function connectNewWallet() {
 }
 
 .modal-footer h2 {
-    width: 150px;
+    width: 200px;
 }
 
 .items-group {

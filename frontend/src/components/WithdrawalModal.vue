@@ -9,13 +9,13 @@
         <div v-if="modelValue" class="modal-container">
             <header class="modal-header">
                 <div class="modal-header-description">
-                    <h2>Вывести</h2>
-                    <span>Обработка в течение 12 часов</span>
+                    <h2>{{ $t('withdraw-two') }}</h2>
+                    <span>{{ $t('withdrawal-time') }}</span>
                 </div>
                 <button class="close-btn" @click="close">×</button>
             </header>
             <section class="modal-body">
-                <p class="connected-wallet">Подключённый кошелёк</p>
+                <p class="connected-wallet">{{ $t('connected-wallet') }}</p>
                 <p class="wallet-address">{{ shortenedAddress }}</p>
 
                 <!-- CENTERED FLEX GROUP -->
@@ -29,7 +29,7 @@
                             <span class="amount-currency" @click="focusAmountInput">TON</span>
                         </div>
                         <span v-if="showWarning" class="warning-text" role="alert" aria-live="polite">
-                            Максимум 2000 TON за транзакцию
+                            {{ $t('withdrawal-limit') }}
                         </span>
                     </div>
                 </div>
@@ -39,15 +39,15 @@
             <footer class="modal-footer">
                 <div class="limits-group">
                     <div class="limit-line">
-                        <span class="limit-description-item-one">Лимит за транзакцию:</span>
+                        <span class="limit-description-item-one">{{ $t('tx-limit') }}:</span>
                         <span class="limit-description-item-two">2000 TON</span>
                     </div>
                     <div class="limit-line">
-                        <span class="limit-description-item-one">Выводов в день:</span>
+                        <span class="limit-description-item-one">{{ $t('withdrawals-per-day') }}:</span>
                         <span class="limit-description-item-two">1</span>
                     </div>
                 </div>
-                <button class="action-btn" :disabled="!validAmount" @click="onWithdraw">Вывод</button>
+                <button class="action-btn" :disabled="!validAmount" @click="onWithdraw">{{ $t('withdraw') }}</button>
             </footer>
         </div>
     </transition>
@@ -341,7 +341,7 @@ function onMax() {
     transform: translateX(-50%);
     white-space: nowrap;
     /* keep it on one line; remove if you want wrapping */
-    max-width: calc(140%);
+    max-width: calc(180%);
     text-align: center;
     font-size: 1rem;
     color: rgb(171, 68, 68, 0.7);

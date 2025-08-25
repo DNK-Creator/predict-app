@@ -22,7 +22,7 @@
                     <div class="items-group">
                         <div class="buttons-group">
                             <button class="action-btn-two" @click="onSubscribe">
-                                <span>Подписаться</span>
+                                <span>{{ $t('subscribe') }}</span>
                             </button>
                         </div>
                     </div>
@@ -33,12 +33,17 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
+import { useAppStore } from '@/stores/appStore'
+
+const app = useAppStore()
+
 const props = defineProps({
     show: { type: Boolean, required: true },
-    channel: { type: String, default: '@giftspredict' },
-    description: { type: String, default: 'И не пропустай выход новых событий, крупные розыгрыши и важные обновления.' },
-    title: { type: String, default: 'Подпишись на наш канал' }
+    channel: { type: String, default: '@giftspredict' }
 })
+const description = computed(() => app.language === 'ru' ? 'И не пропусти выход новых событий, крупные розыгрыши и важные обновления.' : 'And dont miss out on new events, big giveaways, and important updates')
+const title = computed(() => app.language === 'ru' ? 'Подпишись на наш канал' : 'Subscribe to our channel')
 
 const emit = defineEmits(['close', 'subscribe'])
 

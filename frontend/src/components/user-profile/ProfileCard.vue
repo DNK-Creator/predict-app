@@ -1,10 +1,8 @@
 <template>
-
     <!-- DEPOSIT MODAL -->
     <DepositsModalTwo v-model="showDepositModal" :address="parsedWalletAddress" :balance="walletBalance"
         @deposit="handleDeposit" @close="closeDepositsWindow" @anim-start="onModalAnimStart" @anim-end="onModalAnimEnd"
         @connect-new-wallet="reconnectWallet" @open-prices="openGiftsPrices" @open-wallet-info="openWalletInfo" />
-
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
     <YourWalletModal :show="showWalletInfo" :balance="walletBalance" :address="parsedWalletAddress"
@@ -23,7 +21,7 @@
                     <span>{{ totalVolume }}</span>
                     <img :src="tonWhiteIcon" class="icon-diamond">
                 </div>
-                <div class="stat-label">Общий объем</div>
+                <div class="stat-label">{{ $t("total-volume") }}</div>
             </div>
 
             <div class="divider"></div>
@@ -33,7 +31,7 @@
                     <span>{{ betsMade }}</span>
                     <img :src="betIcon" class="icon-box">
                 </div>
-                <div class="stat-label">Предсказано всего ></div>
+                <div class="stat-label">{{ $t("bet-all") }}</div>
             </div>
 
             <div class="divider"></div>
@@ -43,14 +41,14 @@
                     <span>{{ betsWon }}</span>
                     <img :src="wonIcon" class="icon-box">
                 </div>
-                <div class="stat-label">Предсказано правильно ></div>
+                <div class="stat-label">{{ $t("bet-won") }}</div>
             </div>
         </div>
 
         <div class="deposit-button" @click="openDepositModal">
             <div class="deposit-button-content">
                 <img :src="arrowIcon">
-                <h2>Пополнить</h2>
+                <h2>{{ $t("deposit") }}</h2>
             </div>
         </div>
     </div>
@@ -274,8 +272,6 @@ async function onDeposit(amount) {
     // Where wallets expose it can vary. We try common locations.
     const walletObj = ton.value?.wallet || null;
     const walletInfo = ton.value?.walletInfo || null;
-    console.log('[deposit] walletObj:', walletObj);
-    console.log('[deposit] walletInfo:', walletInfo);
 
     const walletNetwork =
         walletObj?.items?.[0]?.network ??
@@ -342,7 +338,6 @@ async function onDeposit(amount) {
             tried.add(candidate)
 
             const tryReq = { ...baseReq, network: candidate }
-            console.log('[deposit] retrying with alternative network:', candidate, tryReq)
 
             try {
                 await ton.value.sendTransaction(tryReq)
@@ -379,8 +374,6 @@ async function createDepositIntentOnServer(amount) {
         userParsedAddr = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false })
     }
     try {
-        console.log('[client] POST /api/deposit-intent ->', { amount, user_id: user?.id ?? 99, usersWallet: userParsedAddr });
-
         const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -397,8 +390,6 @@ async function createDepositIntentOnServer(amount) {
             const json = (() => {
                 try { return JSON.parse(text); } catch (e) { return null; }
             })();
-
-            console.log('[client] deposit-intent response status', resp.status, 'body:', json ?? text);
 
             if (!resp.ok) {
                 // bubble readable message to caller
@@ -427,7 +418,6 @@ async function cancelDepositIntentOnServer(txId) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
-        console.log('[client] POST /api/deposit-cancel -> ', txId);
 
         const resp = await fetch(`${API_BASE}/api/deposit-cancel`, {
             method: 'POST',
@@ -445,8 +435,6 @@ async function cancelDepositIntentOnServer(txId) {
             const json = (() => {
                 try { return JSON.parse(text); } catch (e) { return null; }
             })();
-
-            console.log('[client] deposit-cancel response status', resp.status, 'body:', json ?? text);
 
             if (!resp.ok) {
                 // bubble readable message to caller
@@ -472,7 +460,6 @@ async function cancelDepositIntentOnServer(txId) {
 }
 
 async function reconnectWallet() {
-    console.log('Reconnecting')
     if (!ton.value) {
         ton.value = getTonConnect()
     }
@@ -551,8 +538,6 @@ function setupTonConnectListener() {
     if (!ton.value._statusListenerRegistered) {
         ton.value._statusListenerRegistered = true
         ton.value.onStatusChange(async (wallet) => {
-            console.log('TON CONNECT onStatusChange — wallet:', wallet);
-            console.log('TON CONNECT — walletInfo:', ton.value?.walletInfo);
             try {
                 await handleConnected(wallet)
             } catch (err) {
@@ -599,7 +584,7 @@ watch(
     width: 85vw;
     margin: 0 auto;
     padding: 24px;
-    padding-bottom: 4px;
+    padding-bottom: 0px;
     border-radius: 12px;
     text-align: center;
     color: #ffffff;

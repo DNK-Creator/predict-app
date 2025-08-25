@@ -2,8 +2,8 @@
     <div v-if="hasFriends" class="referrals-container">
         <header class="referrals-header">
             <div class="hdr-left">
-                <h3 class="hdr-title">Рефералы и комиссия</h3>
-                <p class="hdr-sub">Всего бонусов получено</p>
+                <h3 class="hdr-title">{{ $t('refs-and-commision') }}</h3>
+                <p class="hdr-sub">{{ $t('total-bonus') }}</p>
             </div>
 
             <div class="hdr-right">
@@ -22,7 +22,7 @@
             <!-- animated scrollbar nudge element (only present when nudgeActive or showNudge) -->
             <div v-if="showNudge" class="scroll-nudge" aria-hidden="true"></div>
 
-            <div v-if="loading" class="loading-row">Загрузка...</div>
+            <div v-if="loading" class="loading-row">{{ $t('loading-dots') }}</div>
 
             <ul v-else class="referrals-list">
                 <li v-for="f in friendsList" :key="f.telegram" class="referral-row">
@@ -34,13 +34,13 @@
                     <div class="ref-right">
                         <div class="commission">
                             <div class="commission-amount">{{ formatTon(f.commission) }} TON</div>
-                            <div class="commission-label">Ваш бонус</div>
+                            <div class="commission-label">{{ $t('your-bonus') }}</div>
                         </div>
                     </div>
                 </li>
 
                 <li v-if="app.referrals.length === 0" class="empty-row">
-                    У вас пока нет активных рефералов.
+                    {{ $t('none-active-refs') }}
                 </li>
             </ul>
         </div>
@@ -58,22 +58,23 @@
             <img :src="tonWhiteIcon">
         </div>
         <h1 class="card-title">
-            Зарабатывай с друзьями
+            {{ $t('earn-with-friends') }}
         </h1>
         <p class="ref-description">
-            Приглашайте друзей и получайте <span class="highlighted-words"> 50% комиссии </span>с их выигрышей навсегда
+            {{ $t('invite-friends-and-get') }} <span class="highlighted-words"> {{ $t('fifty-com') }}
+            </span> {{ $t('for-their-winnings-forever') }}
         </p>
         <div class="starter-statistics-container">
             <div class="stats-box">
                 <span class="ref-value-single">0</span>
-                <span class="ref-hints">РЕФЕРАЛЫ</span>
+                <span class="ref-hints">{{ $t('referrals') }}</span>
             </div>
             <div class="stats-box">
                 <div class="value-and-image">
                     <span>0</span>
                     <img :src="tonBlueIcon">
                 </div>
-                <span class="ref-hints">ЗАРАБОТАНО</span>
+                <span class="ref-hints">{{ $t('earned') }}</span>
             </div>
         </div>
         <div class="invite-button" @click="openReferalModal">
@@ -85,7 +86,7 @@
     </div>
     <div class="follow-card" @click="openChannel">
         <h3 class="card-title-follow">
-            Подписывайтесь и не пропускайте самые важные новости
+            {{ $t('follow-promo') }}
         </h3>
         <button class="follow-button">@gifts_predict</button>
     </div>
@@ -104,7 +105,7 @@ const app = useAppStore()
 const { user: tgUser, tg } = useTelegram()
 
 const loading = ref(false)
-const inviteText = ref('Пригласить друзей')
+const inviteText = computed(() => app.language === 'ru' ? "Пригласить друзей" : "Invite friends")
 const friendsList = ref([]) // { telegram, username, total_winnings, commission }
 
 const emit = defineEmits(['open-referal-modal'])
@@ -234,14 +235,6 @@ function copyLink() {
 
 function openReferalModal() {
     emit('open-referal-modal')
-}
-
-/* Invite / share */
-function inviteFriends() {
-    copyLink()
-    inviteText.value = 'Ссылка скопирована!'
-    shareReferal()
-    setTimeout(() => (inviteText.value = 'Пригласить друзей'), 1800)
 }
 
 function shareReferal() {
