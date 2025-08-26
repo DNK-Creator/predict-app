@@ -51,7 +51,7 @@
                             <div class="potential-left">
                                 <div class="lbl">{{ $t('probability') }}</div>
 
-                                <div v-if="sideText === 'Yes'" class="values">
+                                <div v-if="side === 'Yes'" class="values">
                                     <div class="old">{{ fmtPct(currentYesProb) }}</div>
                                     <div class="arrow">→</div>
                                     <div class="new">{{ fmtPct(newYesProb) }}</div>
