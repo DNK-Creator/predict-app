@@ -49,7 +49,8 @@
                     <div class="potential-panel" v-if="bet && potentialPayout > 0">
                         <div class="potential-row">
                             <div class="potential-left">
-                                <div class="lbl">{{ $t('probability') }}</div>
+                                <div v-if="side === 'Yes'" class="lbl">{{ $t('probability') }} ({{ $t('yes') }})</div>
+                                <div v-else class="lbl">{{ $t('probability') }} ({{ $t('no') }})</div>
 
                                 <div v-if="side === 'Yes'" class="values">
                                     <div class="old">{{ fmtPct(currentYesProb) }}</div>
