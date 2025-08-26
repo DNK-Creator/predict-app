@@ -76,6 +76,7 @@ export async function getUsersHistoryBets() {
         return {
             id: bet.id,
             name: bet.name,
+            name_en: bet.name_en,
             date: bet.date,
             stake: e ? e.stake : 0,
             side: e ? e.side : null,
