@@ -531,16 +531,13 @@ onMounted(async () => {
 
   loadingStage.value = 1
 
-  // if entry param indicates launch-from-menu, try more aggressively to expand
-  const urlParams = new URLSearchParams(window.location.search);
-  const fromMenu = urlParams.get('tg_entry') === 'menu';
-
   try {
-    debug('[App] calling tg.expand() with retries (if available)')
-    await tryExpandTG(tg, fromMenu ? 10 : 4, fromMenu ? 250 : 150);
-    info('[App] tg.expand() attempted')
+    debug('[App] waiting for tg.expand() (if available)')
+    await (tg?.expand?.() ?? Promise.resolve())
+    info('[App] tg.expand() resolved')
   } catch (e) {
-    warn('[App] tg.expand() failed', { err: e?.message ?? e })
+    console.warn('[App] tg.expand() failed or threw', { err: e?.message ?? e, stack: e?.stack })
+    return
   }
 
   loadingStage.value = 2
