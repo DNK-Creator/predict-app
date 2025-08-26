@@ -76,7 +76,7 @@ import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
 
-const { user } = useTelegram()
+const { user, tg } = useTelegram()
 
 const { ton, ensureTon } = useTon()
 
@@ -372,10 +372,10 @@ async function onDeposit(amount) {
 async function onDepositStars(amount) {
     try {
         // 1. create invoice link
-        const invoiceLink = await fetchInvoiceLink(amount)
+        let invoiceLink = await fetchInvoiceLink(amount)
 
         // 2. open invoice in the Mini App; status callback invoked on change
-        tg.openInvoice(invoiceLink.value, async (status) => {
+        tg.openInvoice(invoiceLink, async (status) => {
             try {
                 if (status === 'paid') {
                     // amount might be string or number; enforce Number and 2 decimals
