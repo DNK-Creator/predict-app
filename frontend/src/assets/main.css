@@ -75,17 +75,6 @@ body,
   box-sizing: border-box;
 }
 
-/* public/fonts/ComplianceSans-Regular.woff2 etc. */
-@font-face {
-  font-family: "Compliance Sans";
-  src: url("/fonts/Faithful.woff2") format("woff2"),
-    url("/fonts/Faithful.woff") format("woff"),
-    url("/fonts/Faithful.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-}
-
 body.keyboard-open .menu {
   transform: translateY(120%);
   /* push off screen */

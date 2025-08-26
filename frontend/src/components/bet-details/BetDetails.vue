@@ -53,7 +53,9 @@
                 <div class="informations-container">
                     <div class="info-object-one">
                         <div class="chance-row">
-                            <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes + volume.No).toFixed(2) }}</span>
+                            <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
+                                volume.No).toFixed(2)
+                            }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -1073,10 +1075,10 @@ function onResize() { updateCaretPosition(); }
 /* container needs position:relative so caret (absolute) can be placed inside */
 .header__text {
     font-size: 1.5rem;
-    font-weight: 400;
     width: 80%;
     color: #F7F9FB;
-    font-family: "Compliance Sans", sans-serif;
+    font-family: 'Press Start 2P', system-ui;
+    font-weight: 600;
     white-space: pre-wrap;
     /* preserve spaces and allow wrapping */
     overflow-wrap: anywhere;

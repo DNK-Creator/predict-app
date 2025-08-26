@@ -14,6 +14,8 @@ import "@fontsource/inter/600.css"; // bold
 
 import "@fontsource/montserrat/400.css"; // regular
 
+import "@fontsource/press-start-2p/600.css"; // bold
+
 import App from './App.vue'
 import router from './router'
 
