@@ -94,7 +94,22 @@ onMounted(() => {
 
     let start = performance.now();
 
+    let lastTick = 0;
+    const minDelta = 1000 / 45; // ~45 FPS cap
+
     function animate(now) {
+        if (document.visibilityState === 'hidden') {
+            rafId = requestAnimationFrame(animate);
+            return;
+        }
+
+        const delta = now - lastTick;
+        if (delta < minDelta) {
+            rafId = requestAnimationFrame(animate);
+            return;
+        }
+        lastTick = now;
+
         const elapsed = (now - start) / 1000;
         const sx = Math.sin(elapsed * Math.PI * 2 * cfg.freqX);
         const sy = Math.cos(elapsed * Math.PI * 2 * cfg.freqY);
@@ -138,8 +153,16 @@ onMounted(() => {
         rafId = requestAnimationFrame(animate);
     }
 
-    rafId = requestAnimationFrame(animate);
+    function onVisibilityChange() {
+        if (document.visibilityState === 'hidden') {
+            if (rafId) cancelAnimationFrame(rafId);
+        } else {
+            rafId = requestAnimationFrame(animate);
+        }
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
 });
+
 
 onBeforeUnmount(() => {
     if (rafId) cancelAnimationFrame(rafId);
@@ -148,23 +171,48 @@ onBeforeUnmount(() => {
 
 <style scoped>
 /* ----- STAGE ----- */
-/* fixed-size, centered stage so entrance animation behaves predictably */
+/* orb-stage: consistent fallback and predictable layout */
 .orb-stage {
     width: calc(var(--orb-size, 200px) * 1.2);
-    height: calc(var(--orb-size, 20px) * 1.2);
-    padding-bottom: calc(var(--orb-size, 20px) * 0.5);
+    height: calc(var(--orb-size, 200px) * 1.2);
+    /* fixed fallback */
+    padding-bottom: calc(var(--orb-size, 200px) * 0.5);
     margin: 0 auto;
-    /* center horizontally in parent */
     display: flex;
     align-items: center;
     justify-content: center;
 
-    /* start off slightly above and invisible; animate down to center */
+    /* entrance animation (keeps it offscreen initially) */
     transform: translateY(-100px);
     opacity: 0;
     animation: orb-stage-enter 1.0s cubic-bezier(.22, .9, .28, 1) forwards;
-    /* make sure stage doesn't accidentally inherit transforms that break centering */
     transform-origin: center;
+    box-sizing: content-box;
+    isolation: isolate;
+}
+
+/* ensure descendants use border-box for predictable internal sizing */
+.orb-stage *,
+.orb-stage *::before,
+.orb-stage *::after {
+    box-sizing: border-box;
+}
+
+.orb-stage,
+.orb,
+.orb-inner,
+.inner-layer,
+.halo {
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+    /* promote to its own layer */
+    will-change: transform, opacity;
+}
+
+/* also try isolating layout so other parts aren't affected */
+.orb-stage {
+    isolation: isolate;
 }
 
 /* entrance: move from -100px above to 0 with a small overshoot */
@@ -211,29 +259,22 @@ onBeforeUnmount(() => {
     }
 }
 
-/* ----- ORB ----- */
+/* Ensure orb has a stable, explicit initial transform so rotation doesn't cause a jump */
 .orb {
     width: var(--orb-size, 200px);
     height: var(--orb-size, 200px);
     z-index: 4;
     border-radius: 50%;
     position: relative;
-    overflow: visible;
-    display: block;
     transform-style: preserve-3d;
-    background: radial-gradient(100% 80% at 35% 28%,
-            rgba(5, 5, 5, 0.12),
-            rgba(5, 5, 6, 0.16) 36%,
-            rgba(4, 5, 10, 0.2) 65%),
-        linear-gradient(180deg, rgba(255, 255, 255, 0.01), rgba(0, 0, 0, 0.06));
-    box-shadow: 0 50px 110px rgba(3, 3, 7, 0.78), 0 18px 44px rgba(0, 0, 0, 0.5),
-        inset 0 18px 36px rgba(255, 255, 255, 0.01);
+    transform: rotateX(0deg) rotateY(0deg);
+    /* stable baseline */
+    transform-origin: center center;
     transition: box-shadow 560ms ease, transform 420ms cubic-bezier(.2, .9, .2, 1);
-    -webkit-backdrop-filter: blur(4px);
-    backdrop-filter: blur(4px);
+    will-change: transform;
 }
 
-/* ----- ORB INNER (breathing) ----- */
+/* orb-inner baseline: center AND include same scale as JS will set initially */
 .orb-inner {
     position: absolute;
     left: 50%;
@@ -241,15 +282,12 @@ onBeforeUnmount(() => {
     width: var(--orb-size, 200px);
     height: var(--orb-size, 200px);
     transform: translate(-50%, -50%);
+    /* matches JS base scale */
     border-radius: 50%;
     overflow: hidden;
-    z-index: 4;
     pointer-events: none;
     isolation: isolate;
-    box-shadow: inset 0 0 48px rgba(0, 0, 0, 0.45);
-
-    /* breathing animation */
-    animation: orb-breathe 6.5s ease-in-out 1.2s infinite;
+    backface-visibility: hidden;
 }
 
 @keyframes orb-breathe {
@@ -277,21 +315,25 @@ onBeforeUnmount(() => {
     display: block;
     transform-style: preserve-3d;
     pointer-events: none;
+    border-radius: 50%;
 }
 
 .inner-layer {
+    display: block;
+    /* avoid inline image whitespace */
+    object-fit: cover;
+    /* fill the circle; prevents visible rect */
     position: absolute;
+    border-radius: 50%;
     left: 50%;
     top: 50%;
     width: 120%;
     height: 120%;
     transform-origin: center;
-    will-change: transform, opacity, filter;
+    will-change: transform, opacity;
     transition: transform 420ms cubic-bezier(.2, .9, .2, 1), opacity 420ms ease;
     pointer-events: none;
     transform: translate(-50%, -50%) scale(var(--img-inside-scale, 0.85));
-    border-radius: 50%;
-    object-fit: contain;
 }
 
 .inner-main {
@@ -311,6 +353,8 @@ onBeforeUnmount(() => {
     opacity: 0.10;
     filter: hue-rotate(200deg) saturate(0.85) contrast(1.02) brightness(0.96);
 }
+
+
 
 /* ----- FROST / PATCH / VIGNETTE / SPECKS ----- */
 /* kept the same as before */

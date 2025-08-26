@@ -12,7 +12,14 @@ body {
 
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
+}
 
+/* Prevent site-wide horizontal scrolling (global) */
+html,
+body,
+#app {
+  overflow-x: hidden !important;
+  max-width: 100%;
 }
 
 /* src/assets/main.css or a dedicated font file */
