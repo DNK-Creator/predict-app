@@ -382,17 +382,13 @@ async function onDepositStars(amount) {
                     const amountNum = Number(amount)
                     const amountStarsRounded = Number(amountNum.toFixed(2))
 
-                    // attempt backend call to credit points + insert transaction
-                    // prefer Authorization header if you store JWT, else rely on cookie
-                    const token = window.__TG_SESSION_JWT ?? null // or your token storage
                     const headers = { 'Content-Type': 'application/json' }
-                    if (token) headers['Authorization'] = `Bearer ${token}`
 
                     const resp = await fetch(`${API_BASE}/api/stars-payment`, {
                         method: 'POST',
                         headers,
                         credentials: 'include', // in case server uses cookie session
-                        body: JSON.stringify({ amountStars: amountStarsRounded })
+                        body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id ?? 99 })
                     })
 
                     const json = await resp.json().catch(() => null)

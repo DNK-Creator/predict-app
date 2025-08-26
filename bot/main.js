@@ -394,13 +394,13 @@ app.post('/api/deposit-cancel', async (req, res) => {
 
 // Add near your other routes (requires these to be defined above):
 // import { v4 as uuidv4 } from 'uuid'  // you already have this
-// ensure requireAuth middleware exists (from our earlier JWT/session code)
 // ensure supabaseAdmin is available (server-side client)
 
-app.post('/api/stars-payment', requireAuth, async (req, res) => {
+app.post('/api/stars-payment', async (req, res) => {
     try {
         // Expect body: { amountStars: number|string } - amount in "stars"
         const raw = req.body?.amountStars ?? req.body?.amount ?? null;
+        const telegramId = req.body?.user_id ?? req.body?.telegram ?? null;
         if (raw === null || raw === undefined) {
             return res.status(400).json({ ok: false, error: 'missing_amount' });
         }
@@ -415,12 +415,6 @@ app.post('/api/stars-payment', requireAuth, async (req, res) => {
 
         // convert to TON (and points) by dividing by 300
         const amountTON = Number((amountStarsRounded / 300).toFixed(2)) // keep reasonable precision for TON
-
-        // auth info from requireAuth
-        const telegramId = Number(req.auth?.telegram ?? 0)
-        if (!telegramId) {
-            return res.status(401).json({ ok: false, error: 'missing_auth' })
-        }
 
         // fetch user row by telegram
         const { data: userRow, error: userErr } = await supabaseAdmin
