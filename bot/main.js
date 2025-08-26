@@ -73,9 +73,10 @@ app.post("/api/invoice", async (req, res) => {
     try {
         const { amount } = req.body;
         const link = await createInvoiceLink(amount);
+        console.log('Link created: ' + link)
         res.json({ link });
     } catch (err) {
-        console.error(err);
+        console.log('FAIL STARS LINK: ' + err)
         res.status(500).json({ error: "failed to create invoice" });
     }
 });

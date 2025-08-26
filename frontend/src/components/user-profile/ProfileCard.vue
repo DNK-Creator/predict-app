@@ -375,7 +375,7 @@ async function onDepositStars(amount) {
         const invoiceLink = await fetchInvoiceLink(amount)
 
         // 2. open invoice in the Mini App; status callback invoked on change
-        tg.openInvoice(invoiceLink, async (status) => {
+        tg.openInvoice(invoiceLink.value, async (status) => {
             try {
                 if (status === 'paid') {
                     // amount might be string or number; enforce Number and 2 decimals
@@ -394,7 +394,8 @@ async function onDepositStars(amount) {
                     const json = await resp.json().catch(() => null)
                     if (!resp.ok) {
                         console.error('stars-payment failed', resp.status, json)
-                        toast.error('Не удалось обработать оплату. Свяжитесь с поддержкой.')
+                        let messageToast = appStoreObj.language === 'ru' ? 'Не удалось обработать оплату. Свяжитесь с поддержкой.' : 'Unable to process payment. Please contact support.'
+                        toast.error(messageToast)
                         return
                     }
                     let messageToast = appStoreObj.language === 'ru' ? 'Пополнение успешно! Баланс обновлён.' : 'Top-up successful! Balance updated.'
