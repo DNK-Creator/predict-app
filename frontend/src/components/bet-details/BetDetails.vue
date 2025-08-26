@@ -53,13 +53,13 @@
                 <div class="informations-container">
                     <div class="info-object-one">
                         <div class="chance-row">
-                            <span v-if="volume.Yes && volume.No">{{ volume.Yes + volume.No }}</span>
-                            <span v-else-if="volume.Yes">{{ volume.Yes }}</span>
-                            <span v-else-if="volume.No">{{ volume.No }}</span>
-                            <span v-else>0</span>
+                            <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes + volume.No).toFixed(2) }}</span>
+                            <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
+                            <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
+                            <span class="volume-value" v-else>0</span>
                             <img :src="tonIcon" class="ton-image">
                         </div>
-                        <span>{{ $t('volume') }}</span>
+                        <span class="info-hint">{{ $t('volume') }}</span>
                     </div>
 
                     <!-- <-- moved visualization into this card (square above, percent below in a row) -->
@@ -74,7 +74,7 @@
 
                         <!-- percent + hint in a single row under the square -->
                         <div class="chance-row" role="group" aria-label="Chance">
-                            <span class="info-value">{{ calculatedOdds }}%</span>
+                            <span class="info-hint">{{ calculatedOdds }}%</span>
                             <span class="info-hint">{{ $t('chance') }}</span>
                         </div>
                     </div>
@@ -83,7 +83,7 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                            }}</span>
+                        }}</span>
                     </div>
                 </div>
 
@@ -606,7 +606,8 @@ const timeRemaining = computed(() => {
     if (days > 0) {
         parts.push(formatUnit(days, 'day', language))
         if (hours > 0) parts.push(formatUnit(hours, 'hour', language))
-        if (minutes > 0) parts.push(formatUnit(minutes, 'minute', language))
+        // dont need minutes if too much time left
+        // if (minutes > 0) parts.push(formatUnit(minutes, 'minute', language))
     } else if (hours > 0) {
         parts.push(formatUnit(hours, 'hour', language))
         if (minutes > 0) parts.push(formatUnit(minutes, 'minute', language))
@@ -1046,11 +1047,16 @@ function onResize() { updateCaretPosition(); }
 </script>
 
 <style lang="css" scoped>
+.bet-details-root {
+    overflow-x: hidden;
+    height: 100%;
+}
+
 /* Container */
 .bet-details {
     display: flex;
     flex-direction: column;
-    height: 100vh;
+    height: auto;
     position: relative;
     margin-top: 1.25rem;
 }
@@ -1067,7 +1073,7 @@ function onResize() { updateCaretPosition(); }
 /* container needs position:relative so caret (absolute) can be placed inside */
 .header__text {
     font-size: 1.5rem;
-    font-weight: 600;
+    font-weight: 400;
     width: 80%;
     color: #F7F9FB;
     font-family: "Compliance Sans", sans-serif;
@@ -1167,8 +1173,10 @@ function onResize() { updateCaretPosition(); }
 }
 
 .loader-center {
-    height: 100vh;
-    width: 100vw;
+    /* don't force 100vh/100vw inside the parent scroll container */
+    min-height: 200px;
+    /* or whatever fits your loading UX */
+    width: 100%;
     align-items: center;
     justify-content: center;
 }
@@ -1190,6 +1198,7 @@ function onResize() { updateCaretPosition(); }
 
 .content__chart {
     display: flex;
+    width: 100%;
     margin: auto auto;
     align-self: center;
 }
@@ -1230,6 +1239,7 @@ function onResize() { updateCaretPosition(); }
 .info-object-three {
     position: relative;
     display: flex;
+    padding: 8px;
     align-items: center;
     justify-content: center;
     flex-direction: column;
@@ -1507,8 +1517,8 @@ function onResize() { updateCaretPosition(); }
 }
 
 .ton-image {
-    height: 24px;
-    width: 24px;
+    height: 20px;
+    width: 20px;
 }
 
 @keyframes float-breathe-two {
@@ -1588,6 +1598,18 @@ function onResize() { updateCaretPosition(); }
     font-weight: 600;
     font-size: 1.05rem;
     line-height: 1;
+    text-align: center;
+    text-justify: center;
+}
+
+.volume-value {
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 1.4rem;
+    line-height: 1;
+    text-align: center;
+    text-justify: center;
 }
 
 .info-hint {
@@ -1615,9 +1637,10 @@ function onResize() { updateCaretPosition(); }
 
 /* Grid */
 .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
     margin-bottom: 20px;
 }
 
@@ -1630,6 +1653,7 @@ function onResize() { updateCaretPosition(); }
     font-family: "Inter", sans-serif;
     font-size: 1rem;
     font-weight: 400;
+    border-radius: 24px;
     gap: 10px;
 }
 
@@ -1754,8 +1778,8 @@ function onResize() { updateCaretPosition(); }
     left: 50%;
     transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom, 0px));
-    width: min(920px, 96%);
-    height: 100px;
+    width: min(720px, 96%);
+    height: 90px;
     display: flex;
     gap: 10px;
     justify-content: space-around;
@@ -1763,7 +1787,7 @@ function onResize() { updateCaretPosition(); }
     padding: 8px 12px;
     z-index: 3;
 
-    background: rgba(0, 0, 0, 0.82);
+    background: rgba(0, 0, 0, 0.72);
     -webkit-backdrop-filter: blur(10px) saturate(120%);
     backdrop-filter: blur(10px) saturate(120%);
     box-shadow: 0 8px 24px rgba(16, 6, 6, 0.48);
@@ -1792,8 +1816,8 @@ function onResize() { updateCaretPosition(); }
     text-align: center;
     text-decoration: none;
     color: #ffffff;
-    font-family: Inter, Helvetica, Arial, sans-serif;
-    font-weight: 700;
+    font-family: "Inter", Helvetica, Arial, sans-serif;
+    font-weight: 600;
     font-size: 16px;
     /* readable on mobile */
     padding: 14px 22px;
@@ -1824,10 +1848,10 @@ function onResize() { updateCaretPosition(); }
 
 /* NO button — same approach */
 .footer__no {
-    background: linear-gradient(180deg, #a53131, #bb2b2b);
+    background: linear-gradient(180deg, #4d4c51, #3a3b43);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.05),
-        0 8px 0 #902525,
+        0 8px 0 #242222,
         0 10px 22px rgba(0, 0, 0, 0.45);
     border: none;
 }

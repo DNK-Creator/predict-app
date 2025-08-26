@@ -10,25 +10,80 @@ body {
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, Arial;
   font-display: swap;
 
+  background-color: #181818;
+
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Prevent site-wide horizontal scrolling (global) */
+/* Global hard prevention (root-level) for safety */
 html,
 body,
 #app {
-  overflow-x: hidden !important;
-  max-width: 100%;
+  overscroll-behavior-x: contain;
+  touch-action: pan-y;
 }
 
-/* src/assets/main.css or a dedicated font file */
+/* ---------- App shell — full width but center the column ---------- */
+/* #app / .app should stay full-bleed so background spans the screen */
+#app,
+.app {
+  width: 100%;
+  min-height: var(--tg-viewport-stable-height, 100vh);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* center the inner app column horizontally */
+  overflow: hidden;
+  /* prevent #app itself from creating nested scrollbars */
+  padding-top: calc(var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
+}
+
+/* ensure no element can cause an X scrollbar */
+html,
+body,
+#app,
+.app {
+  overflow-x: hidden !important;
+  /* hard prevent horizontal scrollbar */
+  touch-action: pan-y;
+  /* only allow vertical pan on touch devices */
+  overscroll-behavior-x: contain;
+  /* avoid horizontal overscroll/bounce propagation */
+}
+
+/* scroll container: ensure content clears header and bottom nav */
+.app-scroll-container {
+  width: 100%;
+  /* allows shrink below 720px on small viewports */
+  max-width: 720px;
+  /* cap width on desktop */
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: clip;
+  touch-action: pan-y;
+  overscroll-behavior-x: contain;
+  /* clips painting without adding scrollbars */
+  -webkit-overflow-scrolling: touch;
+  /* optional — keep a maximum for very wide screens */
+  margin: 0 auto;
+  /* center when max-width applies */
+
+  /* space under the header so first content is not underneath it */
+  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
+  padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
+  box-sizing: border-box;
+}
+
+/* public/fonts/ComplianceSans-Regular.woff2 etc. */
 @font-face {
-  font-family: 'Compliance Sans';
-  /* Choose a name for your font */
-  src: url('./assets/Faithful.ttf') format('ttf');
-  font-weight: normal;
+  font-family: "Compliance Sans";
+  src: url("/fonts/Faithful.woff2") format("woff2"),
+    url("/fonts/Faithful.woff") format("woff"),
+    url("/fonts/Faithful.ttf") format("truetype");
+  font-weight: 400;
   font-style: normal;
+  font-display: swap;
 }
 
 body.keyboard-open .menu {
@@ -57,7 +112,6 @@ body.keyboard-open .modal-container {
 .app {
   height: var(--tg-viewport-stable-height, 100vh);
   display: flex;
-  background-color: #181818;
   flex-direction: column;
   overflow: hidden;
   /* include the extra top offset here */
@@ -86,21 +140,10 @@ body.keyboard-open .modal-container {
   --toastify-toast-zindex: 1100;
 
   --orb-size: 200px;
-  --img-inside-scale: 0.85;
-
-  /* halo / lamp settings */
-  --halo-scale: 1.75;
-  /* how much bigger than orb the halo is */
-  /* --halo-color-1: 56, 95, 214;
-  --halo-color-2: 89, 157, 235; */
+  --img-inside-scale: 1.55;
 
   --halo-color-1: 224, 224, 224;
   --halo-color-2: 229, 233, 245;
-  /* outer tint */
-  --halo-opacity: 0.4;
-  --halo-blur: 48px;
-  --halo-pulse-scale: 1.24;
-  --halo-pulse-duration: 7s;
 }
 
 /* make sure the container uses our z-index override (library uses vars internally,
@@ -115,25 +158,4 @@ body.keyboard-open .modal-container {
   z-index: var(--toastify-toast-zindex, 1200) !important;
   transition: top 160ms ease;
   /* keep horizontal positioning untouched (library defaults) */
-}
-
-
-
-/* scroll container: ensure content clears header and bottom nav */
-.app-scroll-container {
-  flex: 1;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  max-width: 720px;
-  width: 100%;
-  /* <-- ensure it fills horizontally */
-  max-width: 720px;
-  /* optional — keep a maximum for very wide screens */
-  margin: 0 auto;
-  /* center when max-width applies */
-
-  /* space under the header so first content is not underneath it */
-  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
-  padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
-  box-sizing: border-box;
 }

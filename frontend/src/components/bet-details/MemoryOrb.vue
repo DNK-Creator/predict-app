@@ -27,10 +27,6 @@
                             aria-hidden="true" />
                     </div>
 
-                    <div class="cool-patch" aria-hidden="true"></div>
-                    <div class="frost" aria-hidden="true"></div>
-                    <div class="vignette" aria-hidden="true"></div>
-
                     <div class="specks" aria-hidden="true">
                         <div class="speck"></div>
                         <div class="speck"></div>
@@ -67,21 +63,54 @@ const orbWrap = ref(null);
 const orbStage = ref(null);
 
 let rafId = null;
+let running = false;
+let lastTick = 0;
+const MIN_FPS = 2; // target ~24 FPS to reduce CPU
+const minDelta = 1000 / MIN_FPS; // ~33ms
+const ease = 0.07;
 
-onMounted(() => {
+let wheelPauseTimer = null;
+const PAUSE_MS = 800; // pause animation during/shortly after user interaction
+
+function startAnimation() {
+    if (running) return;
+    running = true;
+    lastTick = performance.now();
+    rafId = requestAnimationFrame(animate);
+}
+
+function stopAnimation() {
+    if (!running) return;
+    running = false;
+    if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+    }
+}
+
+/* main animate loop (mostly unchanged, but guarded by 'running' and throttled) */
+function animate(now) {
+    if (!running) return;
+
+    // ignore when page is hidden (extra guard)
+    if (document.visibilityState === "hidden") {
+        rafId = requestAnimationFrame(animate);
+        return;
+    }
+
+    const delta = now - lastTick;
+    if (delta < minDelta) {
+        rafId = requestAnimationFrame(animate);
+        return;
+    }
+    lastTick = now;
+
+    // animation math (unchanged)
     const baseScale = 0.85;
-
     const elOrb = orb.value;
     const elMain = innerMain.value;
     const elR = innerR.value;
     const elB = innerB.value;
-
-    const hasR = !!elR;
-    const hasB = !!elB;
-
-    let target = { x: 0, y: 0, rx: 0, ry: 0 };
-    let current = { x: 0, y: 0, rx: 0, ry: 0 };
-    const ease = 0.07;
 
     const cfg = {
         freqX: 0.12,
@@ -92,82 +121,100 @@ onMounted(() => {
         rotAmpY: 5.6,
     };
 
-    let start = performance.now();
+    const start = now - (now % 1000000); // avoid drifting; not critical
+    const elapsed = (now - start) / 1000;
 
-    let lastTick = 0;
-    const minDelta = 1000 / 45; // ~45 FPS cap
+    const sx = Math.sin(elapsed * Math.PI * 2 * cfg.freqX);
+    const sy = Math.cos(elapsed * Math.PI * 2 * cfg.freqY);
 
-    function animate(now) {
-        if (document.visibilityState === 'hidden') {
-            rafId = requestAnimationFrame(animate);
-            return;
-        }
+    // target/current approach inline to keep minimal object churn
+    // small smoothing
+    // store current in closure (we'll attach to function so we don't reallocate large objects)
+    if (!animate._current) animate._current = { x: 0, y: 0, rx: 0, ry: 0 };
+    if (!animate._target) animate._target = { x: 0, y: 0, rx: 0, ry: 0 };
+    const current = animate._current;
+    const target = animate._target;
 
-        const delta = now - lastTick;
-        if (delta < minDelta) {
-            rafId = requestAnimationFrame(animate);
-            return;
-        }
-        lastTick = now;
+    target.x = sx * cfg.ampX;
+    target.y = sy * cfg.ampY;
+    target.rx = Math.sin(elapsed * Math.PI * 2 * (cfg.freqY * 1.05)) * cfg.rotAmpX;
+    target.ry = Math.cos(elapsed * Math.PI * 2 * (cfg.freqX * 0.95)) * cfg.rotAmpY;
 
-        const elapsed = (now - start) / 1000;
-        const sx = Math.sin(elapsed * Math.PI * 2 * cfg.freqX);
-        const sy = Math.cos(elapsed * Math.PI * 2 * cfg.freqY);
+    // lerp
+    current.x += (target.x - current.x) * ease;
+    current.y += (target.y - current.y) * ease;
+    current.rx += (target.rx - current.rx) * ease;
+    current.ry += (target.ry - current.ry) * ease;
 
-        target.x = sx * cfg.ampX;
-        target.y = sy * cfg.ampY;
-        target.rx =
-            Math.sin(elapsed * Math.PI * 2 * (cfg.freqY * 1.05)) * cfg.rotAmpX;
-        target.ry =
-            Math.cos(elapsed * Math.PI * 2 * (cfg.freqX * 0.95)) * cfg.rotAmpY;
-
-        current.x += (target.x - current.x) * ease;
-        current.y += (target.y - current.y) * ease;
-        current.rx += (target.rx - current.rx) * ease;
-        current.ry += (target.ry - current.ry) * ease;
-
-        const mainTx = -current.x * 8;
-        const mainTy = -current.y * 9;
-        if (elMain) {
-            elMain.style.transform = `translate3d(calc(-50% + ${mainTx}px), calc(-50% + ${mainTy}px), 0) scale(${(
-                baseScale * 1.02
-            ).toFixed(4)})`;
-        }
-
-        if (hasR && elR) {
-            elR.style.transform = `translate3d(calc(-50% + ${current.x * 12}px), calc(-50% + ${current.y * 10}px), 0) scale(${(
-                baseScale * 1.035
-            ).toFixed(4)})`;
-        }
-        if (hasB && elB) {
-            elB.style.transform = `translate3d(calc(-50% + ${-current.x * 10}px), calc(-50% + ${-current.y * 7}px), 0) scale(${(
-                baseScale * 1.045
-            ).toFixed(4)})`;
-        }
-
-        if (elOrb) {
-            // JS only controls rotation here; entrance/translate/scale live on parents/styles to avoid transform collisions
-            elOrb.style.transform = `rotateX(${current.rx}deg) rotateY(${current.ry}deg)`;
-        }
-
-        rafId = requestAnimationFrame(animate);
+    // apply transforms (only transforms -> compositor)
+    const mainTx = -current.x * 8;
+    const mainTy = -current.y * 9;
+    if (elMain) {
+        elMain.style.transform = `translate3d(calc(-50% + ${mainTx}px), calc(-50% + ${mainTy}px), 0) scale(${(
+            baseScale * 1.02
+        ).toFixed(4)})`;
+    }
+    if (elR) {
+        elR.style.transform = `translate3d(calc(-50% + ${current.x * 12}px), calc(-50% + ${current.y * 10}px), 0) scale(${(
+            baseScale * 1.035
+        ).toFixed(4)})`;
+    }
+    if (elB) {
+        elB.style.transform = `translate3d(calc(-50% + ${-current.x * 10}px), calc(-50% + ${-current.y * 7}px), 0) scale(${(
+            baseScale * 1.045
+        ).toFixed(4)})`;
+    }
+    if (elOrb) {
+        elOrb.style.transform = `rotateX(${current.rx}deg) rotateY(${current.ry}deg)`;
     }
 
-    function onVisibilityChange() {
-        if (document.visibilityState === 'hidden') {
-            if (rafId) cancelAnimationFrame(rafId);
-        } else {
-            rafId = requestAnimationFrame(animate);
-        }
+    rafId = requestAnimationFrame(animate);
+}
+
+/* Pause on user interaction (wheel / touch / pointerdown) and resume after debounce */
+function onUserInteract() {
+    // pause animation quickly to free main-thread
+    stopAnimation();
+    if (wheelPauseTimer) clearTimeout(wheelPauseTimer);
+    wheelPauseTimer = setTimeout(() => {
+        startAnimation();
+        wheelPauseTimer = null;
+    }, PAUSE_MS);
+}
+
+/* visibility handling: stop animation when not visible */
+function onVisibilityChange() {
+    if (document.visibilityState === "hidden") {
+        stopAnimation();
+    } else {
+        startAnimation();
     }
-    document.addEventListener('visibilitychange', onVisibilityChange);
+}
+
+/* lifecycle */
+onMounted(() => {
+    // start animation
+    startAnimation();
+
+    // user interaction listeners (passive false not needed here)
+    window.addEventListener("wheel", onUserInteract, { passive: true }); // we don't call preventDefault
+    window.addEventListener("touchstart", onUserInteract, { passive: true });
+    window.addEventListener("pointerdown", onUserInteract, { passive: true });
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
 });
-
 
 onBeforeUnmount(() => {
-    if (rafId) cancelAnimationFrame(rafId);
+    // cleanup
+    stopAnimation();
+    window.removeEventListener("wheel", onUserInteract);
+    window.removeEventListener("touchstart", onUserInteract);
+    window.removeEventListener("pointerdown", onUserInteract);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+    if (wheelPauseTimer) clearTimeout(wheelPauseTimer);
 });
 </script>
+
 
 <style scoped>
 /* ----- STAGE ----- */
@@ -175,6 +222,9 @@ onBeforeUnmount(() => {
 .orb-stage {
     width: calc(var(--orb-size, 200px) * 1.2);
     height: calc(var(--orb-size, 200px) * 1.2);
+    max-width: 100%;
+    /* don't let it accidentally enlarge parent's measured width */
+
     /* fixed fallback */
     padding-bottom: calc(var(--orb-size, 200px) * 0.5);
     margin: 0 auto;
@@ -201,18 +251,12 @@ onBeforeUnmount(() => {
 .orb-stage,
 .orb,
 .orb-inner,
-.inner-layer,
-.halo {
+.inner-layer {
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
     transform: translateZ(0);
     /* promote to its own layer */
     will-change: transform, opacity;
-}
-
-/* also try isolating layout so other parts aren't affected */
-.orb-stage {
-    isolation: isolate;
 }
 
 /* entrance: move from -100px above to 0 with a small overshoot */
@@ -272,6 +316,7 @@ onBeforeUnmount(() => {
     transform-origin: center center;
     transition: box-shadow 560ms ease, transform 420ms cubic-bezier(.2, .9, .2, 1);
     will-change: transform;
+    user-select: none;
 }
 
 /* orb-inner baseline: center AND include same scale as JS will set initially */
@@ -316,6 +361,7 @@ onBeforeUnmount(() => {
     transform-style: preserve-3d;
     pointer-events: none;
     border-radius: 50%;
+    border: none;
 }
 
 .inner-layer {
@@ -324,6 +370,7 @@ onBeforeUnmount(() => {
     object-fit: cover;
     /* fill the circle; prevents visible rect */
     position: absolute;
+    border: none;
     border-radius: 50%;
     left: 50%;
     top: 50%;
@@ -333,15 +380,21 @@ onBeforeUnmount(() => {
     will-change: transform, opacity;
     transition: transform 420ms cubic-bezier(.2, .9, .2, 1), opacity 420ms ease;
     pointer-events: none;
-    transform: translate(-50%, -50%) scale(var(--img-inside-scale, 0.85));
+    transform: translate(-50%, -50%);
 }
 
+/* --------- inner image: remove blur & heavy filters --------- */
 .inner-main {
     mix-blend-mode: screen;
-    opacity: 0.78;
-    filter: blur(2.6px) contrast(0.98) saturate(0.88) brightness(0.95);
+    /* optional, keep if it looks right */
+    opacity: 1;
+    /* remove costly blur, contrast/saturate operations if already baked into the image */
+    filter: none !important;
+    -webkit-filter: none !important;
+    transition: transform 420ms cubic-bezier(.2, .9, .2, 1);
     transform-origin: center;
-    transition: filter 540ms linear, transform 420ms cubic-bezier(.2, .9, .2, 1);
+    will-change: transform;
+    /* only hint transforms */
 }
 
 .inner-fringe.r {
@@ -354,54 +407,36 @@ onBeforeUnmount(() => {
     filter: hue-rotate(200deg) saturate(0.85) contrast(1.02) brightness(0.96);
 }
 
+/* ----- FROST / SPECKS ----- */
 
-
-/* ----- FROST / PATCH / VIGNETTE / SPECKS ----- */
-/* kept the same as before */
+/* ------- Frost: use pre-blurred PNG/SVG or simple gradient fallback ------- */
+/* Set the pre-blurred image with a CSS variable (--frost-image) or inline style */
 .frost {
     position: absolute;
     inset: 0;
     border-radius: 50%;
     pointer-events: none;
-    background: radial-gradient(circle at 32% 26%,
-            rgba(255, 255, 255, 0.02),
-            rgba(210, 200, 220, 0.02) 22%,
-            rgba(20, 8, 28, 0.04) 85%);
-    backdrop-filter: blur(7px) saturate(1.02);
-    -webkit-backdrop-filter: blur(7px) saturate(1.02);
+
+    /* prefer the pre-blurred asset when provided via CSS var, fallback to a subtle gradient */
+    background-image: var(--frost-image, radial-gradient(circle at 32% 26%, rgba(255, 255, 255, 0.02), rgba(20, 8, 28, 0.04) 60%));
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+
+    /* remove heavy filters/backdrop-filter */
+    filter: none !important;
+    -webkit-filter: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+
     mix-blend-mode: screen;
     opacity: 0.92;
-    box-shadow: inset 0 28px 48px rgba(255, 255, 255, 0.01),
-        inset 0 -16px 32px rgba(0, 0, 0, 0.06);
     z-index: 7;
-}
 
-.cool-patch {
-    position: absolute;
-    left: 10%;
-    top: 18%;
-    width: 30%;
-    height: 26%;
-    border-radius: 50%;
-    filter: blur(48px) saturate(1.08);
-    background: radial-gradient(circle at 40% 40%,
-            rgba(200, 190, 230, 0.58),
-            rgba(90, 80, 120, 0.66) 46%,
-            rgba(0, 0, 0, 0) 60%);
-    mix-blend-mode: screen;
-    pointer-events: none;
-    z-index: 5;
-}
-
-.vignette {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: 50%;
-    box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.5);
-    mix-blend-mode: multiply;
-    z-index: 9;
-    opacity: 0.95;
+    /* small inset shadow to keep subtle inner lighting without forcing repaints */
+    box-shadow: inset 0 12px 30px rgba(255, 255, 255, 0.01);
+    will-change: auto;
+    /* don't force oversized compositor buffers */
 }
 
 .specks {
@@ -495,6 +530,7 @@ onBeforeUnmount(() => {
     animation: handEnter 1.05s cubic-bezier(.22, .9, .28, 1) forwards;
     filter: saturate(0.78) brightness(0.96) contrast(0.96);
     mix-blend-mode: multiply;
+    user-select: none;
 }
 
 .hand img {
@@ -532,72 +568,57 @@ onBeforeUnmount(() => {
     }
 }
 
-/* ----- HALO: glass-morphism lamp glow ----- */
 .halo {
     position: absolute;
     left: 50%;
     top: 50%;
-    width: calc(var(--orb-size, 320px) * var(--halo-scale));
-    height: calc(var(--orb-size, 320px) * var(--halo-scale));
-    transform: translate(-50%, -50%);
-    border-radius: 50%;
-    pointer-events: none;
+    width: calc(var(--orb-size, 200px) * var(--halo-base-factor, 1.8));
+    height: calc(var(--orb-size, 200px) * var(--halo-base-factor, 1.8));
+    transform-origin: center center;
+
+    /* center the element correctly */
+    transform: translate(-50%, -50%) scale(var(--halo-scale, 1.0));
+
+    /* Use small pre-blurred image if available; fallback gradient */
+    background-image: var(--halo-image,
+            radial-gradient(circle at 50% 48%,
+                rgba(var(--halo-color-1), 0.65) 0%,
+                rgba(var(--halo-color-1), 0.36) 18%,
+                rgba(var(--halo-color-2), 0.18) 40%,
+                rgba(var(--halo-color-2), 0.06) 58%,
+                rgba(0, 0, 0, 0) 72%));
+    background-position: center;
+    background-repeat: no-repeat;
+
+    opacity: 0.42;
     z-index: 1;
-    /* behind orb (orb has higher z-index) */
-    mix-blend-mode: screen;
-    opacity: var(--halo-opacity);
-    filter: blur(var(--halo-blur));
-    /* layered radial gradients for depth */
-    background:
-        radial-gradient(circle at 50% 48%,
-            rgba(var(--halo-color-1), 0.65) 0%,
-            rgba(var(--halo-color-1), 0.36) 18%,
-            rgba(var(--halo-color-2), 0.18) 40%,
-            rgba(var(--halo-color-2), 0.06) 58%,
-            rgba(0, 0, 0, 0) 72%),
-        radial-gradient(circle at 50% 62%,
-            rgba(255, 255, 255, 0.06) 0%,
-            rgba(255, 255, 255, 0.02) 14%,
-            rgba(0, 0, 0, 0) 36%);
-    /* subtle breathing/pulse */
-    animation: halo-pulse var(--halo-pulse-duration) ease-in-out infinite;
-    will-change: transform, opacity, filter;
-}
 
-/* thin glass ring to sell the frosted edge (pseudo-element cannot be targeted by v-bind so we implement via ::after) */
-.halo::after {
-    content: "";
-    position: absolute;
-    inset: 10%;
-    border-radius: 50%;
+    /* niceties */
     pointer-events: none;
-    /* semi-translucent ring */
-    box-shadow: inset 0 0 30px rgba(255, 255, 255, 0.03), 0 0 18px rgba(255, 255, 255, 0.02);
-    border: 1px solid rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(8px) saturate(1.06);
-    -webkit-backdrop-filter: blur(8px) saturate(1.06);
-    mix-blend-mode: screen;
-    opacity: 0.9;
+    /* avoid hit-testing */
+    mix-blend-mode: normal;
+    /* avoid expensive blending when you removed animations */
+    will-change: transform, opacity;
 }
 
-/* subtle pulse that slightly scales halo and varies opacity */
-@keyframes halo-pulse {
-    0% {
-        transform: translate(-50%, -50%) scale(1);
-        opacity: var(--halo-opacity);
-        filter: 40px;
-    }
 
-    50% {
-        transform: translate(-50%, -50%) scale(var(--halo-pulse-scale));
-        opacity: calc(var(--halo-opacity) + 0.26);
-        filter: blur(calc(var(--halo-blur) + 30px));
-    }
+/* Keep will-change only for transform (cheap hint) on animated layers */
+.inner-layer,
+.orb {
+    will-change: transform;
+}
 
-    100% {
-        transform: translate(-50%, -50%) scale(1);
-        opacity: var(--halo-opacity);
-        filter: 40px;
-    }
+/* Avoid will-change on large blurred elements (it forces buffers) */
+.frost,
+.vignette {
+    /* do not set will-change here to avoid forcing oversized layers */
+    will-change: auto;
+}
+
+/* For specks, use smaller transforms and simpler shadows where possible */
+.speck {
+    will-change: transform, opacity;
+    /* lower blur to reduce cost */
+    filter: blur(0.8px);
 }
 </style>

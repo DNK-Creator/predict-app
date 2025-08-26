@@ -7,7 +7,7 @@
         <div v-if="visible" ref="modalRef" class="modal-container">
             <header class="modal-header">
                 <div class="modal-header-description">
-                    <h2>{{ bet.name }}</h2>
+                    <h2>{{ translateBetName(bet.name, bet.name_en) }}</h2>
                 </div>
                 <button class="close-btn" @click="close">×</button>
             </header>
@@ -155,6 +155,10 @@ watch(() => props.visible, (v) => {
         lastInputtedNumber.value = '0'
     }
 })
+
+function translateBetName(nameRu, nameEn) {
+    return app.language === 'ru' ? nameRu : nameEn
+}
 
 function close() {
     emit('close')
@@ -577,9 +581,6 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-/* ... same CSS as previously provided (kept for brevity) ... */
-
-/* Backdrop and modal animations (kept as before) */
 .backdrop-enter-active,
 .backdrop-leave-active {
     transition: opacity 0.15s ease;
@@ -655,7 +656,7 @@ onBeforeUnmount(() => {
     justify-content: space-between;
     align-items: center;
     align-content: center;
-    padding: 1rem 1rem 0 1rem;
+    padding: 1rem 1rem 1rem 1rem;
     font-size: 1.25rem;
     font-family: Inter;
 }
@@ -663,6 +664,7 @@ onBeforeUnmount(() => {
 .modal-header-description {
     display: block;
     font-size: 1.1rem;
+    max-width: 80%;
     font-weight: 400;
 }
 
@@ -703,7 +705,7 @@ onBeforeUnmount(() => {
     display: flex;
     flex-direction: column;
     align-items: center;
-    margin: 0.5rem 0;
+    margin: 1rem 0;
 }
 
 .amount-row {
@@ -879,7 +881,7 @@ onBeforeUnmount(() => {
 }
 
 .quick-add {
-    margin-top: 0.75rem;
+    margin-top: 1.15rem;
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -924,15 +926,15 @@ onBeforeUnmount(() => {
 }
 
 .modal-footer {
-    padding: 1rem;
+    padding: 1.5rem;
 }
 
 .action-btn {
     width: 100%;
-    padding: 0.75rem;
+    padding: 1rem;
     font-size: 1rem;
     border: none;
-    border-radius: 8px;
+    border-radius: 20px;
     background-color: #0098EA;
     color: #ffffff;
     cursor: pointer;
