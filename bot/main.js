@@ -7,6 +7,8 @@ import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
+// at top of your backend main.js
+import { createHmac, timingSafeEqual, createHash } from 'node:crypto'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_API_KEY; // service_role key (server-only)
@@ -66,63 +68,68 @@ const depositLimiter = rateLimit({
     legacyHeaders: false
 })
 
-// server route: validate Telegram Mini App initData
 app.post('/api/validate-initdata', async (req, res) => {
     try {
         const initDataRaw = String(req.body?.initData || '').trim()
         if (!initDataRaw) return res.status(400).json({ ok: false, error: 'missing_initData' })
 
-        // strip leading '?' if present
         const initData = initDataRaw.startsWith('?') ? initDataRaw.slice(1) : initDataRaw
-
-        // parse query-string
         const params = new URLSearchParams(initData)
 
-        const hash = params.get('hash')
+        // prefer 'hash' param per Telegram docs; fall back to 'signature' if present
+        const hash = params.get('hash') || params.get('signature')
         if (!hash) return res.status(400).json({ ok: false, error: 'missing_hash' })
 
-        // build data_check_string: sorted keys (exclude 'hash')
+        // Build data_check_string: sorted keys excluding 'hash' (and 'signature' fallback)
         const entries = []
         for (const [k, v] of params.entries()) {
-            if (k === 'hash') continue
+            if (k === 'hash' || k === 'signature') continue
             entries.push([k, v])
         }
         entries.sort((a, b) => a[0].localeCompare(b[0]))
         const data_check_string = entries.map(([k, v]) => `${k}=${v}`).join('\n')
 
-        // SECRET KEY = HMAC_SHA256(bot_token, "WebAppData")
-        // Per Telegram docs: HMAC-SHA-256 of the bot token using "WebAppData" as key.
-        // Implementation: createHmac('sha256', 'WebAppData').update(bot_token).digest()
-        const secret_key = crypto.createHmac('sha256', 'WebAppData').update(token).digest()
+        // SECRET KEY = HMAC_SHA256(bot_token, "WebAppData") per Telegram docs
+        // createHmac(key, data) -> createHmac('sha256', key).update(data)
+        // So compute HMAC(WebAppData key, bot_token) -> secret_key (Buffer)
+        const secret_key = createHmac('sha256', 'WebAppData').update(String(token)).digest()
 
-        // computed HMAC of data_check_string using secret_key as key
-        const computedHashHex = crypto.createHmac('sha256', secret_key).update(data_check_string).digest('hex')
+        // Compute expected HMAC hex over data_check_string using secret_key as key
+        const computedHashHex = createHmac('sha256', secret_key).update(data_check_string).digest('hex')
 
-        // timing-safe compare
-        const provided = Buffer.from(hash, 'hex')
-        const expected = Buffer.from(computedHashHex, 'hex')
-        if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) {
+        // Timing-safe comparison:
+        // - Expect both to be binary Buffers of the same length.
+        // - If provided hash is not hex, try a safe fallback (reject with clear error).
+        let providedBuf
+        try {
+            providedBuf = Buffer.from(hash, 'hex')
+        } catch (e) {
+            return res.status(400).json({ ok: false, valid: false, reason: 'hash_not_hex' })
+        }
+
+        const expectedBuf = Buffer.from(computedHashHex, 'hex')
+
+        // lengths must match for timingSafeEqual
+        if (providedBuf.length !== expectedBuf.length || !timingSafeEqual(providedBuf, expectedBuf)) {
             return res.status(401).json({ ok: false, valid: false, reason: 'signature_mismatch' })
         }
 
-        // optional freshness check: auth_date (seconds)
+        // freshness check
         const authDate = Number(params.get('auth_date') || 0)
-        const maxAgeSeconds = Number(req.body?.maxAgeSeconds ?? 24 * 60 * 60) // default 24h; callers can override
+        const maxAgeSeconds = Number(req.body?.maxAgeSeconds ?? 24 * 60 * 60)
         if (!Number.isFinite(authDate) || Math.abs(Math.floor(Date.now() / 1000) - authDate) > maxAgeSeconds) {
             return res.status(401).json({ ok: false, valid: false, reason: 'expired_auth_date' })
         }
 
-        // parse JSON fields if present (user, receiver, chat, etc.)
+        // parse JSON fields if present
         const parsed = {}
         for (const [k, v] of entries) {
-            // try parse complex JSON types (user, receiver, chat) which are JSON-serialized
             if (['user', 'receiver', 'chat'].includes(k)) {
                 try { parsed[k] = JSON.parse(v) } catch (e) { parsed[k] = v }
-            } else {
-                parsed[k] = v
-            }
+            } else parsed[k] = v
         }
 
+        // success
         return res.json({ ok: true, valid: true, data: parsed })
     } catch (err) {
         console.error('validate-initdata error', err)
