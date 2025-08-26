@@ -84,12 +84,12 @@ app.post("/api/invoice", async (req, res) => {
 export async function createInvoiceLink(amount) {
     return bot.telegram.createInvoiceLink(
         {
-            title: "Deposit With Stars",
-            description: "Some description",
+            title: `Deposit ${Number(amount / 300).toFixed(2)} TON`,
+            description: "Top-Up Gifts Predict balance using Telegram Stars",
             payload: "{}",
             provider_token: "",
             currency: "XTR",
-            prices: [{ amount: amount, label: `${amount * 2} Coins!` }]
+            prices: [{ amount: amount, label: `${Number(amount / 300).toFixed(2)} TON!` }]
         }
     );
 }
