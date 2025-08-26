@@ -10,7 +10,7 @@ services:
     volumes:
       - './nginx.conf:/etc/nginx/nginx.conf'
       - '/etc/letsencrypt:/etc/letsencrypt'
-      - './nginx/static/tonconnect-manifest.json:/usr/share/nginx/html/tonconnect-manifest.json:ro'
+      - './nginx/static:/usr/share/nginx/html:ro'
     depends_on:
       - backend
       - frontend

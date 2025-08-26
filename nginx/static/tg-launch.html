@@ -1,0 +1,108 @@
+<!-- ./nginx/static/tg-launch.html -->
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+    <title>Open in Telegram</title>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+
+            background-color: #181818;
+        }
+
+        .card {
+            max-width: 540px;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+
+        a.button {
+            display: inline-block;
+            margin-top: 14px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            border: 1px solid #1da1f2;
+            color: #fff;
+            background: #1da1f2
+        }
+
+        p.small {
+            color: #666;
+            font-size: 13px
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h2>Open Gifts Predict in Telegram</h2>
+        <p class="small">We will try to open the Telegram app to load the Web App. If nothing happens, tap the button
+            below.</p>
+        <div id="controls">
+            <a id="open-manual" class="button" href="#">Open in Telegram</a>
+            <p class="small" style="margin-top:8px">If you are already inside Telegram, you will be forwarded into the
+                app.</p>
+        </div>
+    </div>
+
+    <script>
+        // CONFIG: change BOT_USERNAME if needed
+        const BOT_USERNAME = 'giftspredict_bot'; // without @
+        const STARTAPP_PAYLOAD = 'menu'; // optional small payload
+        const SPA_URL = 'https://giftspredict.ru/'; // SPA root; will receive ?tg_entry=menu
+
+        function isInTelegramWebApp() {
+            try { return !!(window.Telegram && window.Telegram.WebApp); } catch (e) { return false; }
+        }
+
+        // Build deep links
+        const tgScheme = `tg://resolve?domain=${encodeURIComponent(BOT_USERNAME)}&startapp=${encodeURIComponent(STARTAPP_PAYLOAD)}`;
+        const tmeLink = `https://t.me/${encodeURIComponent(BOT_USERNAME)}?startapp=${encodeURIComponent(STARTAPP_PAYLOAD)}`;
+
+        // If we are inside Telegram webview already, forward into your SPA with a query flag
+        if (isInTelegramWebApp()) {
+            // Use replace() to avoid leaving landing page in history
+            const target = SPA_URL + '?tg_entry=menu';
+            window.location.replace(target);
+        } else {
+            // Try to open native app (tg://). If native doesn't open within timeout, fallback to https://t.me/..
+            // For most mobile browsers this will either open Telegram or quickly return here. We use a small heuristic timeout.
+            const now = Date.now();
+            // Attempt native open
+            window.location.href = tgScheme;
+
+            // Fallback after a short timeout if native open didn't occur
+            setTimeout(() => {
+                if (Date.now() - now < 1500) {
+                    // open the t.me fallback (this may open web.telegram.org or ask user to open the app)
+                    window.location.replace(tmeLink);
+                }
+            }, 800);
+        }
+
+        // Manual button fallback (desktop / if automatic redirect blocked)
+        const manual = document.getElementById('open-manual');
+        manual.href = tmeLink;
+        manual.addEventListener('click', (e) => {
+            // attempt tg:// first on click
+            e.preventDefault();
+            window.location.href = tgScheme;
+            setTimeout(() => window.location.href = tmeLink, 800);
+        });
+    </script>
+</body>
+
+</html>

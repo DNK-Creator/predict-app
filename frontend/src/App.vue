@@ -1,6 +1,6 @@
 <template>
   <!-- App shell: RouterView always mounted so pages can render while loader is visible -->
-  <div class="app">
+  <div v-if="loadingStage > 0" class="app">
     <!-- MAIN SCROLL CONTAINER -->
     <div class="app-scroll-container" ref="appScrollRef">
       <Header :balance="app.points" :address="walletAddress" @deposit-click="openDepositWindow"
@@ -525,15 +525,20 @@ onMounted(async () => {
     await (tg?.ready?.() ?? Promise.resolve())
     info('[App] tg.ready() resolved')
   } catch (e) {
-    warn('[App] tg.ready() failed or threw', { err: e?.message ?? e, stack: e?.stack })
+    console.warn('[App] tg.ready() failed or threw', { err: e?.message ?? e, stack: e?.stack })
+    return
   }
 
   loadingStage.value = 1
 
+  // if entry param indicates launch-from-menu, try more aggressively to expand
+  const urlParams = new URLSearchParams(window.location.search);
+  const fromMenu = urlParams.get('tg_entry') === 'menu';
+
   try {
-    debug('[App] calling tg.expand() (if available)')
-    await (tg?.expand?.() ?? Promise.resolve())
-    info('[App] tg.expand() ok')
+    debug('[App] calling tg.expand() with retries (if available)')
+    await tryExpandTG(tg, fromMenu ? 10 : 4, fromMenu ? 250 : 150);
+    info('[App] tg.expand() attempted')
   } catch (e) {
     warn('[App] tg.expand() failed', { err: e?.message ?? e })
   }
@@ -697,6 +702,29 @@ onMounted(async () => {
     })
   }, 500);
 })
+
+// small helper to attempt expand with retries
+async function tryExpandTG(tg, attempts = 6, intervalMs = 200) {
+  if (!tg || typeof tg.expand !== 'function') return false;
+  try {
+    for (let i = 0; i < attempts; i++) {
+      try {
+        // Only call expand if it seems relevant
+        if (tg.isExpanded && tg.isExpanded()) return true;
+        await tg.expand?.();
+        // brief pause for client to actually update
+        await new Promise(r => setTimeout(r, intervalMs));
+        if (tg.isExpanded && tg.isExpanded()) return true;
+      } catch (err) {
+        // ignore per-attempt errors; continue retry loop
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return !!(tg.isExpanded && tg.isExpanded());
+}
+
 
 // cleanup at top-level
 onBeforeUnmount(() => {
