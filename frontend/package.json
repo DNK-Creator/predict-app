@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@fontsource-variable/inter": "^5.2.6",
     "@fontsource/inter": "^5.2.6",
     "@fontsource/montserrat": "^5.2.6",
     "@fontsource/press-start-2p": "^5.2.6",
@@ -18,10 +17,8 @@
     "@tonconnect/sdk": "^3.2.0",
     "@tonconnect/ui": "^2.2.0",
     "canvas-confetti": "^1.9.3",
-    "chart.js": "^4.5.0",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",
-    "firebase": "^12.0.0",
     "js-sha256": "^0.11.1",
     "lottie-web": "^5.13.0",
     "pako": "^2.1.0",
