@@ -22,14 +22,18 @@
                             @click="selectDeposit('TON')">
                             <span>TON</span>
                         </button>
-                        <button class="option" :class="{ active: selectedDeposit === 'GIFT' }"
-                            @click="selectDeposit('GIFT')">
+                        <button class="option" :class="{ active: selectedDeposit === 'GIFTS' }"
+                            @click="selectDeposit('GIFTS')">
                             <span>{{ $t('by-gifts') }}</span>
+                        </button>
+                        <button class="option" :class="{ active: selectedDeposit === 'STARS' }"
+                            @click="selectDeposit('STARS')">
+                            <span>{{ $t('by-stars') }}</span>
                         </button>
                     </div>
 
                     <div class="deposit-method-visual">
-                        <!-- note: we add two containers -->
+                        <!-- note: we add three containers -->
                         <div class="deposit-method-container" v-show="selectedDeposit === 'TON'">
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
@@ -63,7 +67,44 @@
                             </section>
                             <!-- Ending Deposit for TON -->
                         </div>
-                        <div class="deposit-method-container" v-show="selectedDeposit === 'GIFT'">
+
+                        <!-- STARTING Deposit for Stars -->
+                        <div class="deposit-method-container" v-show="selectedDeposit === 'STARS'">
+                            <div ref="svgContainerThree" class="media-method"> </div>
+                            <div class="description-texts">
+                                <span class="deposit-text-info">{{ $t('stars-deposit-info') }}</span>
+                            </div>
+                            <!-- Starting Deposit Fields container for TON -->
+                            <section class="deposit-ton-body">
+
+                                <div class="top-info-gifts">
+                                    <button class="list-button">
+                                        {{ $t('stars-deposit-instruction') }}</button>
+                                </div>
+
+                                <!-- CENTERED FLEX GROUP -->
+                                <div class="amount-wrapper">
+                                    <div class="input-warnings">
+                                        <div class="amount-group">
+                                            <input ref="amountInput" v-model="amount" type="text" inputmode="numeric"
+                                                pattern="[0-9]*" placeholder="0" class="amount-input"
+                                                @input="onAmountStarsInput" @focus="onAmountFocus"
+                                                @blur="onAmountStarsBlur" :size="amount.length > 0 ? amount.length : 1"
+                                                :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
+                                            <img :src="StarIcon" class="amount-currency-star" @click="focusAmountInput">
+                                        </div>
+                                        <span class="converted-ton">~{{ starsConvertedTon }} TON</span>
+                                        <span v-if="starsWarn" class="warning-text" role="alert" aria-live="polite">
+                                            {{ $t('stars-limit') }}
+                                        </span>
+                                    </div>
+                                </div>
+
+                            </section>
+                            <!-- Ending Deposit for STARS -->
+                        </div>
+
+                        <div class="deposit-method-container" v-show="selectedDeposit === 'GIFTS'">
                             <div ref="svgContainerTwo" class="media-method"> </div>
                             <div class="description-texts">
                                 <div class="top-info-gifts">
@@ -94,8 +135,13 @@
                         <span>{{ actionText }}</span>
                     </button>
 
-                    <button v-else type="button" class="action-btn-two" :class="{ pressed: pressingBtn === 'two' }"
-                        @click="onBtnTwoClick">
+                    <button type="button" v-if="selectedDeposit === 'GIFTS'" class="action-btn-two"
+                        :class="{ pressed: pressingBtn === 'two' }" @click="onBtnTwoClick">
+                        <span>{{ actionText }}</span>
+                    </button>
+
+                    <button type="button" v-if="selectedDeposit === 'STARS'" class="action-btn-two"
+                        :class="{ pressed: pressingBtn === 'two' }" @click="onBtnTwoClick">
                         <span>{{ actionText }}</span>
                     </button>
                 </div>
@@ -112,9 +158,11 @@ import { useAppStore } from '@/stores/appStore'
 import lottie from 'lottie-web'
 import pako from 'pako'
 import TonMedia from '@/assets/EmptyGift2.tgs'
-import GiftMedia from '@/assets/LootBag.tgs'
+import GiftMedia from '@/assets/DurovsCap.tgs'
+import StarsMedia from '@/assets/LootBag.tgs'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
 import tonIcon from '@/assets/icons/TON_White_Icon.png'
+import StarIcon from '@/assets/icons/Star.png'
 
 const app = useAppStore()
 
@@ -137,14 +185,18 @@ let windowResizeListener = null
 
 const { tg } = useTelegram()
 
-const emit = defineEmits(['update:modelValue', 'open-wallet-info', 'open-prices', 'close', 'anim-start', 'anim-end', 'connect-new-wallet', 'deposit']) // keep update:modelValue for v-model support
+const emit = defineEmits(['update:modelValue', 'deposit-stars', 'open-wallet-info', 'open-prices', 'close', 'anim-start', 'anim-end', 'connect-new-wallet', 'deposit']) // keep update:modelValue for v-model support
+
+const starsConvertedTon = computed(() => Number(amount.value / 300).toFixed(2))
 
 const selectedDeposit = ref('TON')
 const svgContainerOne = ref(null)
 const svgContainerTwo = ref(null)
+const svgContainerThree = ref(null)
 
 let animOne = null
 let animTwo = null
+let animThree = null
 const parsedTgsCache = {} // key: media (import string/module), value: parsed json
 
 const lastInputtedNumber = ref('')
@@ -161,6 +213,8 @@ const hideOverlay = computed(() =>
 )
 
 const visible = computed(() => modelValue.value === true && hideOverlay.value === false)
+
+const starsWarn = ref(false)
 
 // Button press animation state
 const pressingBtn = ref(null)
@@ -192,6 +246,25 @@ function sendDepositRequest() {
     blockDepositFor(3000)
 }
 
+
+function sendStarsRequest() {
+    // If blocked, early-return — caller handles animation
+    if (depositBlocked.value) return
+    if (amount.value < 50) {
+        starsWarn.value = true
+
+        setTimeout(() => {
+            starsWarn.value = false
+        }, 3000);
+
+        return
+    }
+
+    emit('deposit-stars', amount.value)
+    // start 3 second block after emitting
+    blockDepositFor(3000)
+}
+
 function openRelayerChat() {
     tg.openTelegramLink('https://t.me/giftspredictrelayer')
 }
@@ -213,8 +286,11 @@ async function onBtnTwoClick() {
         // deposit: send only if not blocked
         if (depositBlocked.value) return
         sendDepositRequest()
-    } else {
+    } else if (selectedDeposit.value === 'GIFTS') {
         openRelayerChat()
+    }
+    else {
+        sendStarsRequest()
     }
 }
 
@@ -324,6 +400,31 @@ function onAmountBlur() {
     document.documentElement.style.removeProperty('--keyboard-height')
 }
 
+function onAmountStarsBlur() {
+    document.body.classList.remove('keyboard-open')
+
+    if (window.visualViewport && vvResizeListener) {
+        try { window.visualViewport.removeEventListener('resize', vvResizeListener) } catch (e) { /* ignore */ }
+        vvResizeListener = null
+    }
+    if (windowResizeListener) {
+        try { window.removeEventListener('resize', windowResizeListener) } catch (e) { /* ignore */ }
+        windowResizeListener = null
+    }
+
+    document.documentElement.style.removeProperty('--keyboard-height')
+
+    if (!amount.value) return
+    let n = Number(amount.value)
+    if (!Number.isFinite(n) || isNaN(n) || n <= 0) {
+        amount.value = ''   // or set to '1' if you prefer a minimum
+    } else if (n > 2500) {
+        amount.value = '2500'
+    } else {
+        amount.value = String(Math.floor(n))
+    }
+}
+
 function onAmountInput(e) {
     let v = e.target.value.replace(/,/g, '.')
         .replace(/[^\d.]/g, '')
@@ -356,6 +457,40 @@ function onAmountInput(e) {
     lastInputtedNumber.value = v
 }
 
+function onAmountStarsInput(e) {
+    // raw typed string
+    const raw = String(e.target?.value ?? '')
+
+    // 1) keep only digits
+    let cleaned = raw.replace(/\D+/g, '')
+
+    // 2) remove leading zeros but keep single "0" if that's all the user typed
+    //    e.g. "000" -> "0", "0012" -> "12"
+    if (cleaned.length > 1) cleaned = cleaned.replace(/^0+/, '')
+
+    // 3) if empty, allow empty (user cleared input)
+    if (cleaned === '') {
+        amount.value = ''
+        lastInputtedNumber.value = ''
+        return
+    }
+
+    // 4) parse integer and clamp to max 2500
+    let n = parseInt(cleaned, 10)
+    if (!Number.isFinite(n) || isNaN(n)) {
+        amount.value = ''
+        lastInputtedNumber.value = ''
+        return
+    }
+
+    if (n > 2500) n = 2500
+
+    // write back normalized integer string
+    const out = String(n)
+    amount.value = out
+    lastInputtedNumber.value = out
+}
+
 onBeforeUnmount(() => {
     if (window.visualViewport && vvResizeListener) {
         try { window.visualViewport.removeEventListener('resize', vvResizeListener) } catch (e) { /* ignore */ }
@@ -374,10 +509,18 @@ const shortenedAddress = computed(() => {
 })
 const actionText = computed(() => {
     if (app.language === 'ru') {
-        return selectedDeposit.value === 'TON' ? 'Пополнить' : 'Отправить подарок'
+        if (selectedDeposit.value === 'TON' || selectedDeposit.value === 'STARS') {
+            return 'Пополнить'
+        } else {
+            return 'Отправить подарок'
+        }
     }
     else {
-        return selectedDeposit.value === 'TON' ? 'Deposit' : 'Send a gift'
+        if (selectedDeposit.value === 'TON' || selectedDeposit.value === 'STARS') {
+            return 'Deposit'
+        } else {
+            return 'Send a gift'
+        }
     }
 })
 
@@ -386,11 +529,18 @@ function selectDeposit(code) {
     if (animOne && animTwo) {
         if (code === 'TON') {
             animOne.play()
+            if (animThree) animThree.stop()
             if (animTwo) animTwo.stop()
+        }
+        else if (code === 'GIFTS') {
+            animOne.stop()
+            animTwo.play()
+            if (animThree) animThree.stop()
         }
         else {
             animOne.stop()
-            animTwo.play()
+            animTwo.stop()
+            if (animThree) animThree.play()
         }
     }
 }
@@ -444,13 +594,29 @@ async function initAnimations() {
             })
         }
 
+        const dataThird = await ensureTgs(StarsMedia)
+        if (svgContainerThree.value) {
+            animThree = lottie.loadAnimation({
+                container: svgContainerThree.value,
+                renderer: 'svg',
+                loop: true,
+                autoplay: false,
+                animationData: dataThird
+            })
+        }
+
         if (animOne) {
             if (selectedDeposit.value === 'TON') {
                 animOne.play()
                 if (animTwo) animTwo.stop()
+            } else if (selectDeposit.value === 'GIFTS') {
+                animOne.stop()
+                if (animThree) animThree.stop()
+                if (animTwo) animTwo.play()
             } else {
                 animOne.stop()
-                if (animTwo) animTwo.play()
+                if (animTwo) animTwo.stop()
+                if (animThree) animThree.play()
             }
         }
     } catch (err) {
@@ -583,7 +749,7 @@ function connectNewWallet() {
     display: grid;
     grid-auto-flow: column;
     margin: auto auto;
-    width: 12rem;
+    width: 100%;
     column-count: 3;
     margin-top: 0.75rem;
     align-content: center;
@@ -595,7 +761,7 @@ function connectNewWallet() {
     display: flex;
     cursor: pointer;
     gap: 0.35rem;
-    width: 8rem;
+    width: 6rem;
     height: 2.5rem;
     background-color: #3b3c3c;
     border-radius: 10px;
@@ -603,7 +769,7 @@ function connectNewWallet() {
     color: white;
     font-family: "Inter", sans-serif;
     font-weight: 600;
-    font-size: 1rem;
+    font-size: 0.9rem;
     align-items: center;
     justify-content: center;
     transition: background-color 200ms, color 200ms;
@@ -740,6 +906,40 @@ function connectNewWallet() {
     padding: 5px;
 }
 
+/* wrapper that contains input + absolute warning */
+.input-warnings {
+    position: relative;
+    /* container for absolutely-positioned warning */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    /* center amount-group horizontally */
+    margin-bottom: 1rem;
+}
+
+/* warning pops up below the amount-group but does NOT affect layout */
+.warning-text {
+    position: absolute;
+    top: 100%;
+    /* just below the input group */
+    left: 50%;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    /* keep it on one line; remove if you want wrapping */
+    max-width: max(180%, 280px);
+    text-align: center;
+    font-size: 1rem;
+    color: rgb(171, 68, 68, 0.7);
+    background: transparent;
+    /* change to semi-opaque for contrast if needed */
+    padding: 0;
+    /* optional small padding if you add background */
+    z-index: 1;
+    pointer-events: none;
+    /* prevents it from affecting clicks — remove if interactive */
+    transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
 .list-button,
 .bot-button {
     border: none;
@@ -814,7 +1014,7 @@ function connectNewWallet() {
     width: 100%;
     display: flex;
     justify-content: center;
-    margin: 1rem 0;
+    margin: 0.35rem 0;
 }
 
 .amount-group {
@@ -825,8 +1025,8 @@ function connectNewWallet() {
 }
 
 .amount-input {
-    width: calc(var(--chars, 1) * 1ch + 1rem);
-    padding: 0.35rem 0.5rem;
+    width: calc(var(--chars, 1) * 1ch + 0.5rem);
+    padding: 0.35rem 0rem;
     box-sizing: content-box;
     font-size: 2.25rem;
     color: white;
@@ -850,6 +1050,10 @@ function connectNewWallet() {
     .amount-currency {
         font-size: 1.15rem;
     }
+
+    .amount-currency-star {
+        font-size: 1.15rem;
+    }
 }
 
 .amount-input::-webkit-outer-spin-button,
@@ -862,6 +1066,21 @@ function connectNewWallet() {
     font-size: 1.5rem;
     color: #aaa;
     opacity: 0.7;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+.converted-ton {
+    font-size: 1rem;
+    color: #aaa;
+    opacity: 0.7;
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+
+
+.amount-currency-star {
+    font-size: 1.5rem;
     cursor: pointer;
     flex: 0 0 auto;
 }

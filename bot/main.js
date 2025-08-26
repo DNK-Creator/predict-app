@@ -392,6 +392,118 @@ app.post('/api/deposit-cancel', async (req, res) => {
     }
 });
 
+// Add near your other routes (requires these to be defined above):
+// import { v4 as uuidv4 } from 'uuid'  // you already have this
+// ensure requireAuth middleware exists (from our earlier JWT/session code)
+// ensure supabaseAdmin is available (server-side client)
+
+app.post('/api/stars-payment', requireAuth, async (req, res) => {
+    try {
+        // Expect body: { amountStars: number|string } - amount in "stars"
+        const raw = req.body?.amountStars ?? req.body?.amount ?? null;
+        if (raw === null || raw === undefined) {
+            return res.status(400).json({ ok: false, error: 'missing_amount' });
+        }
+
+        const amountStarsNum = Number(raw);
+        if (!Number.isFinite(amountStarsNum) || amountStarsNum <= 0) {
+            return res.status(400).json({ ok: false, error: 'invalid_amount' });
+        }
+
+        // round to 2 decimals like you requested
+        const amountStarsRounded = Number(amountStarsNum.toFixed(2))
+
+        // convert to TON (and points) by dividing by 300
+        const amountTON = Number((amountStarsRounded / 300).toFixed(2)) // keep reasonable precision for TON
+
+        // auth info from requireAuth
+        const telegramId = Number(req.auth?.telegram ?? 0)
+        if (!telegramId) {
+            return res.status(401).json({ ok: false, error: 'missing_auth' })
+        }
+
+        // fetch user row by telegram
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('*')
+            .eq('telegram', Number(telegramId))
+            .limit(1)
+            .maybeSingle()
+
+        if (userErr) {
+            console.error('stars-payment: supabase users select error', userErr)
+            return res.status(500).json({ ok: false, error: 'db_error' })
+        }
+        if (!userRow) {
+            return res.status(404).json({ ok: false, error: 'user_not_found' })
+        }
+
+        // compute new points value (points column appears numeric)
+        const oldPoints = Number(userRow.points ?? 0)
+        const pointsToAdd = amountTON // as you requested: add TON-equivalent to points
+        const newPoints = Number((oldPoints + pointsToAdd).toFixed(2))
+
+        // update user points
+        const { data: updUser, error: updErr } = await supabaseAdmin
+            .from('users')
+            .update({ points: newPoints })
+            .eq('id', userRow.id)
+            .select()
+            .single()
+
+        if (updErr) {
+            console.error('stars-payment: supabase users update error', updErr)
+            return res.status(500).json({ ok: false, error: 'db_error_update_user' })
+        }
+
+        // insert transaction row
+        const txUuid = uuidv4()
+        const insertRow = {
+            uuid: txUuid,
+            user_id: userRow.id ?? 99,
+            amount: amountTON, // amount IN TON as requested
+            status: 'Успешное пополнение',
+            type: 'Deposit',
+            deposit_address: null,
+            sender_wallet: null,
+            created_at: new Date().toISOString()
+        }
+
+        const { data: txData, error: txErr } = await supabaseAdmin
+            .from('transactions')
+            .insert(insertRow)
+            .select()
+            .single()
+
+        if (txErr) {
+            console.error('stars-payment: transactions insert error', txErr)
+            // attempt to rollback user points update? For now return error and log
+            return res.status(500).json({ ok: false, error: 'db_error_insert_transaction' })
+        }
+
+        console.log('stars-payment: processed', {
+            telegram: telegramId,
+            user_id: userRow.id,
+            amountStars: amountStarsRounded,
+            amountTON,
+            newPoints,
+            txUuid
+        })
+
+        return res.json({
+            ok: true,
+            amountStars: amountStarsRounded,
+            amountTON,
+            pointsAdded: pointsToAdd,
+            newPoints,
+            transaction_uuid: txUuid
+        })
+    } catch (err) {
+        console.error('stars-payment unexpected error', err)
+        return res.status(500).json({ ok: false, error: 'internal_error', details: String(err) })
+    }
+})
+
 
 // ---------- GET /api/balance?address=... ----------
 app.get('/api/balance', async (req, res) => {

@@ -1,8 +1,9 @@
 <template>
     <!-- DEPOSIT MODAL -->
     <DepositsModalTwo v-model="showDepositModal" :address="parsedWalletAddress" :balance="walletBalance"
-        @deposit="handleDeposit" @close="closeDepositsWindow" @anim-start="onModalAnimStart" @anim-end="onModalAnimEnd"
-        @connect-new-wallet="reconnectWallet" @open-prices="openGiftsPrices" @open-wallet-info="openWalletInfo" />
+        @deposit="handleDeposit" @deposit-stars="handleStarsDeposit" @close="closeDepositsWindow"
+        @anim-start="onModalAnimStart" @anim-end="onModalAnimEnd" @connect-new-wallet="reconnectWallet"
+        @open-prices="openGiftsPrices" @open-wallet-info="openWalletInfo" />
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
     <YourWalletModal :show="showWalletInfo" :balance="walletBalance" :address="parsedWalletAddress"
@@ -67,6 +68,7 @@ import supabase from '@/services/supabase'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { useRouter } from 'vue-router'
 import { useTon } from '@/services/useTon'
+import { fetchInvoiceLink } from '@/services/payments'
 import DepositsModalTwo from '../DepositsModalTwo.vue'
 import YourWalletModal from '../YourWalletModal.vue'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
@@ -172,6 +174,11 @@ async function handleDeposit(amount) {
     } else {
         await onDeposit(amount)
     }
+}
+
+async function handleStarsDeposit(amount) {
+    if (!user) return
+    await onDepositStars(amount)
 }
 
 async function openWalletInfo() {
@@ -360,6 +367,65 @@ async function onDeposit(amount) {
         toast.error('Ошибка отправки транзакции. Проверьте кошелек и попробуйте снова.')
     }
 }
+
+
+async function onDepositStars(amount) {
+    try {
+        // 1. create invoice link
+        const invoiceLink = await fetchInvoiceLink(amount)
+
+        // 2. open invoice in the Mini App; status callback invoked on change
+        tg.openInvoice(invoiceLink, async (status) => {
+            try {
+                if (status === 'paid') {
+                    // amount might be string or number; enforce Number and 2 decimals
+                    const amountNum = Number(amount)
+                    const amountStarsRounded = Number(amountNum.toFixed(2))
+
+                    // attempt backend call to credit points + insert transaction
+                    // prefer Authorization header if you store JWT, else rely on cookie
+                    const token = window.__TG_SESSION_JWT ?? null // or your token storage
+                    const headers = { 'Content-Type': 'application/json' }
+                    if (token) headers['Authorization'] = `Bearer ${token}`
+
+                    const resp = await fetch(`${API_BASE}/api/stars-payment`, {
+                        method: 'POST',
+                        headers,
+                        credentials: 'include', // in case server uses cookie session
+                        body: JSON.stringify({ amountStars: amountStarsRounded })
+                    })
+
+                    const json = await resp.json().catch(() => null)
+                    if (!resp.ok) {
+                        console.error('stars-payment failed', resp.status, json)
+                        toast.error('Не удалось обработать оплату. Свяжитесь с поддержкой.')
+                        return
+                    }
+                    let messageToast = appStoreObj.language === 'ru' ? 'Пополнение успешно! Баланс обновлён.' : 'Top-up successful! Balance updated.'
+                    // success
+                    toast.success(messageToast)
+                    // Optionally refresh user points in store
+                    try {
+                        // If you have a store method to fetch points, call it:
+                        await app.fetchPoints?.()
+                    } catch (e) { /* ignore */ }
+                } else {
+                    // other statuses: 'cancelled' etc., do nothing
+                    console.debug('invoice status', status)
+                }
+            } catch (innerErr) {
+                console.error('Error handling paid callback', innerErr)
+                let messageToast = appStoreObj.language === 'ru' ? 'Ошибка при подтверждении оплаты.' : 'Error confirming payment.'
+                toast.error(messageToast)
+            }
+        })
+    } catch (err) {
+        console.error('Failed to create or open invoice:', err)
+        let messageToast = appStoreObj.language === 'ru' ? 'Не удалось создать ссылку на оплату.' : 'Unable to create a payment link.'
+        toast.error(messageToast)
+    }
+}
+
 
 /**
  * Optional: notify server that the user cancelled the wallet prompt
