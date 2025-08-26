@@ -1074,9 +1074,10 @@ function onResize() { updateCaretPosition(); }
 
 /* container needs position:relative so caret (absolute) can be placed inside */
 .header__text {
-    font-size: 1.5rem;
+    font-size: 1.2rem;
     width: 80%;
     color: #F7F9FB;
+    text-align: center;
     font-family: 'Press Start 2P', system-ui;
     font-weight: 600;
     white-space: pre-wrap;
@@ -1781,12 +1782,13 @@ function onResize() { updateCaretPosition(); }
     transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom, 0px));
     width: min(720px, 96%);
-    height: 90px;
+    height: 100px;
     display: flex;
     gap: 10px;
     justify-content: space-around;
     align-items: center;
     padding: 8px 12px;
+    padding-bottom: 16px;
     z-index: 3;
 
     background: rgba(0, 0, 0, 0.72);
