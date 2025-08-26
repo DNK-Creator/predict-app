@@ -57,7 +57,7 @@ export async function getUsersHistoryBets() {
     // 2️⃣ fetch only resolved bets
     const { data: bets, error: betsError } = await supabase
         .from('bets')
-        .select('id, name, date, result, prizes_given')
+        .select('id, name, name_en, date, result, prizes_given')
         .in('id', betIds)
         .eq('prizes_given', true)
     if (betsError) throw betsError

@@ -47,7 +47,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 
 // Components / services
 import HolidayCard from '@/components/HolidayCard.vue'
@@ -77,7 +77,23 @@ const isEmpty = computed(() => allHolidays.value.length === 0 && allLoaded.value
 const selectedTab = ref('upcoming') // 'upcoming' | 'past'
 let cachedPages = [] // paged cache for current tab (client side)
 
+// keep a reference to observer so we can disconnect on unmount
+let _infiniteObserver = null
+
 /* ---------------- helpers copied/kept from original (date helpers etc) ---------------- */
+
+function openModal(holiday) {
+    // accept the holiday passed from the template and open modal
+    if (!holiday) return
+    selectedHoliday.value = holiday
+    showModal.value = true
+}
+
+function closeModal() {
+    showModal.value = false
+    // clear selection to avoid stale object references
+    selectedHoliday.value = null
+}
 
 function toLocalMidnight(d) {
     const x = new Date(d)
@@ -229,12 +245,20 @@ async function loadMoreHolidays() {
 
 /* IntersectionObserver for infinite scroll */
 function observeScrollEnd() {
+    // disconnect previous if present
+    if (_infiniteObserver) {
+        try { _infiniteObserver.disconnect() } catch (_) { }
+        _infiniteObserver = null
+    }
+
     const observer = new IntersectionObserver(
         ([entry]) => {
             if (entry.isIntersecting) loadMoreHolidays()
         },
         { rootMargin: '200px' }
     )
+
+    _infiniteObserver = observer
 
     const tryObserve = () => {
         if (scrollAnchor.value) observer.observe(scrollAnchor.value)
@@ -260,6 +284,14 @@ watch(selectedTab, async (newTab) => {
 onMounted(async () => {
     await fetchAllAndPrepare()
     observeScrollEnd()
+})
+
+// cleanup observer if component unmounts
+onBeforeUnmount(() => {
+    if (_infiniteObserver) {
+        try { _infiniteObserver.disconnect() } catch (_) { }
+        _infiniteObserver = null
+    }
 })
 </script>
 

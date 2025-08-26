@@ -14,7 +14,7 @@
         <div class="bets-history-list" role="list">
             <div v-for="bet in filteredBets" :key="bet.id" :class="['bet-item', bet.won ? 'won' : 'lost']"
                 role="listitem" tabindex="0"
-                :aria-label="`${bet.name} ${bet.won ? t('result-won') : t('result-lost')}`">
+                :aria-label="`${translateBetName(bet.name, bet.name_en)} ${bet.won ? t('result-won') : t('result-lost')}`">
                 <!-- left accent + date -->
                 <div class="left-col">
                     <div class="accent" aria-hidden="true"></div>
@@ -80,6 +80,10 @@ function formatWon() {
 
 function formatLost() {
     return t('result-lost-short') || (app.language === "ru" ? "- проигрыш" : "- lose")
+}
+
+function translateBetName(nameRu, nameEn) {
+    return app.language === 'ru' ? nameRu : nameEn
 }
 
 onMounted(async () => {
