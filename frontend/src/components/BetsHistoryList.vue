@@ -26,7 +26,7 @@
 
                 <!-- main content -->
                 <router-link :to="{ name: 'BetDetails', params: { id: bet.id } }" class="bet-content" tabindex="-1">
-                    <div class="bet-name">{{ bet.name }}</div>
+                    <div class="bet-name">{{ translateBetName(bet.name, bet.name_en) }}</div>
                     <div class="bet-meta">{{ t('placed_on', { stake: bet.stake, side: formatSide(bet.side) }) }}</div>
                 </router-link>
 
