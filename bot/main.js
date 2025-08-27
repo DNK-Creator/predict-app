@@ -7,8 +7,6 @@ import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
-// at top of your backend main.js
-import { createHmac, timingSafeEqual, createHash } from 'node:crypto'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_API_KEY; // service_role key (server-only)
@@ -43,7 +41,30 @@ const effectIdTwo = "5046509860389126442"
 const app = express()
 app.use(express.json())
 
-app.use(cors({ origin: 'https://giftspredict.ru', methods: ['GET', 'POST', 'PUT', 'DELETE'], credentials: true }))
+// Restricted CORS: only your frontend allowed, credentials enabled
+const corsRestricted = cors({
+    origin: 'https://giftspredict.ru',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+});
+
+// Public CORS for /api/get-chance: allow any origin (no credentials)
+const corsPublic = cors({
+    origin: true,    // reflect request origin -> allows any origin safely (not '*')
+    methods: ['GET', 'POST', 'OPTIONS'],
+    credentials: false
+});
+
+// Ensure OPTIONS preflight for the public route is handled
+app.options('/api/get-chance', corsPublic);
+
+// Apply per-request CORS: if path === /api/get-chance use public, else restricted
+app.use((req, res, next) => {
+    if (req.path === '/api/get-chance') {
+        return corsPublic(req, res, next);
+    }
+    return corsRestricted(req, res, next);
+});
 
 // If your app runs behind a single trusted proxy (e.g. nginx), set:
 app.set('trust proxy', 1);
@@ -77,6 +98,24 @@ bot.on("pre_checkout_query", async (ctx) => {
     return ctx.answerPreCheckoutQuery(true).catch(() => {
         console.log("answerPreCheckoutQuery failed");
     });
+});
+
+app.post("/api/get-chance", async (req, res) => {
+    console.log('Hit /api/get-chance')
+    try {
+        let betID = 27
+        const { data: currentChance, error: userErr } = await supabaseAdmin
+            .from("bets")
+            .select("current_odds")
+            .eq("id", betID)
+            .limit(1)
+            .maybeSingle();
+
+        res.json({ currentChance });
+    } catch (err) {
+        console.log('Fail get currentChance: ' + err)
+        res.status(500).json({ error: "failed to fetch chance" });
+    }
 });
 
 app.post("/api/invoice", async (req, res) => {
