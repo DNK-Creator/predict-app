@@ -100,7 +100,7 @@ bot.on("pre_checkout_query", async (ctx) => {
     });
 });
 
-app.post("/api/get-chance", async (req, res) => {
+app.get("/api/get-chance", async (req, res) => {
     console.log('Hit /api/get-chance')
     try {
         let betID = 27
