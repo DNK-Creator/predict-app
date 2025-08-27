@@ -68,6 +68,17 @@ const depositLimiter = rateLimit({
     legacyHeaders: false
 })
 
+/*
+  Handles the pre_checkout_query event.
+  Telegram sends this event to the bot when a user clicks the payment button.
+  The bot must respond with answerPreCheckoutQuery within 10 seconds to confirm or cancel the transaction.
+*/
+bot.on("pre_checkout_query", async (ctx) => {
+    return ctx.answerPreCheckoutQuery(true).catch(() => {
+        console.log("answerPreCheckoutQuery failed");
+    });
+});
+
 app.post("/api/invoice", async (req, res) => {
     console.log('Hit /api/invoice')
     try {
@@ -498,7 +509,6 @@ app.post('/api/stars-payment', async (req, res) => {
         return res.status(500).json({ ok: false, error: 'internal_error', details: String(err) })
     }
 })
-
 
 // ---------- GET /api/balance?address=... ----------
 app.get('/api/balance', async (req, res) => {

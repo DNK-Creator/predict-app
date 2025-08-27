@@ -387,7 +387,6 @@ async function onDepositStars(amount) {
                     const resp = await fetch(`${API_BASE}/api/stars-payment`, {
                         method: 'POST',
                         headers,
-                        credentials: 'include', // in case server uses cookie session
                         body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id ?? 99 })
                     })
 
@@ -404,7 +403,7 @@ async function onDepositStars(amount) {
                     // Optionally refresh user points in store
                     try {
                         // If you have a store method to fetch points, call it:
-                        await app.fetchPoints?.()
+                        await app.fetchPoints()
                     } catch (e) { /* ignore */ }
                 } else {
                     // other statuses: 'cancelled' etc., do nothing
