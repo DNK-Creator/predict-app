@@ -694,8 +694,10 @@ async function handleStart(ctx) {
 
         const privacyUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/GiftsPredictPrivacyPolicy.pdf";
         const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png";
-        const startAppQuery = ctx.session.ref ? `?startapp=${encodeURIComponent(ctx.session.ref)}` : "?startapp";
-
+        let startAppQuery = ctx.session.ref ? `?startapp=${ctx.session.ref}` : null;
+        if(startAppQuery === null) {
+            startAppQuery = '?startapp='
+        }
         return ctx.replyWithPhoto(
             { url: bannerUrl },
             {
