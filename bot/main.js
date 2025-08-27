@@ -103,7 +103,7 @@ bot.on("pre_checkout_query", async (ctx) => {
 app.get("/api/get-chance", async (req, res) => {
     console.log('Hit /api/get-chance')
     try {
-        let betID = 27
+        let betID = 28
         const { data: currentChance, error: userErr } = await supabaseAdmin
             .from("bets")
             .select("current_odds")
