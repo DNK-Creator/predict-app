@@ -526,6 +526,7 @@ const actionText = computed(() => {
 
 function selectDeposit(code) {
     selectedDeposit.value = code
+    amount.value = ''
     if (animOne && animTwo) {
         if (code === 'TON') {
             animOne.play()
