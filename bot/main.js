@@ -651,16 +651,20 @@ async function handleStart(ctx) {
             console.log("Saved ref for", ctx.from.id, "=", incoming)
         }
 
+        const privacyUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/GiftsPredictPrivacyPolicy.pdf";
+        const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png";
+        const startAppQuery = ctx.session.ref ? `?startapp=${encodeURIComponent(ctx.session.ref)}` : "";
+
         return ctx.replyWithPhoto(
-            { url: "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png" },
+            { url: bannerUrl },
             {
-                caption: "Welcome to Gifts Predict! 🔮 Earn TON by predicting the future of Telegram and Crypto related events.",
+                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
                 parse_mode: "HTML",
                 // <-- spread the inlineKeyboard into the options:
                 ...Markup.inlineKeyboard([
                     [Markup.button.url(
                         "🕹️ Open App",
-                        `https://t.me/giftspredict_bot?startapp=${ctx.session.ref || ""}`
+                        `https://t.me/giftspredict_bot${startAppQuery}`
                     )],
                     [Markup.button.url(
                         "📢 Community",
@@ -669,12 +673,14 @@ async function handleStart(ctx) {
                 ]),
                 message_effect_id: effectIdTwo,
             });
+
     }
     catch (err) {
         console.error("❌ start handler failed:", err)
         return ctx.reply("An error occured, please try again later.")
     }
 }
+
 
 async function handleNewUser(ctx) {
     try {

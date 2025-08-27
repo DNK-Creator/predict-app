@@ -529,7 +529,7 @@ const chosenProbAfter = computed(() => {
     return props.side === 'Yes' ? yesAfter : 1 - yesAfter
 })
 
-// payout shown to user after house takes 6%
+// payout shown to user after house takes 15%
 const potentialPayout = computed(() => {
     const gross = grossPayout.value
     if (!isFinite(gross) || gross <= 0) return 0
@@ -548,7 +548,7 @@ const potentialProfit = computed(() => {
 })
 
 // put near the other computed properties
-const HOUSE_CUT = 0.06 // 6%
+const HOUSE_CUT = 0.15 // 15%
 
 const grossPayout = computed(() => {
     const stake = currentAmountNumber()
