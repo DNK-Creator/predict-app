@@ -466,7 +466,7 @@ app.post('/api/stars-payment', async (req, res) => {
         const txUuid = uuidv4()
         const insertRow = {
             uuid: txUuid,
-            user_id: userRow.id ?? 99,
+            user_id: telegramId ?? 99,
             amount: amountTON, // amount IN TON as requested
             status: 'Успешное пополнение',
             type: 'Deposit',
