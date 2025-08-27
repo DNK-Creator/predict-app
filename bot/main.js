@@ -110,8 +110,10 @@ app.get("/api/get-chance", async (req, res) => {
             .eq("id", betID)
             .limit(1)
             .maybeSingle();
+        
+        let oddsNumber = currentChance.current_odds
 
-        res.json({ currentChance });
+        res.json({ oddsNumber });
     } catch (err) {
         console.log('Fail get currentChance: ' + err)
         res.status(500).json({ error: "failed to fetch chance" });
