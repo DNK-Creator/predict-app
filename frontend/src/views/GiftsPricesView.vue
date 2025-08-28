@@ -1,7 +1,7 @@
 <template>
     <div class="page">
         <header class="header" :style="{ '--header-height': headerHeight + 'px' }">
-            <h1 class="title">Актуальные цены на подарки</h1>
+            <h1 class="title">{{ $t('current-prices') }}</h1>
         </header>
 
         <main class="content">
@@ -18,8 +18,8 @@
                 <li ref="sentinel" class="sentinel" aria-hidden="true"></li>
             </ul>
 
-            <div v-if="loading" class="loading">Загрузка…</div>
-            <div v-else-if="!gifts.length" class="empty">Нет подарков</div>
+            <div v-if="loading" class="loading">{{ $t('loading-dots') }}</div>
+            <div v-else-if="!gifts.length" class="empty">{{ $t('no-gifts') }}</div>
         </main>
     </div>
 </template>

@@ -110,5 +110,7 @@
     "filter-word-past": "past",
     "upcoming": "Upcoming",
     "stars-deposit-info": "Top up between 50 and 2,500 stars",
-    "stars-limit": "Minimal deposit - 50 stars"
+    "stars-limit": "Minimal deposit - 50 stars",
+    "no-gifts": "No available gifts",
+    "current-prices": "Current gift prices"
 }

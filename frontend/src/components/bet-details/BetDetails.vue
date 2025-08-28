@@ -55,7 +55,7 @@
                         <div class="chance-row">
                             <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
                                 volume.No).toFixed(2)
-                            }}</span>
+                                }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -85,7 +85,7 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                        }}</span>
+                            }}</span>
                     </div>
                 </div>
 
@@ -181,14 +181,16 @@
                     @pointerdown="onPointerDown('yes')" @pointerup="onPointerUp('yes')"
                     @pointercancel="onPointerUp('yes')" @mouseleave="onPointerUp('yes')"
                     @touchstart.passive="onPointerDown('yes')" @touchend.passive="onPointerUp('yes')">
-                    {{ $t('yes') }}
+                    <div class="btn-label">{{ $t('yes') }}</div>
+                    <div class="multiplier-hint" v-if="showMultipliers">{{ multiplierYes }}</div>
                 </button>
 
                 <button :class="['footer__no', { pressed: pressingNo }]" @click="openBetModal('No')"
                     @pointerdown="onPointerDown('no')" @pointerup="onPointerUp('no')" @pointercancel="onPointerUp('no')"
                     @mouseleave="onPointerUp('no')" @touchstart.passive="onPointerDown('no')"
                     @touchend.passive="onPointerUp('no')">
-                    {{ $t('no') }}
+                    <div class="btn-label">{{ $t('no') }}</div>
+                    <div class="multiplier-hint" v-if="showMultipliers">{{ multiplierNo }}</div>
                 </button>
             </div>
         </div>
@@ -247,12 +249,6 @@ let bodyClassObserver = null
 
 function translatePlaceholder() {
     return app.language === 'ru' ? 'Напишите комментарий..' : 'Post a comment..'
-}
-
-function translateStatus(status) {
-    if (status === 'Закрыто' || status === 'закрыто') {
-        return app.language === 'ru' ? 'Закрыто' : 'Closed'
-    }
 }
 
 function translateHide() {
@@ -475,6 +471,45 @@ function formatUsersSide(side) {
     return app.language === 'ru' ? 'Нет' : 'No'
 }
 
+function formatMultiplier(n) {
+    if (!isFinite(n) || n <= 0) return '0x';
+    // Round to 2 decimals
+    const rounded = Math.round(n * 100) / 100;
+    // If integer, show without decimals
+    if (Number.isInteger(rounded)) return `${rounded}x`;
+    // Otherwise show up to 2 decimals, strip trailing zeros
+    return `${rounded.toFixed(2).replace(/\.?0+$/, '')}x`;
+}
+
+const multiplierYes = computed(() => {
+    const yes = Number(volParts.value.yes) || 0;
+    const no = Number(volParts.value.no) || 0;
+    const total = yes + no;
+    if (total <= 0) return '0x';
+
+    // Typical payout multiplier when you bet on Yes = total / yes
+    // If yes is 0 (no liquidity on that side), we treat it as a very large payout = total
+    const m = yes > 0 ? total / yes : total;
+    return formatMultiplier(m);
+});
+
+const multiplierNo = computed(() => {
+    const yes = Number(volParts.value.yes) || 0;
+    const no = Number(volParts.value.no) || 0;
+    const total = yes + no;
+    if (total <= 0) return '0x';
+
+    const m = no > 0 ? total / no : total;
+    return formatMultiplier(m);
+});
+
+// optional: show hints only if there's any liquidity (or adjust to your UX)
+const showMultipliers = computed(() => {
+    const yes = Number(volParts.value.yes) || 0;
+    const no = Number(volParts.value.no) || 0;
+    return (yes + no) > 0;
+});
+
 /* Volume parsing helpers (same as before) */
 function readVolumeObject(vol) {
     let yes = 0
@@ -507,14 +542,25 @@ function readVolumeObject(vol) {
 const volParts = computed(() => readVolumeObject(bet.value.volume))
 
 const calculatedOdds = computed(() => {
-    const yes = Number(volParts.value.yes) || 0
-    const no = Number(volParts.value.no) || 0
-    const total = yes + no
-    let decNumber = Number(yes / total).toFixed(2)
-    if (total > 0) return decNumber * 100
-    const p = Number(bet.current_odds)
-    return isFinite(p) ? Math.max(0, Math.min(1, p)) : 0
-})
+    const yes = Number(volParts.value.yes) || 0;
+    const no = Number(volParts.value.no) || 0;
+    const total = yes + no;
+
+    let pct = 0;
+
+    if (total > 0) {
+        pct = (yes / total) * 100;
+    } else {
+        const p = Number(bet.current_odds);
+        if (!isFinite(p)) return 0;
+        // if p is 0..1 treat as fraction, if 1..100 treat as already-percent
+        pct = p <= 1 ? p * 100 : p;
+    }
+
+    // clamp to 0..100 and round to nearest integer
+    return Math.round(Math.max(0, Math.min(100, pct)));
+});
+
 
 // description helpers
 const firstSentence = computed(() => {
@@ -1980,5 +2026,18 @@ function onResize() { updateCaretPosition(); }
     /* below footer (3) but above content with default stacking */
     background: transparent;
     touch-action: manipulation;
+}
+
+.btn-label {
+    line-height: 1;
+}
+
+.multiplier-hint {
+    font-size: 0.75rem;
+    margin-top: 0.18rem;
+    color: rgba(255, 255, 255, 0.6);
+    /* tweak for your theme */
+    display: block;
+    text-align: center;
 }
 </style>

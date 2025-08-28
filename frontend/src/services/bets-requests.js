@@ -23,7 +23,7 @@ export async function getUsersActiveBets() {
     // 3️⃣ fetch bets whose prizes_given = false
     const { data: bets, error: betsError } = await supabase
         .from('bets')
-        .select('id, name, date')
+        .select('id, name, name_en, date')
         .in('id', betIds)
         .eq('prizes_given', false);
     if (betsError) throw betsError;
@@ -34,6 +34,7 @@ export async function getUsersActiveBets() {
         return {
             id: bet.id,
             name: bet.name,
+            name_en: bet.name_en,
             date: bet.date,            // a string “YYYY‑MM‑DD”
             stake: entry.stake,
             side: entry.side,

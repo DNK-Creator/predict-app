@@ -73,11 +73,11 @@ export function updateLayoutVars(
             }
 
             requiredBottom = Math.max(0, requiredBottom + Math.round(safety))
-            bottomSpaceValue = `${requiredBottom}px`
+            bottomSpaceValue = `calc(${requiredBottom}px + 20px)`
             docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
         } else {
             // no floating menu visible — reserve just the device safe-area bottom + a tiny safety margin
-            bottomSpaceValue = `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px)`
+            bottomSpaceValue = `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px + 20px)`
             docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
         }
 

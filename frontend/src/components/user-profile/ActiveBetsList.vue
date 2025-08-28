@@ -14,7 +14,7 @@
             <!-- main content -->
             <router-link :to="{ name: 'BetDetails', params: { id: bet.id } }" class="bet-content">
                 <div class="bet-name">
-                    {{ bet.name }}
+                    {{ translateBetName(bet.name, bet.name_en) }}
                 </div>
                 <div class="bet-meta">
                     {{ $t('placed') }} {{ bet.stake }} TON {{ $t('on-something') }} {{ formattedSide(bet.side) }}
@@ -37,6 +37,10 @@ const app = useAppStore()
 
 const activeBets = ref([])
 const loading = ref(false)
+
+function translateBetName(nameRu, nameEn) {
+    return app.language === 'ru' ? nameRu : nameEn
+}
 
 async function loadActiveBets() {
     try {
