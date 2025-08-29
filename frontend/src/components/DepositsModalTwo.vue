@@ -37,8 +37,8 @@
                         <div class="deposit-method-container" v-show="selectedDeposit === 'TON'">
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
-                                <span v-if="!address" class="deposit-text-info">{{ $t('deposit-ton-connect') }}</span>
-                                <span v-else="!address" class="deposit-text-info">{{ $t('connected-balance') }} {{
+                                <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect') }}</span>
+                                <span v-else="!address" class="deposit-text-info-two">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
                             <!-- Starting Deposit Fields container for TON -->
@@ -916,6 +916,15 @@ function connectNewWallet() {
 }
 
 .deposit-text-info {
+    color: rgba(171, 171, 171, 0.78);
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    text-align: center;
+    padding: 5px;
+}
+
+.deposit-text-info-two {
+    margin-top: 1.5rem;
     color: rgba(171, 171, 171, 0.78);
     font-family: "Inter", sans-serif;
     font-weight: 600;

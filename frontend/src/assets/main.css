@@ -91,22 +91,6 @@ body.keyboard-open .footer {
   transition: transform 160ms ease, opacity 160ms ease;
 }
 
-/* defensive: hide/slide modal action buttons while on-screen keyboard is open */
-body.keyboard-open .settings-modal .buttons-group {
-  transform: translateY(120%);
-  opacity: 0;
-  pointer-events: none;
-  transition: transform 160ms ease, opacity 160ms ease;
-}
-
-/* bring them back smoothly when keyboard closes */
-.settings-modal .buttons-group {
-  transition: transform 160ms ease, opacity 160ms ease;
-  transform: translateY(0);
-  opacity: 1;
-}
-
-
 body.keyboard-open .modal-container {
   transform: translate(-50%, calc(-50% + 3vh));
   /* tweak 1vh as needed so input isn't behind browser chrome */
