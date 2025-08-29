@@ -304,10 +304,24 @@ async function scrollModalToBottom(smooth = true) {
     // allow one rAF for any browser reflow quirks
     await new Promise((r) => requestAnimationFrame(r))
 
+    // Find buttons-group height if present (buttons-group is sibling of modal body)
+    let buttonsHeight = 0
+    try {
+        const settingsRoot = el.closest('.settings-modal') || el.parentElement
+        const buttonsEl = settingsRoot ? settingsRoot.querySelector('.buttons-group') : null
+        if (buttonsEl) {
+            // use bounding rect to handle transforms or variable heights
+            buttonsHeight = Math.round(buttonsEl.getBoundingClientRect().height) || 0
+        }
+    } catch (e) {
+        buttonsHeight = 0
+    }
+
     // If we don't have an input or measurement fails, fallback to full bottom
     if (!input) {
         const kb = window.visualViewport ? Math.max(0, window.innerHeight - window.visualViewport.height) : 0
-        const fallbackTop = Math.max(0, el.scrollHeight - el.clientHeight + kb + 8)
+        // include buttonsHeight so fallback moves content above the buttons
+        const fallbackTop = Math.max(0, el.scrollHeight - el.clientHeight + kb + buttonsHeight + 8)
         if (smooth && el.scrollTo) el.scrollTo({ top: fallbackTop, behavior: 'smooth' })
         else el.scrollTop = fallbackTop
         return
@@ -327,12 +341,13 @@ async function scrollModalToBottom(smooth = true) {
     // how much space inside the container we want beneath the input (16px or more)
     const desiredBottomGap = 16
 
-    // compute desired scrollTop so the input is just above the keyboard / bottom area:
-    // put input near the bottom of the visible container: offsetTop - (containerHeight - inputHeight) + keyboardHeight + gap
+    // compute desired scrollTop so the input is above the keyboard and above buttons-group:
+    // put input near the bottom of the visible container:
+    // offsetTop - (containerHeight - inputHeight) + keyboardHeight + gap + buttonsHeight
     const desiredTop = Math.max(
         0,
         Math.round(
-            inputOffsetTop - (el.clientHeight - inputRect.height) + keyboardHeight + desiredBottomGap
+            inputOffsetTop - (el.clientHeight - inputRect.height) + keyboardHeight + desiredBottomGap + buttonsHeight
         )
     )
 
@@ -343,6 +358,7 @@ async function scrollModalToBottom(smooth = true) {
         el.scrollTop = desiredTop
     }
 }
+
 
 // called when user clicks “TON”
 function focusAmountInput() {
@@ -360,7 +376,7 @@ function onAmountFocus() {
             amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
         } catch (_) { }
         scrollModalToBottom(true)
-    }, 500)
+    }, 400)
 
     if (window.visualViewport) {
         // attach only once

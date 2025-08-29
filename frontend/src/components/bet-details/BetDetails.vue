@@ -946,11 +946,6 @@ watch(betId, async (newId, oldId) => {
 // typing speed (ms per character)
 const CHAR_DELAY = 35;
 
-// sourceText already derived earlier in your file; if not, keep your existing sourceText logic:
-function getBetName() {
-    return app.language === 'ru' ? bet.value.name : bet.value.name_en
-}
-
 // derive the source text from app.language + bet row (falls back to name if localized missing)
 const sourceText = computed(() => {
     // choose localized text: prefer explicit en field when language isn't ru
@@ -1023,7 +1018,6 @@ async function startTyping() {
     typingTimer = null;
 }
 
-// measure and position caret to right edge of last visible char (works for spaces too)
 function updateCaretPosition() {
     const container = headerContainer.value;
     const caret = caretEl.value;
@@ -1032,7 +1026,6 @@ function updateCaretPosition() {
     const containerRect = container.getBoundingClientRect();
 
     if (displayedCount.value === 0) {
-        // place at start of first char or at container left
         const first = charRefs[0];
         if (first) {
             const r = first.getBoundingClientRect();
@@ -1048,21 +1041,44 @@ function updateCaretPosition() {
         return;
     }
 
-    // last visible char index (may be a space token)
     const idx = Math.min(displayedCount.value - 1, charRefs.length - 1);
     const el = charRefs[idx];
+
     if (el) {
+        try {
+            // Use a Range anchored just after the element to get exact caret rect,
+            // which works better for spaces and wrapped lines than using el.getBoundingClientRect().right
+            const range = document.createRange();
+            range.setStartAfter(el);
+            range.setEndAfter(el);
+            const rangeRect = range.getBoundingClientRect();
+
+            // If rangeRect is empty (some browsers / edge cases), fallback to element rect
+            if (rangeRect && (rangeRect.width || rangeRect.height)) {
+                const left = Math.max(0, rangeRect.left - containerRect.left);
+                caret.style.left = `${left}px`;
+                caret.style.top = `${Math.max(0, rangeRect.top - containerRect.top)}px`;
+                caret.style.height = `${rangeRect.height || el.getBoundingClientRect().height}px`;
+                return;
+            }
+        } catch (e) {
+            // fallthrough to el-based fallback
+        }
+
+        // fallback: element bounding rect right edge
         const r = el.getBoundingClientRect();
         const left = Math.max(0, r.right - containerRect.left);
         caret.style.left = `${left}px`;
         caret.style.top = `${Math.max(0, r.top - containerRect.top)}px`;
         caret.style.height = `${r.height}px`;
     } else {
+        // fallback: put caret at container right side
         caret.style.left = `${containerRect.width}px`;
         caret.style.top = `0px`;
         caret.style.height = `${containerRect.height}px`;
     }
 }
+
 
 // Whenever the localized sourceText changes we must replay typing.
 // Clear any cached char refs first so measurement is fresh.
@@ -1118,10 +1134,11 @@ function onResize() { updateCaretPosition(); }
     user-select: none;
 }
 
-/* container needs position:relative so caret (absolute) can be placed inside */
 .header__text {
     font-size: 1.2rem;
-    width: 80%;
+    width: 100%;
+    max-width: 85%;
+    margin: 0 auto;
     color: #F7F9FB;
     text-align: center;
     font-family: 'Press Start 2P', system-ui;
@@ -1131,10 +1148,9 @@ function onResize() { updateCaretPosition(); }
     overflow-wrap: anywhere;
     word-break: break-word;
     hyphens: auto;
-
     position: relative;
     /* for absolute caret */
-    display: inline-block;
+    display: block;
     line-height: 1.2;
 }
 
@@ -1163,6 +1179,15 @@ function onResize() { updateCaretPosition(); }
 /* reveal typed characters instantly (no fading) */
 .header__text .char.visible {
     visibility: visible;
+}
+
+/* ensure inline pieces align consistently (fixes vertical micro-shifts) */
+.header__text .word,
+.header__text .space,
+.header__text .char {
+    display: inline-block;
+    vertical-align: top;
+    /* prevent baseline shifts */
 }
 
 /* caret styling unchanged */
