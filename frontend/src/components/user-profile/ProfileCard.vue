@@ -19,7 +19,7 @@
         <div class="stats-row">
             <div class="stat-item">
                 <div class="stat-value">
-                    <span>{{ totalVolume }}</span>
+                    <span>{{ Number(totalVolume).toFixed(2) }}</span>
                     <img :src="tonWhiteIcon" class="icon-diamond">
                 </div>
                 <div class="stat-label">{{ $t("total-volume") }}</div>
