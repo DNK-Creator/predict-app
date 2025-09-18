@@ -8,7 +8,18 @@
         <ShowBetModal :visible="showBetModal" :bet="bet" :side="betSide" @close="showBetModal = false"
             @placed="onBetPlaced" />
 
+        <GiveawayModal :show="showGiveawayModal" @close="showGiveawayModal = false" :gift_name="bet.giveaway_prize_name"
+            :gift_value="bet.giveaway_gift_value" :total_tickets="bet.giveaway_total_tickets"
+            :tickets_left="bet.giveaway_tickets_left" :image_link="bet.giveaway_prize_image" />
+
         <div v-show="!spinnerShow" class="bet-details">
+
+            <!-- 🎉 Celebration Banner -->
+            <div v-if="showCelebration" class="celebration-banner">
+                <h2 v-if="user"> {{ $t('congrats') }}, {{ user?.username }}! </h2>
+                <h2 v-else> {{ $t('congrats-user') }} </h2>
+                <p>{{ $t('winning-soon') }}</p>
+            </div>
 
             <div class="header-two">
                 <h1 class="header__text" ref="headerContainer" aria-label="bet title">
@@ -39,12 +50,6 @@
 
             <!-- Main content -->
             <main ref="scrollArea" class="content" @scroll.passive="handleScroll">
-                <!-- 🎉 Celebration Banner -->
-                <div v-if="showCelebration" class="celebration-banner">
-                    <h2 v-if="user"> {{ $t('congrats') }}, {{ user?.username }}! </h2>
-                    <h2 v-else> {{ $t('congrats-user') }} </h2>
-                    <p>{{ $t('winning-soon') }}</p>
-                </div>
 
                 <section class="content__chart">
                     <MemoryOrb :inside_image="bet.inside_image" :bet_name="bet.name" />
@@ -55,7 +60,7 @@
                         <div class="chance-row">
                             <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
                                 volume.No).toFixed(2)
-                                }}</span>
+                            }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -85,9 +90,29 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                            }}</span>
+                        }}</span>
                     </div>
                 </div>
+
+                <section v-if="userBetAmount.stake > 0" class="placed-bet-container">
+                    <div v-if="showCelebration === false" class="placed-bet-object">
+                        <span>
+                            {{ $t('potential-win') }}:
+                        </span>
+                        <span class="potential-win">
+                            {{ formatTon(potentialWinningsForUser) }}
+                        </span>
+                    </div>
+                    <div v-else class="placed-bet-object">
+                        <span>
+                            {{ $t('got-win') }}:
+                        </span>
+                        <span class="potential-win">
+                            {{ formatTon(potentialWinningsForUser) }}
+                        </span>
+                    </div>
+                </section>
+
 
                 <section class="card info-card">
                     <div class="info-header">
@@ -109,52 +134,68 @@
                         <p v-if="restDescription" class="card__text">
                             {{ restDescription }}
                         </p>
-
-                        <!-- your other info fields -->
-                        <!-- <div class="volume_info">
-                            <span>{{ $t('time-left') }}:</span>
-                            <span>{{ timeRemaining }}</span>
-                        </div>
-                        <div class="volume_info">
-                            <span>{{ $t('status') }}:</span>
-                            <span v-if="bet.result !== 'undefined'">{{ $t('result') }}: "{{ formatUsersSide(bet.result)
-                            }}"</span>
-                            <span v-else-if="betStatus !== '000' && betStatus !== '111'">{{ translateStatus(betStatus)
-                                }}</span>
-                            <span v-else-if="betStatus === '111'">{{ $t('open') }}</span>
-                            <span v-else>{{ $t('waiting-bet') }}</span>
-                        </div>
-                        <div class="volume_info">
-                            <span>{{ $t('volume') }}:</span>
-                            <span v-if="volume.Yes && volume.No">{{ volume.Yes + volume.No }} TON</span>
-                            <span v-else-if="volume.Yes">{{ volume.Yes }} TON</span>
-                            <span v-else-if="volume.No">{{ volume.No }} TON</span>
-                            <span v-else>0 TON</span>
-                        </div> -->
                     </div>
                 </section>
 
-                <section class="grid">
-                    <div v-if="userBetAmount.stake > 0" class="card grid__item grid__full">
-                        <span> {{ $t('your-bet') }}: {{ userBetAmount.stake }} TON {{ $t('on-something') }} {{
-                            formatUsersSide(userBetAmount.result) }}
-                        </span>
+                <!-- ==========================
+Giveaway information block
+- left: explanatory text
+- right: prize image + value
+- bottom: horizontal slider (fill from RIGHT -> LEFT) showing tickets left
+- hint text below slider, half-visible (only top half shown)
+========================== -->
+                <div v-show="showGiveawayInfo()" class="giveaway-information" :style="{
+                    '--fill-percent': fillPercent,
+                    '--tickets-left': giveawayTicketsLeft,
+                    '--tickets-total': giveawayTotal
+                }" @click="giveawayOpened">
+
+
+                    <div class="giveaway-top">
+                        <div class="giveaway-top__text">{{ $t('giveaway-rules') }} <span
+                                class="giveaway-prize-name">{{
+                                    bet.giveaway_prize_name }}</span>.</div>
+
+
+                        <div class="giveaway-top__media" aria-hidden="true">
+                            <img class="giveaway-prize-image" :src="bet.giveaway_prize_image" alt="Gift" />
+                        </div>
                     </div>
-                    <div v-else-if="betStatus !== '000'" class="card grid__item grid__full">
-                        <span>{{ $t('didnt-place-bet') }}</span>
+
+
+                    <div class="giveaway-slider-wrap">
+                        <div class="giveaway-slider" aria-hidden="true">
+                            <div class="giveaway-track">
+                                <div class="giveaway-fill" />
+                            </div>
+                        </div>
+
+
+                        <!-- half-visible hint text showing tickets left -->
+                        <div class="giveaway-hint-clip" aria-hidden="true">
+                            <div class="giveaway-hint">{{ $t('tickets-left') }}: {{ bet.giveaway_tickets_left }}/{{
+                                bet.giveaway_total_tickets
+                            }}</div>
+                        </div>
+
+
                     </div>
-                </section>
+                </div>
 
                 <section class="card comments">
                     <h2 class="card__title">{{ $t('comments') }}</h2>
 
                     <div v-if="canComment" class="comments__input-row">
-                        <input ref="commentsInput" v-model="newComment" type="text" maxlength="205"
+                        <textarea ref="commentsInput" v-model="newComment" :maxlength="155"
                             :placeholder="translatePlaceholder()" class="comments__input"
-                            :disabled="cooldownRemaining > 0" @keyup.enter="tryPostComment" @focus="onCommentsFocus"
-                            @blur="onCommentsBlur" />
+                            :disabled="cooldownRemaining > 0" @focus="onCommentsFocus" @blur="onCommentsBlur"
+                            @input="autoResize" @keydown.enter.prevent="onEnterKey"
+                            @pointerdown.passive="onTextareaPointerDown" @touchstart.passive="onTextareaPointerDown"
+                            aria-label="Write a comment" autocomplete="on" inputmode="text" autocapitalize="sentences"
+                            autocorrect="on" rows="1"></textarea>
 
                         <button class="comments__post" :disabled="isSendDisabled" @click="tryPostComment"
+                            @pointerdown.passive="onPostPointerDown" @pointerup.passive="onPostPointerUp"
                             :aria-label="cooldownRemaining > 0 ? `${translateWait()} ${formattedCooldown}` : translateSendComment()">
                             <span v-if="cooldownRemaining > 0">{{ formattedCooldown }}</span>
                             <span v-else>{{ $t('send') }}</span>
@@ -216,6 +257,7 @@ import {
 import MemoryOrb from './MemoryOrb.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
 import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
+import GiveawayModal from './GiveawayModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
 import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
@@ -246,6 +288,65 @@ const commentsInput = ref(null)
 const isKeyboardOpen = ref(false)
 
 let bodyClassObserver = null
+
+const showGiveawayModal = ref(false)
+
+const showGiveawayInfo = () => {
+    const raw = bet?.value?.close_time
+
+    let closeDate
+
+    try {
+        if (typeof raw === 'string') {
+            // parseISO may be available in your project (date-fns). Fallback to Date if not.
+            closeDate = (typeof parseISO === 'function') ? parseISO(raw) : new Date(raw)
+        } else if (typeof raw === 'number') {
+            closeDate = new Date(raw)
+        } else if (raw instanceof Date) {
+            closeDate = raw
+        } else {
+            closeDate = new Date(String(raw))
+        }
+    } catch (e) {
+        closeDate = new Date(raw)
+    }
+
+    if (Number.isNaN(closeDate.getTime())) return ''
+
+    const diffMs = closeDate.getTime() - now.value
+
+    return bet.value.giveaway_total_tickets > 0 && diffMs > 0
+}
+
+const giveawayEnded = computed(() => bet.value.giveaway_tickets_left <= 0)
+
+const giveawayTotal = computed(() => Math.max(1, Number(bet.value.giveaway_total_tickets ?? 100)))
+const giveawayTicketsLeft = computed(() => Math.max(0, Number(bet.value.giveaway_tickets_left ?? 30)))
+
+// fillPercent is a NUMBER in 0..100 where 100 = full (right side) and 0 = empty (none)
+const fillPercent = computed(() => {
+    const total = giveawayTotal.value
+    const left = giveawayTicketsLeft.value
+    // percent of track that should be colored (tickets left portion)
+    const p = (left / total) * 100
+    return Math.max(0, Math.min(100, Math.round(p))) // integer 0..100
+})
+
+function giveawayOpened() {
+    if (giveawayEnded.value === true && bet && bet.value && bet.value.giveaway_chat_link) {
+        // take to giveaway message in chat link
+        try {
+            tg.openTelegramLink(bet.value.giveaway_chat_link)
+        } catch (e) {
+            // fallback: open share link in new tab
+            window.open(bet.value.giveaway_chat_link)
+        }
+    }
+    else {
+        // open giveaway more in depth information modal
+        showGiveawayModal.value = true
+    }
+}
 
 function translatePlaceholder() {
     return app.language === 'ru' ? 'Напишите комментарий..' : 'Post a comment..'
@@ -284,6 +385,18 @@ function updateIsKeyboardOpen() {
     }
     isKeyboardOpen.value = document.body.classList.contains('keyboard-open')
 }
+
+/* ---------- a small helper to mark that a user interaction happened so we ignore immediate blur ---------- */
+function onTextareaPointerDown() {
+    // give 400ms window where blur is treated as transient
+    suppressBlurUntil = Date.now() + 450
+    // clear any pending blur-removal so fast interactions keep focus state
+    if (blurTimer) { clearTimeout(blurTimer); blurTimer = null }
+}
+
+/* ensure clicking the post button doesn't cause us to treat blur as transient incorrectly */
+function onPostPointerDown() { suppressBlurUntil = 0 }
+function onPostPointerUp() { /* no-op for now */ }
 
 function onKeyboardBackdropClick(e) {
     // blur the input if present (must be a user gesture)
@@ -339,13 +452,17 @@ const COOLDOWN_SECONDS = 30 * 60 // 30 minutes * 60 seconds = 1800 seconds
 const cooldownRemaining = ref(0)      // seconds left
 let cooldownInterval = null
 const lastCommentAt = ref(null)      // ISO string or null
+let suppressBlurUntil = null
 
 // ----- add near the top of setup (state) -----
 const initialViewportHeight = ref(window.innerHeight) // fallback baseline
+// near top of setup (declare timers / listeners)
+let blurTimer = null
+let keyboardStabilizeTimer = null
 let vvResizeListener = null
 let windowResizeListener = null
 
-const { user } = useTelegram()
+const { user, tg } = useTelegram()
 
 const opacities = [0.25, 0.5, 1.0, 0.5];
 
@@ -441,34 +558,94 @@ async function refreshUserLastCommentTime() {
     }
 }
 
+/**
+ * Auto-resize textarea to fit content (max-height prevents runaway growth).
+ */
+function autoResize() {
+    const el = commentsInput.value
+    if (!el) return
+    el.style.height = 'auto'
+    const max = 240
+    const desired = Math.min(el.scrollHeight, max)
+    el.style.height = desired + 'px'
+    el.style.overflowY = el.scrollHeight > max ? 'auto' : 'hidden'
+}
 async function onCommentsFocus() {
-    document.body.classList.add('keyboard-open')
-
-    // compute keyboard height for initial set:
-    let keyboardHeight = 0
-    if (window.visualViewport) {
-        keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height)
-    }
-    setKeyboardHeight(keyboardHeight) // sets --keyboard-height
-    updateLayoutVars() // re-measure menu/header and set --app-bottom-space
+    // cancel any pending blur removal
+    if (blurTimer) { clearTimeout(blurTimer); blurTimer = null }
 
     await nextTick()
-    setTimeout(() => {
-        commentsInput?.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }, 60)
+    autoResize()
+
+    // mark keyboard-open quickly but avoid heavy layout churn
+    document.body.classList.add('keyboard-open')
+    isKeyboardOpen.value = true
+
+    // set keyboard height now (best-effort)
+    const applyKeyboardHeight = () => {
+        let keyboardHeight = 0
+        if (window.visualViewport) {
+            keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height)
+        } else {
+            keyboardHeight = Math.max(0, initialViewportHeight.value - window.innerHeight)
+        }
+        setKeyboardHeight(keyboardHeight)
+        updateLayoutVars()
+    }
+    applyKeyboardHeight()
+
+    // stabilize: wait for visual viewport to settle before performing any scrollIntoView
+    if (keyboardStabilizeTimer) clearTimeout(keyboardStabilizeTimer)
+    keyboardStabilizeTimer = setTimeout(() => {
+        if (commentsInput.value && document.activeElement === commentsInput.value) {
+            try { commentsInput.value.scrollIntoView({ behavior: 'smooth', block: 'center' }) } catch (e) { /* ignore */ }
+        }
+        applyKeyboardHeight()
+        keyboardStabilizeTimer = null
+    }, 220)
 }
 
 function onCommentsBlur() {
-    document.body.classList.remove('keyboard-open')
-    setKeyboardHeight(0)
-    updateLayoutVars()
-}
-
-function formatUsersSide(side) {
-    if (side === 'Yes' || side === 'yes' || side === 'YES') {
-        return app.language === 'ru' ? 'Да' : 'Yes'
+    // if blur happens but a recent pointerdown happened (caret reposition/double-tap), ignore it
+    if (Date.now() < suppressBlurUntil) {
+        // keep keyboard state; do not remove class yet
+        return
     }
-    return app.language === 'ru' ? 'Нет' : 'No'
+
+    if (blurTimer) clearTimeout(blurTimer)
+    blurTimer = setTimeout(() => {
+        // only remove keyboard state if the textarea is not focused
+        if (!commentsInput.value || document.activeElement !== commentsInput.value) {
+            document.body.classList.remove('keyboard-open')
+            isKeyboardOpen.value = false
+            setKeyboardHeight(0)
+            updateLayoutVars()
+        }
+        blurTimer = null
+    }, 200) // a slightly longer debounce to handle platform quirks
+}
+/**
+ * Enter key behaviour: Shift+Enter => newline, Enter => post.
+ */
+function onEnterKey(e) {
+    if (e.shiftKey) {
+        // insert newline at caret
+        const el = commentsInput.value
+        if (el) {
+            const start = el.selectionStart
+            const end = el.selectionEnd
+            const value = el.value
+            const newVal = value.slice(0, start) + '\n' + value.slice(end)
+            newComment.value = newVal
+            nextTick(() => {
+                el.selectionStart = el.selectionEnd = start + 1
+                autoResize()
+            })
+        }
+        return
+    }
+    // otherwise send
+    tryPostComment()
 }
 
 function formatMultiplier(n) {
@@ -820,7 +997,27 @@ onMounted(async () => {
             initialViewportHeight.value = window.innerHeight || document.documentElement.clientHeight;
         }
     };
-    window.addEventListener('resize', windowResizeListener, { passive: true });
+
+    // visualViewport handlers: update keyboard height when viewport changes
+    if (window.visualViewport) {
+        vvResizeListener = () => {
+            // compute keyboard height quickly and update layout vars
+            const keyboardHeight = Math.max(0, window.innerHeight - window.visualViewport.height)
+            setKeyboardHeight(keyboardHeight)
+            updateLayoutVars()
+
+            // if the textarea is focused keep it visible (non-animated to avoid focus flicker)
+            if (commentsInput.value && document.activeElement === commentsInput.value) {
+                try {
+                    commentsInput.value.scrollIntoView({ behavior: 'auto', block: 'center' })
+                } catch (e) { /* ignore */ }
+            }
+        }
+
+        // passive listeners to avoid blocking scroll
+        window.visualViewport.addEventListener('resize', vvResizeListener, { passive: true })
+        window.visualViewport.addEventListener('scroll', vvResizeListener, { passive: true })
+    }
 
     spinnerShow.value = false
 })
@@ -837,8 +1034,16 @@ onBeforeUnmount(() => {
         vvResizeListener = null
     }
 
+    if (blurTimer) {
+        clearTimeout(blurTimer)
+        blurTimer = null
+    }
+    if (keyboardStabilizeTimer) {
+        clearTimeout(keyboardStabilizeTimer)
+        keyboardStabilizeTimer = null
+    }
+
     cancelTyping();
-    window.removeEventListener('resize', onResize);
 
     // cleanup observer
     if (bodyClassObserver) {
@@ -1108,6 +1313,86 @@ watch(
 
 function onResize() { updateCaretPosition(); }
 
+// --- Helpers + potential profit computation for the existing user bet ---
+// House cut used in bet modal (10%)
+const HOUSE_CUT = 0.03
+
+// small formatter for TON amounts (similar to modal)
+function formatTon(x) {
+    if (!isFinite(x)) return '—'
+    const rounded = Math.round(x * 100) / 100
+    return rounded.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' TON'
+}
+
+// normalize user side robustly (accept several string shapes)
+function normalizeUserSide(side) {
+    if (!side && side !== 0) return null
+    const s = String(side).trim().toLowerCase()
+    if (s === 'yes' || s === 'y' || s === '1') return 'Yes'
+    if (s === 'no' || s === 'n' || s === '0') return 'No'
+    return null
+}
+
+/**
+ * Total winnings for existing user bet (payout after house cut).
+ *
+ * IMPORTANT: volume already includes the user's stake, so we DO NOT add the stake
+ * to the pool when computing implied probabilities here.
+ *
+ * Returns a Number (rounded to 2 decimals) — template calls formatTon(...) to display.
+ */
+const potentialWinningsForUser = computed(() => {
+    const stake = Number(userBetAmount.value?.stake) || 0
+    if (stake <= 0) return 0
+
+    const yes = Number(volParts.value.yes) || 0
+    const no = Number(volParts.value.no) || 0
+    const total = yes + no
+
+    const userSide = normalizeUserSide(userBetAmount.value?.result)
+
+    console.log(userSide)
+
+    // derive chosen probability from existing volumes (do NOT add stake)
+    let chosenProb = 0
+
+    if (total > 0) {
+        if (userSide === 'Yes') {
+            chosenProb = yes / total
+        } else if (userSide === 'No') {
+            chosenProb = no / total
+        } else {
+            // unknown side: fall back to current_odds
+            const p = Number(bet.value?.current_odds)
+            chosenProb = isFinite(p) ? (p <= 1 ? p : p / 100) : 0
+        }
+    } else {
+        // no volume info — fall back to current_odds (either fraction 0..1 or percent 0..100)
+        const p = Number(bet.value?.current_odds)
+        chosenProb = isFinite(p) ? (p <= 1 ? p : p / 100) : 0
+    }
+
+    console.log('Probability is: ' + chosenProb)
+
+    // invalid or zero probability -> no payout (avoid infinite multiplier)
+    if (!isFinite(chosenProb) || chosenProb <= 0) return 0
+
+    // gross payout (stake * (1 / prob))
+    const gross = stake * (1 / chosenProb)
+    if (!isFinite(gross) || gross <= 0) return 0
+
+    const payoutBeforeTaxation = Math.min(9999999, Math.round(gross * 100) / 100)
+    const profitBeforeTax = payoutBeforeTaxation - stake
+
+    console.log('Payout before taxation: ' + payoutBeforeTaxation)
+
+    // final payout after house takes cut on the profit portion
+    const finalPayment = payoutBeforeTaxation - (profitBeforeTax * HOUSE_CUT)
+
+    // round to 2 decimals and ensure non-negative
+    return Math.max(0, Math.round(finalPayment * 100) / 100)
+})
+
 </script>
 
 <style lang="css" scoped>
@@ -1297,6 +1582,7 @@ function onResize() { updateCaretPosition(); }
     font-weight: 600;
 }
 
+.placed-bet-container,
 .informations-container {
     display: flex;
     align-items: center;
@@ -1308,6 +1594,16 @@ function onResize() { updateCaretPosition(); }
     user-select: none;
 }
 
+.placed-bet-container {
+    height: 5rem;
+    margin-bottom: 16px;
+}
+
+.potential-win {
+    color: #569cf8;
+}
+
+.placed-bet-object,
 .info-object-one,
 .info-object-two,
 .info-object-three {
@@ -1349,6 +1645,7 @@ function onResize() { updateCaretPosition(); }
 }
 
 /* ---------- Frosted glass base for info cards + .card / .information / .comments ---------- */
+.placed-bet-object,
 .info-object-one,
 .info-object-two,
 .info-object-three,
@@ -1368,7 +1665,15 @@ function onResize() { updateCaretPosition(); }
         inset 0 1px 0 rgba(255, 255, 255, 0.02);
 }
 
+.placed-bet-object {
+    height: 4rem;
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+}
+
 /* glossy sheen overlay (shared) */
+.placed-bet-object::before,
 .info-object-one::before,
 .info-object-two::before,
 .info-object-three::before,
@@ -1421,6 +1726,7 @@ function onResize() { updateCaretPosition(); }
 }
 
 /* Default tint for other cards/blocks (very subtle) */
+.placed-bet-object::after,
 .card::after,
 .information::after,
 .comments::after {
@@ -1442,6 +1748,10 @@ function onResize() { updateCaretPosition(); }
 .info-object-three {
     color: #fff;
     /* keep strong contrast */
+}
+
+.placed-bet-object {
+    color: rgba(234, 234, 234, 0.98);
 }
 
 /* optional: slight color tint per card (uncomment if you want) */
@@ -1476,6 +1786,7 @@ function onResize() { updateCaretPosition(); }
 /* Fallback for browsers without backdrop-filter */
 @supports not ((-webkit-backdrop-filter: blur(10px)) or (backdrop-filter: blur(10px))) {
 
+    .placed-bet-object,
     .info-object-one,
     .info-object-two,
     .info-object-three,
@@ -1488,6 +1799,7 @@ function onResize() { updateCaretPosition(); }
     }
 
     /* reduce/disable the tint overlays in the fallback so there's no weird blending */
+    .placed-bet-object::after,
     .info-object-one::after,
     .info-object-two::after,
     .info-object-three::after,
@@ -1497,6 +1809,7 @@ function onResize() { updateCaretPosition(); }
         display: none;
     }
 
+    .placed-bet-object::before,
     .info-object-one::before,
     .info-object-two::before,
     .info-object-three::before,
@@ -1797,53 +2110,94 @@ function onResize() { updateCaretPosition(); }
     margin-bottom: 4px;
 }
 
-/* Comments */
+.card.comments {
+    z-index: 4;
+    user-select: text !important;
+    /* ensure selection allowed despite global resets */
+    -webkit-user-select: text !important;
+}
+
+/* Input row: make children stretch to the same height */
 .comments__input-row {
     display: flex;
     margin-top: 1rem;
     margin-bottom: 1rem;
+    align-items: stretch;
+    /* ensure both textarea and button match height */
+    gap: 0;
 }
 
+/* Textarea: autosize, selectable, mobile-friendly */
 .comments__input {
     flex: 1;
-    padding: 10px;
+    padding: 12px;
     border: none;
     border-radius: 8px 0 0 8px;
     font-size: 0.95rem;
     font-family: "Inter", sans-serif;
     font-weight: 400;
+    resize: none;
+    overflow-y: auto;
+    min-height: 48px;
+    max-height: 240px;
+    line-height: 1.4;
+    caret-color: #ffffff;
+    background: #2a2a2a;
+    color: #fff;
+    box-sizing: border-box;
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    -webkit-touch-callout: default;
+    -webkit-tap-highlight-color: rgba(255, 255, 255, 0.06);
+    outline: none;
+    display: block;
+    touch-action: manipulation;
+    /* improve touch responsiveness */
 }
 
+/* Post button: always fills the input row height */
 .comments__post {
-    padding: 10px 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    align-self: stretch;
+    /* ensure it stretches with row */
+    height: auto;
+    /* don't rely on percentage; allow align-self to stretch */
+    padding: 0 16px;
     background: #3b82f6;
     color: #fff;
     border: none;
     border-radius: 0 8px 8px 0;
     cursor: pointer;
+    font-weight: 700;
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
 }
 
-.comments__warning {
-    background: #f0f0f0;
-    color: #666;
-    font-size: 0.75rem;
-    padding: 12px;
-    border-radius: 12px;
-    margin-bottom: 1rem;
-    margin-top: 1rem;
-    text-align: center;
-    font-family: "Inter", sans-serif;
-    font-weight: 600;
+/* Disabled state */
+.comments__post:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 
+/* Comments list selection */
 .comments__list {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    user-select: text !important;
+    -webkit-user-select: text !important;
 }
 
+/* anchor */
 .comments__anchor {
     height: 1px;
+}
+
+.comments__warning {
+    margin-bottom: 16px;
+    text-align: left;
 }
 
 /* Footer */
@@ -1860,7 +2214,7 @@ function onResize() { updateCaretPosition(); }
     align-items: center;
     padding: 8px 12px;
     padding-bottom: 16px;
-    z-index: 3;
+    z-index: 5;
 
     background: rgba(0, 0, 0, 0.72);
     -webkit-backdrop-filter: blur(10px) saturate(120%);
@@ -2010,11 +2364,17 @@ function onResize() { updateCaretPosition(); }
 
 /* 🎉 Celebration banner */
 .celebration-banner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    align-self: center;
+    margin: auto auto;
     margin: 16px 0;
+    width: 90%;
     padding: 16px;
-    background: linear-gradient(135deg, #22c55e, #10b981);
+    background: linear-gradient(135deg, #1ea24f, #11b880);
     color: #F7F9FB;
-    border-radius: 48px;
+    border-radius: 24px;
     text-align: center;
     animation: fadeInDown 0.5s ease-out;
 }
@@ -2064,5 +2424,195 @@ function onResize() { updateCaretPosition(); }
     /* tweak for your theme */
     display: block;
     text-align: center;
+}
+
+/* --- Giveaway styles --- */
+.giveaway-information {
+    cursor: pointer;
+    width: 96%;
+    margin: 12px auto 20px auto;
+    padding: 12px 14px 10px 14px;
+    box-sizing: border-box;
+    border-radius: 12px;
+    position: relative;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.06));
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    overflow: visible;
+    -webkit-backdrop-filter: blur(8px) saturate(110%);
+    backdrop-filter: blur(8px) saturate(110%);
+    user-select: none;
+}
+
+
+/* top row: left text, right stacked media (image above value) */
+.giveaway-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+
+/* left text */
+.giveaway-top__text {
+    font-family: "Inter", sans-serif;
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: #F7F9FB;
+    flex: 1 1 auto;
+}
+
+
+/* prize name highlight inside text */
+.giveaway-prize-name {
+    color: #ffd88a;
+    font-weight: 900;
+}
+
+
+/* RIGHT media: stack vertically (image above, value below) */
+.giveaway-top__media {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    /* <-- stack */
+    gap: 6px;
+    flex: 0 0 auto;
+    margin-left: 12px;
+    min-width: 56px;
+}
+
+
+/* prize image */
+.giveaway-prize-image {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    object-fit: cover;
+    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(0, 0, 0, 0.05));
+}
+
+/* prize value below image */
+.giveaway-prize-value {
+    font-weight: 800;
+    color: #ffebc2;
+    font-size: 0.95rem;
+    line-height: 1;
+    margin-top: 2px;
+    text-align: center;
+}
+
+
+/* slider-wrap stacks slider and hint vertically and stretches to full width */
+.giveaway-slider-wrap {
+    width: 100%;
+    height: 4rem;
+    display: flex;
+    flex-direction: column;
+    /* stack: slider on top, hint below */
+    align-items: stretch;
+    /* make children full-width */
+    justify-content: flex-start;
+    padding-top: 6px;
+    box-sizing: border-box;
+}
+
+/* the visible slider container — give it a defined height and relative positioning */
+.giveaway-slider {
+    width: 100%;
+    /* take full width of wrapper */
+    position: relative;
+    /* positioning context for .giveaway-track and .giveaway-fill */
+    height: 18px;
+    /* explicit height for the slider container */
+    display: flex;
+    align-items: center;
+}
+
+
+/* track sits inside .giveaway-slider and provides the clipping box */
+.giveaway-track {
+    position: relative;
+    width: 100%;
+    height: 10px;
+    /* visible track height */
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02), 0 6px 14px rgba(0, 0, 0, 0.45);
+    overflow: hidden;
+    /* confines .giveaway-fill */
+    z-index: 1;
+}
+
+/* .giveaway-fill anchored to the LEFT and scales left->right */
+.giveaway-fill {
+    position: absolute;
+    left: 0;
+    /* anchor to left edge of the track */
+    top: 0;
+    bottom: 0;
+    width: 100%;
+    /* full width, visible portion controlled by scaleX */
+    transform-origin: left center;
+    /* scale from left -> right */
+    /* numeric css var 0..100 (no '%'). e.g. --fill-percent: 40 */
+    transform: scaleX(calc(var(--fill-percent, 40) / 100));
+    background: linear-gradient(90deg, #ffd36b 0%, #ff9a68 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 6px 12px rgba(255, 150, 40, 0.12);
+    border-radius: inherit;
+    transition: transform 480ms cubic-bezier(.2, .9, .3, 1);
+    z-index: 2;
+    will-change: transform;
+}
+
+/* hint clip sits below the track and spans full width */
+.giveaway-hint-clip {
+    width: 100%;
+    height: 40px;
+    /* slightly larger clip so the half-visible hint is stable */
+    overflow: hidden;
+    pointer-events: none;
+    position: relative;
+    margin-top: 6px;
+    /* space below the slider */
+    z-index: 5;
+    /* ensure it sits above the slider fill if overlap occurs */
+}
+
+.giveaway-hint {
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.92);
+    font-weight: 700;
+    transform: translateY(45%);
+    /* show roughly the top half of the label */
+    text-align: center;
+    padding-left: 4px;
+    width: 100%;
+    line-height: 1.1;
+}
+
+.giveaway-sidebar {
+    position: absolute;
+    right: 12px;
+    top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+
+/* responsive adjustments */
+@media (max-width: 520px) {
+    .giveaway-prize-image {
+        width: 48px;
+        height: 48px;
+    }
 }
 </style>

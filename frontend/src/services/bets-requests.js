@@ -90,7 +90,7 @@ export async function getUsersHistoryBets() {
 export async function getBetById(betId) {
     const { data, error } = await supabase
         .from('bets')
-        .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume, close_time, current_odds')
+        .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume, close_time, current_odds, giveaway_total_tickets, giveaway_tickets_left, giveaway_prize_image, giveaway_prize_name, giveaway_chat_link, giveaway_gift_value')
         .eq('id', betId)
         .single()
     if (error) throw error
@@ -144,7 +144,7 @@ export async function placeBetRequest(betId, side, stake) {
         p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
         p_bet_id: Number(betId),
         p_side: String(side),
-        p_stake: String(Number(stake).toFixed(3)) // send numeric string with 3 decimals
+        p_stake: String(Number(stake).toFixed(2)) // send numeric string with 3 decimals
     });
 
     if (error) {
@@ -155,13 +155,29 @@ export async function placeBetRequest(betId, side, stake) {
     // RPC returns a row (an array because set-returning); extract first element if needed
     const row = Array.isArray(data) ? data[0] : data;
 
+    // after your RPC returns successfully (inside client)
+    await fetch('/api/bet-placed', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            // 'X-Bet-Webhook-Secret': '<<YOUR_CLIENT_SIDE_SECRET_OR_FROM_ENV_ON_HOST>>' // must match server env BET_WEBHOOK_SECRET
+        },
+        body: JSON.stringify({
+            telegram: Number(user?.id ?? 0),  // same telegram id you passed to RPC
+            bet_id: Number(betId),
+            side: String(side),
+            stake: String(Number(stake).toFixed(2)),
+            chat_id: '@giftspredict_chat'
+        })
+    });
+
     return {
         placed_bets: row?.placed_bets ?? [],
         points: parseFloat(row?.points ?? 0),
-        volume: row?.volume ?? { Yes: 0, No: 0 }
+        volume: row?.volume ?? { Yes: 0, No: 0 },
+        tickets: Number(row?.user_tickets ?? 0)
     };
 }
-
 
 async function _refreshCachedBets() {
     const { data: profile, error } = await supabase

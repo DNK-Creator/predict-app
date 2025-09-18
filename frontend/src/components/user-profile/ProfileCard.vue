@@ -1,4 +1,8 @@
 <template>
+    <!-- WITHDRAWAL MODAL  -->
+    <WithdrawModal v-model="showWithdrawalModal" :address="parsedWalletAddress" :balance="appStoreObj.points"
+        @withdraw="handleWithdraw" :house_cut="house_cut_rate" />
+
     <!-- DEPOSIT MODAL -->
     <DepositsModalTwo v-model="showDepositModal" :address="parsedWalletAddress" :balance="walletBalance"
         @deposit="handleDeposit" @deposit-stars="handleStarsDeposit" @close="closeDepositsWindow"
@@ -45,11 +49,18 @@
                 <div class="stat-label">{{ $t("bet-won") }}</div>
             </div>
         </div>
-
-        <div class="deposit-button" @click="openDepositModal">
-            <div class="deposit-button-content">
-                <img :src="arrowIcon">
-                <h2>{{ $t("deposit") }}</h2>
+        <div class="action-buttons">
+            <div class="deposit-button" @click="openDepositModal">
+                <div class="deposit-button-content">
+                    <img :src="arrowIcon">
+                    <h2>{{ $t("deposit") }}</h2>
+                </div>
+            </div>
+            <div class="withdraw-button" @click="openWithdrawalModal">
+                <div class="withdraw-button-content">
+                    <img :src="withdrawIcon">
+                    <h2>{{ $t("withdraw-two") }}</h2>
+                </div>
             </div>
         </div>
     </div>
@@ -68,13 +79,17 @@ import supabase from '@/services/supabase'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { useRouter } from 'vue-router'
 import { useTon } from '@/services/useTon'
-import { fetchInvoiceLink } from '@/services/payments'
+import { fetchInvoiceLink, fetchBotMessageTransaction } from '@/services/payments'
+import { getLastWithdrawalTime } from '@/api/requests'
+import { v4 as uuidv4 } from 'uuid'
 import DepositsModalTwo from '../DepositsModalTwo.vue'
 import YourWalletModal from '../YourWalletModal.vue'
+import WithdrawModal from '@/components/WithdrawalModal.vue'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
 import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
+import withdrawIcon from '@/assets/icons/Wallet_Icon_Gray.png'
 
 const { user, tg } = useTelegram()
 
@@ -89,6 +104,8 @@ const props = defineProps({
     betsWon: Number,
 })
 
+const house_cut_rate = ref(7)
+
 const router = useRouter()
 
 const showDepositModal = ref(false)
@@ -98,6 +115,10 @@ const walletAddress = computed(() => {
 })
 
 const modalAnimating = ref(false)
+
+const lastWithdrawalRequest = ref(null)
+
+const showWithdrawalModal = ref(false)
 
 const API_BASE = 'https://api.giftspredict.ru'
 
@@ -196,6 +217,116 @@ async function openWalletInfo() {
 
 async function closeWalletInfo() {
     showWalletInfo.value = false
+}
+
+async function openWithdrawalModal() {
+    if (appStoreObj.walletAddress === null || appStoreObj.walletAddress === undefined) {
+        try {
+            ensureTon()
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
+        } catch (e) {
+            console.error("Could not connect:", e)
+        }
+        return
+    }
+    else {
+        showWithdrawalModal.value = true
+    }
+}
+
+// Called when user clicks “Вывод”
+async function handleWithdraw(amount, amount_cut) {
+    ensureTon()
+    if (!walletAddress.value) {
+        try {
+            const wallet = await ton.value.connectWallet()
+            if (wallet) {
+                await handleConnected(wallet)
+            }
+        } catch (e) {
+            console.error("Could not connect:", e);
+        }
+        return;
+    }
+    else {
+        onWithdraw(amount, amount_cut)
+    }
+}
+
+// ——— Withdraw flow ———
+async function onWithdraw(amount, amount_cut) {
+
+    if (appStoreObj.points < amount) {
+        toast.error('Недостаточно средств')
+        return
+    }
+
+    // if still on cooldown, exit early
+    if (!canRequestWithdrawal(lastWithdrawalRequest.value)) {
+        return;
+    }
+
+    lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
+
+    const parsedAddress = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false })
+
+    const txId = uuidv4()
+    const amountTON = amount
+    const amountTON_Cut = amount_cut
+
+    await supabase
+        .from('users')
+        .update({ last_withdrawal_request: lastWithdrawalRequest.value })
+        .eq('telegram', user?.id ?? 99)
+
+    // insert withdrawal request
+    await supabase.from('transactions').insert({
+        uuid: txId,
+        user_id: user?.id ?? 99,
+        amount: amountTON_Cut,
+        status: 'Ожидание вывода',
+        type: 'Withdrawal',
+        withdrawal_pending: true,
+        withdrawal_address: parsedAddress,
+        created_at: new Date().toISOString()
+    })
+
+    // deduct balance immediately
+    appStoreObj.points -= amountTON
+    await supabase.from('users')
+        .update({ points: appStoreObj.points })
+        .eq('telegram', user?.id ?? 99)
+
+    try {
+        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON_Cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`, user?.id)
+    } catch (err) {
+        console.warn('Failed to send bot message for user. Error: ' + err)
+    }
+}
+
+function canRequestWithdrawal(lastWithdrawalRequest) {
+    const MS_PER_DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    const last = new Date(lastWithdrawalRequest).getTime();
+    const elapsed = now - last;
+
+    if (elapsed >= MS_PER_DAY) {
+        // more than 24h have passed
+        return true;
+    }
+
+    // compute remaining time
+    const remainingMs = MS_PER_DAY - elapsed;
+    const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+    const remainingMinutes = Math.floor(
+        (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
+    );
+
+    toast.error(`Вывод доступен через ${remainingHours} ч. ${remainingMinutes} мин.`)
+    return false;
 }
 
 // add this helper near the other functions
@@ -570,6 +701,22 @@ async function fetchTonBalance(address) {
 }
 
 onMounted(async () => {
+    const { data, error } = await supabase
+        .from('withdraw_information')
+        .select('house_cut')
+        .eq('id', 1)
+        .single()   // .single() is fine if the row exists
+
+    if (error) {
+        console.error('failed to load house_cut', error)
+        // keep default 0 or handle error UI
+        return
+    }
+
+    // Ensure it's a number (DB double precision usually arrives as a JS number)
+    const val = Number(data?.house_cut)
+    house_cut_rate.value = Number.isFinite(val) ? val : 7
+
     document.querySelectorAll('tc-widget-root').forEach(el => el.remove())
 
     const defineCustomElement = CustomElementRegistry.prototype.define;
@@ -579,6 +726,8 @@ onMounted(async () => {
         }
         return defineCustomElement.call(this, name, constructor, options);
     };
+
+    lastWithdrawalRequest.value = await getLastWithdrawalTime()
 
     setupTonConnectListener()
 
@@ -731,6 +880,14 @@ watch(
     color: #9ca3af;
 }
 
+.action-buttons {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.withdraw-button,
 .deposit-button {
     text-align: center;
     font-size: 0.95rem;
@@ -746,10 +903,12 @@ watch(
 }
 
 /* Hover */
+.withdraw-button:hover,
 .deposit-button:hover {
     background-color: rgb(51, 115, 218);
 }
 
+.withdraw-button-content,
 .deposit-button-content {
     display: flex;
     gap: 10px;
@@ -759,11 +918,21 @@ watch(
     text-align: center;
 }
 
+.withdraw-button-content {
+    gap: 8px;
+}
+
 .deposit-button-content img {
     width: 9px;
     height: 14px;
 }
 
+.withdraw-button-content img {
+    width: 14px;
+    height: 14px;
+}
+
+.withdraw-button-content h2,
 .deposit-button-content h2 {
     font-size: 1.05rem;
     text-justify: center;

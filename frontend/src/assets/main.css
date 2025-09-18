@@ -55,8 +55,8 @@ body,
 /* scroll container: ensure content clears header and bottom nav */
 .app-scroll-container {
   width: 100%;
-  /* allows shrink below 720px on small viewports */
-  max-width: 720px;
+  /* allows shrink below 520px on small viewports */
+  max-width: 520px;
   /* cap width on desktop */
   flex: 1;
   overflow-y: auto;
@@ -123,7 +123,7 @@ body.keyboard-open .modal-container {
 
   /* make top use your app vars so toast sits below native chrome + header */
   --toastify-toast-top: max(var(--toastify-toast-offset),
-      calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 8px));
+      calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 40px));
 
   /* optionally increase z-index so toasts appear above your header/modal */
   --toastify-toast-zindex: 1100;

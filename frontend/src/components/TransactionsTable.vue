@@ -60,7 +60,7 @@ function translateStatus(status) {
     if (status === 'Незавершённое пополнение' || status === 'Незавершенное пополнение' || status === 'незавершенное пополнение' || status === 'Ожидание пополнения') {
         return app.language === 'ru' ? 'Незавершённое пополнение' : 'Unfinished deposit'
     } else if (status === 'Ожидание вывода' || status === 'ожидание вывода' || status === 'Незавершенный вывод') {
-        return app.language === 'ru' ? 'Ожидание выводы' : 'Withdrawal pending'
+        return app.language === 'ru' ? 'Ожидание вывода' : 'Withdrawal pending'
     } else if (status === 'Успешное пополнение' || status === 'Пополнение успешно' || status === 'Успешный депозит') {
         return app.language === 'ru' ? 'Успешное пополнение' : 'Successful Deposit'
     } else if (status === 'Пополнение подарком' || status === 'Пополнение подарками' || status === 'Подарок') {
@@ -214,7 +214,7 @@ onMounted(async () => {
 
 <style scoped>
 .tx-list-parent {
-    max-height: 85vh;
+    max-height: 48vh;
     overflow-y: auto;
     overflow-x: hidden;
     -webkit-overflow-scrolling: touch;

@@ -12,6 +12,15 @@ function normalizeLangCode(lc) {
   return lc.split('-')[0].toLowerCase()
 }
 
+function normalizeUsername(u) {
+  if (!u) return ''
+  try {
+    return String(u).replace(/^@+/, '')
+  } catch (e) {
+    return ''
+  }
+}
+
 export const useAppStore = defineStore('app', {
   state: () => ({
     user: null,         // DB user row
@@ -57,6 +66,14 @@ export const useAppStore = defineStore('app', {
         console.error('Failed to get/create user row', err)
         error('[app.init] getOrCreateUser failed', { err: err?.message ?? err, stack: err?.stack })
         throw err
+      }
+
+      // ensure DB username matches Telegram username; if not, update DB
+      try {
+        await this.syncTelegramUsername(tgUser)
+      } catch (e) {
+        // don't block init on username sync failures
+        warn('[app.init] username sync failed', { err: e?.message ?? e })
       }
 
       this.walletAddress = await getUsersWalletAddress()
@@ -113,6 +130,65 @@ export const useAppStore = defineStore('app', {
 
       info('[app.init] finished', { durationMs: Date.now() - tStart })
       groupEnd()
+    },
+
+    /**
+* Sync Telegram username to users table if it differs from DB value.
+* - Strips leading @ for comparison only (stores the original tg username as-is).
+* - Non-blocking: logs and returns false on failure.
+*/
+    async syncTelegramUsername(tgUser) {
+      try {
+        if (!tgUser) {
+          debug('[syncTelegramUsername] no tgUser provided')
+          return false
+        }
+
+
+        const tgNameRaw = tgUser?.username ?? ''
+        if (!tgNameRaw) {
+          debug('[syncTelegramUsername] telegram username empty — nothing to sync')
+          return false
+        }
+
+
+        const tgName = normalizeUsername(tgNameRaw)
+        const dbName = normalizeUsername(this.user?.username)
+
+
+        if (tgName === dbName) {
+          debug('[syncTelegramUsername] username already matches DB', { tgName, dbName })
+          return false
+        }
+
+
+        debug('[syncTelegramUsername] attempting DB update', { from: dbName, to: tgName })
+
+
+        const { error } = await supabase
+          .from('users')
+          .update({ username: tgNameRaw })
+          .eq('telegram', Number(tgUser?.id ?? 99))
+
+
+        if (error) {
+          console.error('syncTelegramUsername supabase update error', error)
+          warn('[syncTelegramUsername] supabase update error', { err: error })
+          return false
+        }
+
+
+        // update in-memory user row too
+        try { if (this.user) this.user.username = tgNameRaw } catch (e) { /* ignore */ }
+
+
+        info('[syncTelegramUsername] username updated', { old: dbName, new: tgName })
+        return true
+      } catch (err) {
+        console.error('syncTelegramUsername unexpected error', err)
+        warn('[syncTelegramUsername] unexpected', { err: err?.message ?? err })
+        return false
+      }
     },
 
     /* POINTS */

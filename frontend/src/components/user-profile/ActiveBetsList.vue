@@ -132,22 +132,21 @@ onBeforeUnmount(() => {
 /* Each bet row */
 .bet-item {
     display: flex;
-    /* background-color: #292a2a; */
-    background: linear-gradient(to right, #2D83EC, #1AC9FF);
+    background: #1f2937;
     border-radius: 24px;
     overflow: hidden;
     transition: background-color 0.2s ease;
 }
 
 .bet-item:hover {
-    background-color: #457da8;
+    background: #263345;
 }
 
 /* Date badge on the left */
 .date-badge {
     flex-shrink: 0;
     width: 58px;
-    background-color: #1f2937;
+    background: linear-gradient(#733bf6, #3b82f6);
     display: flex;
     flex-direction: column;
     align-items: center;

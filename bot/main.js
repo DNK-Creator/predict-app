@@ -100,6 +100,166 @@ bot.on("pre_checkout_query", async (ctx) => {
     });
 });
 
+// POST /api/bet-placed
+app.post('/api/bet-placed', async (req, res) => {
+    try {
+        const { telegram, bet_id, side, stake, chat_id } = req.body || {};
+        if (!telegram || !bet_id || !side || (stake === undefined || stake === null)) {
+            return res.status(400).json({ error: 'telegram, bet_id, side, stake required' });
+        }
+
+        // fetch user row (get username)
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('id, username, telegram')
+            .eq('telegram', Number(telegram))
+            .limit(1)
+            .maybeSingle();
+
+        if (userErr) {
+            console.error('bet-placed: supabase users select error', userErr);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!userRow) {
+            return res.status(404).json({ error: 'user_not_found' });
+        }
+
+        // fetch event row (get event name + volume)
+        const { data: eventRow, error: eventErr } = await supabaseAdmin
+            .from('bets')
+            .select('id, name_en, volume')
+            .eq('id', Number(bet_id))
+            .limit(1)
+            .maybeSingle();
+
+        if (eventErr) {
+            console.error('bet-placed: supabase bets row select error', eventErr);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!eventRow) {
+            return res.status(404).json({ error: 'bet_not_found' });
+        }
+
+        const betNameEn = eventRow.name_en || 'Unknown event';
+
+        // compute totalPool from volume JSONB (handle object or JSON-string)
+        const rawVolume = eventRow.volume;
+        let volumeObj = {};
+        try {
+            if (!rawVolume) {
+                volumeObj = {};
+            } else if (typeof rawVolume === 'string') {
+                // sometimes Supabase returns jsonb as parsed object, but just in case it's a string
+                volumeObj = JSON.parse(rawVolume);
+            } else if (typeof rawVolume === 'object') {
+                volumeObj = rawVolume;
+            } else {
+                volumeObj = {};
+            }
+        } catch (e) {
+            console.warn('bet-placed: failed to parse volume json, treating as empty', e);
+            volumeObj = {};
+        }
+
+        // Sum numeric values in the object (case-insensitive keys not required for summation)
+        const totalPool = Object.values(volumeObj).reduce((acc, v) => {
+            const n = Number(v ?? 0);
+            return acc + (Number.isFinite(n) ? n : 0);
+        }, 0);
+
+        // prepare message (escape username & values for HTML mode)
+        const escapeHtml = (s = '') =>
+            String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+        // Build clickable username link: prefer https://t.me/<username> if available
+        const rawUsername = userRow.username ? String(userRow.username).replace(/^@/, '') : null;
+        let userLinkHref, userLinkText;
+        if (rawUsername) {
+            userLinkHref = `https://t.me/${encodeURIComponent(rawUsername)}`;
+            userLinkText = `@${rawUsername}`;
+        } else {
+            // fallback to tg://user?id=<telegram>
+            userLinkHref = `tg://user?id=${encodeURIComponent(String(userRow.telegram))}`;
+            userLinkText = `telegram:${userRow.telegram}`;
+        }
+
+        const stakeNumber = Number(stake);
+        const stakeFormatted = Number.isFinite(stakeNumber) ? stakeNumber : stake;
+
+        // Template required by you:
+        // <username> (clickable to https://t.me/<username>) just placed <stake> TON on <side> in the event <betNameEn> ⭐
+        // Prepend Whale Alert 🐳 line if stake > 15
+        const lines = [];
+        if (Number(stake) > 15) {
+            lines.push('<b>Whale Alert 🐳</b>');
+        }
+
+        // The clickable display: use HTML <a href="...">display</a> and escape display text
+        const clickable = `<a href="${userLinkHref}">${escapeHtml(userLinkText)}</a>`;
+        const sideEscaped = escapeHtml(String(side));
+        const betNameEscaped = escapeHtml(String(betNameEn));
+        // include TON suffix per your template
+        lines.push(`${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on ${sideEscaped} in the event ${betNameEscaped} ⭐`);
+
+        // Optionally log totalPool for debugging/metrics
+        console.log(`bet-placed: totalPool for bet ${bet_id} = ${totalPool}`);
+
+        // fetch user's giveaway tickets for this bet
+        let ticketsCount = 0;
+        try {
+            const { data: bhRow, error: bhErr } = await supabaseAdmin
+                .from('bets_holders')
+                .select('giveaway_tickets')
+                .eq('user_id', Number(telegram))
+                .eq('bet_id', Number(bet_id))
+                .limit(1)
+                .maybeSingle();
+
+            if (bhErr) {
+                console.warn('bet-placed: bets_holders select error (non-fatal)', bhErr);
+            } else if (bhRow) {
+                ticketsCount = Number(bhRow.giveaway_tickets ?? 0);
+            }
+        } catch (e) {
+            console.warn('bet-placed: unexpected error querying bets_holders (non-fatal):', e);
+        }
+
+        // if user has tickets, add a blank line and then the tickets line
+        if (ticketsCount > 0) {
+            lines.push(''); // blank line separator
+            lines.push(`User now has ${ticketsCount} tickets for the giveaway 🎁`);
+        }
+
+        const messageText = lines.join('\n');
+
+        // send message using your Telegraf bot instance
+        try {
+            const chatId = chat_id || process.env.ANNOUNCE_CHAT_ID;
+            if (!chatId) {
+                console.error('bet-placed: no chat id configured (pass chat_id in body or set ANNOUNCE_CHAT_ID env)');
+                return res.status(500).json({ error: 'server_not_configured' });
+            }
+
+            const sent = await bot.telegram.sendMessage(chatId, messageText, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+            });
+
+            return res.json({ ok: true, result: sent, totalPool });
+        } catch (tgErr) {
+            console.error('bet-placed: telegram send error', tgErr);
+            return res.status(502).json({ error: 'telegram_error', details: String(tgErr), totalPool });
+        }
+    } catch (err) {
+        console.error('bet-placed unexpected error', err);
+        return res.status(500).json({ error: 'internal_error', details: String(err) });
+    }
+});
+
+
 app.get("/api/get-chance", async (req, res) => {
     console.log('Hit /api/get-chance')
     try {
@@ -110,7 +270,7 @@ app.get("/api/get-chance", async (req, res) => {
             .eq("id", betID)
             .limit(1)
             .maybeSingle();
-        
+
         let oddsNumber = currentChance.current_odds
 
         res.json({ oddsNumber });
@@ -695,7 +855,7 @@ async function handleStart(ctx) {
         const privacyUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/GiftsPredictPrivacyPolicy.pdf";
         const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png";
         let startAppQuery = ctx.session.ref ? `?startapp=${ctx.session.ref}` : null;
-        if(startAppQuery === null) {
+        if (startAppQuery === null) {
             startAppQuery = '?startapp='
         }
         return ctx.replyWithPhoto(

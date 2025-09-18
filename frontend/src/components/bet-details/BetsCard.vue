@@ -1,6 +1,12 @@
 <template>
     <div class="bet-card" role="button" tabindex="0" @click="$emit('click')" @keydown.enter="$emit('click')"
         aria-label="Open bet">
+
+        <!-- Giveaway badge rotated on the top-right corner when pool < 25 TON -->
+        <div v-if="showGiveawayBadge" class="giveaway-badge" aria-hidden="true">
+            <span class="giveaway-badge__text">{{ $t('promo') }}</span>
+        </div>
+
         <!-- background (gradient or image if provided) -->
         <div class="card-bg" :style="bgStyle"></div>
 
@@ -42,20 +48,50 @@
             </div>
         </div>
 
-        <!-- bottom meta row -->
+        <!-- template: replace the existing meta-left block with this -->
         <div class="card-footer">
             <div class="divider"></div>
-            <div class="meta-left">
-                <div class="meta-tag">
-                    <img class="meta-logo" :src="tonSecondIcon" alt="tag" />
-                    <span>{{ betTypeText }}</span>
-                </div>
 
-                <div class="meta-ends">{{ timePrefix }} • <time :datetime="endsISO">{{ endsText }}</time></div>
+            <div class="meta-left">
+                <!-- ACTIVE LIST -->
+                <template v-if="isActiveList">
+                    <template v-if="userStakeNumber > 0">
+                        <div class="meta-win">
+                            <img class="meta-logo" :src="tonSecondIcon" alt="TON" />
+                            <span class="meta-win-label">{{ $t('potential-win') }}:</span>
+                            <span class="meta-win-value">{{ formatTon(totalWinnings) }}</span>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div class="meta-tag">
+                            <img class="meta-logo" :src="tonSecondIcon" alt="tag" />
+                            <span>{{ betTypeText }}</span>
+                        </div>
+                        <div class="meta-ends">{{ timePrefix }} • <time :datetime="endsISO">{{ endsText }}</time></div>
+                    </template>
+                </template>
+
+                <!-- ARCHIVED LIST -->
+                <template v-else>
+                    <template v-if="didUserWin">
+                        <div class="meta-win">
+                            <img class="meta-logo" :src="tonSecondIcon" alt="TON" />
+                            <span class="meta-win-label">{{ $t('got-win') }}:</span>
+                            <span class="meta-win-value">{{ formatTon(totalWinnings) }}</span>
+                        </div>
+                    </template>
+                    <template v-else>
+                        <div class="meta-tag">
+                            <img class="meta-logo" :src="tonSecondIcon" alt="tag" />
+                            <span>{{ betTypeText }}</span>
+                        </div>
+                        <div class="meta-ends">{{ timePrefix }} • <time :datetime="endsISO">{{ endsText }}</time></div>
+                    </template>
+                </template>
             </div>
 
             <button class="share-btn" @click.stop="$emit('share')" aria-label="Share bet">
-                <img :src="shareIcon">
+                <img :src="shareIcon" />
             </button>
         </div>
     </div>
@@ -73,9 +109,26 @@ const props = defineProps({
     eventLogo: { type: String, default: '' },
     pool: { type: [Number, String], default: '10' },
     chance: { type: [Number, String], default: 70 },
+    userStake: { type: [Number, String], default: 0 },
+    userSide: { type: [String], default: null },
+    betResult: { type: [String, null], default: null }, // the resolved result from backend
+    isActiveList: { type: Boolean, default: true },      // true if current tab is active bets
+    volume: { type: [Object, Number, String], default: null },
+    currentOdds: { type: [Number, String], default: null },
     status: { type: String, default: 'Открыто' },
     betTypeText: { type: String, default: 'Крипто событие' },
+    total_tickets: { type: [Number], default: 0 },
     endsAt: { type: [String, Date, Number], default: '' } // iso string, Date, or timestamp (we format)
+})
+
+const normalizedUserSide = computed(() => normalizeUserSide(props.userSide))
+const normalizedResult = computed(() => normalizeUserSide(props.betResult))
+
+const didUserWin = computed(() => {
+    if (!props.isActiveList && normalizedUserSide.value && normalizedResult.value) {
+        return normalizedUserSide.value === normalizedResult.value
+    }
+    return false
 })
 
 /* ---------- timePrefix: localized and robust ---------- */
@@ -166,6 +219,8 @@ const endsText = computed(() => {
     }
 })
 
+const showGiveawayBadge = computed(() => props.pool < 25 && props.total_tickets > 0 && normalizedResult.value == null)
+
 /* ---------- rest of original helpers / UI colors (unchanged) ---------- */
 
 // helper: parse numeric chance robustly (strip % etc.)
@@ -208,6 +263,147 @@ const bgStyle = computed(() => {
     return {
         background: 'linear-gradient(rgba(30, 30, 30, 0.8) 8%, rgba(59, 130, 246, 0.85) 85%)'
     }
+})
+
+const HOUSE_CUT = 0.03
+
+function parseNumberLoose(v) {
+    if (v == null) return 0
+    if (typeof v === 'number') return Number.isFinite(v) ? v : 0
+    if (typeof v === 'string') {
+        const s = v.trim()
+        // try JSON parse first
+        try {
+            const j = JSON.parse(s)
+            if (typeof j === 'number') return Number.isFinite(j) ? j : 0
+            if (typeof j === 'object') return 0
+        } catch (e) { /* not json */ }
+        const cleaned = s.replace(',', '.').replace(/[^\d.\-+eE]/g, '')
+        const n = parseFloat(cleaned)
+        return Number.isFinite(n) ? n : 0
+    }
+    return 0
+}
+
+// format TON like before (string with unit)
+function formatTon(x) {
+    if (!Number.isFinite(x) || x == null) return '—'
+    const rounded = Math.round(x * 100) / 100
+    return rounded.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 }) + ' TON'
+}
+
+function normalizeUserSide(side) {
+    if (side == null) return null
+    const s = String(side).trim().toLowerCase()
+    if (s === 'yes' || s === 'y' || s === 'да') return 'Yes'
+    if (s === 'no' || s === 'n' || s === 'нет') return 'No'
+    return null
+}
+
+/**
+ * Compute total winnings for this card's userStake (payout after house cut).
+ * IMPORTANT: we DO NOT add the user's stake to the pool because volume already includes it.
+ */
+const userStakeNumber = computed(() => parseNumberLoose(props.userStake))
+
+const volPartsFromProp = computed(() => {
+    const vol = props.volume
+    if (!vol && vol !== 0) return { yes: 0, no: 0 }
+
+    // if object (Yes/No keys) extract robustly
+    if (typeof vol === 'object') {
+        const yes = Number(vol.Yes ?? vol.yes ?? vol['YES'] ?? vol['yes'] ?? vol?.YesAmount ?? 0) || 0
+        const no = Number(vol.No ?? vol.no ?? vol['NO'] ?? vol['no'] ?? vol?.NoAmount ?? 0) || 0
+        return { yes, no }
+    }
+
+    // if it's a string that looks like JSON, try parse
+    if (typeof vol === 'string') {
+        try {
+            const parsed = JSON.parse(vol)
+            if (typeof parsed === 'object') {
+                const yes = Number(parsed.Yes ?? parsed.yes ?? parsed['YES'] ?? parsed['yes'] ?? 0) || 0
+                const no = Number(parsed.No ?? parsed.no ?? parsed['NO'] ?? parsed['no'] ?? 0) || 0
+                return { yes, no }
+            }
+            // otherwise treat as numeric total
+            const total = parseNumberLoose(vol)
+            const p = Number(props.currentOdds)
+            const prob = (isFinite(p) ? (p > 1 ? Math.max(0, Math.min(1, p / 100)) : Math.max(0, Math.min(1, p))) : 0)
+            const yes = total * prob
+            const no = total - yes
+            return { yes, no }
+        } catch (e) {
+            // fallback to numeric parse
+            const total = parseNumberLoose(vol)
+            const p = Number(props.currentOdds)
+            const prob = (isFinite(p) ? (p > 1 ? Math.max(0, Math.min(1, p / 100)) : Math.max(0, Math.min(1, p))) : 0)
+            const yes = total * prob
+            const no = total - yes
+            return { yes, no }
+        }
+    }
+
+    // numeric total fallback
+    const total = Number(vol) || 0
+    const p = Number(props.currentOdds)
+    const prob = (isFinite(p) ? (p > 1 ? Math.max(0, Math.min(1, p / 100)) : Math.max(0, Math.min(1, p))) : 0)
+    const yes = total * prob
+    const no = Math.max(0, total - yes)
+    return { yes, no }
+})
+
+/**
+ * Total winnings for existing user bet (payout after house cut).
+ *
+ * IMPORTANT: volume already includes the user's stake, so we DO NOT add the stake
+ * to the pool when computing implied probabilities here.
+ *
+ * Returns a Number (rounded to 2 decimals) — template calls formatTon(...) to display.
+ */
+const totalWinnings = computed(() => {
+    const stake = Number(userStakeNumber.value) || 0
+    if (stake <= 0) return 0
+
+    const yes = Number(volPartsFromProp.value.yes) || 0
+    const no = Number(volPartsFromProp.value.no) || 0
+    const total = yes + no
+
+    const userSide = normalizeUserSide(props.userSide)
+
+    // derive chosen probability from existing volumes (do NOT add stake)
+    let chosenProb = 0
+
+    if (total > 0) {
+        if (userSide === 'Yes') {
+            chosenProb = yes / total
+        } else if (userSide === 'No') {
+            chosenProb = no / total
+        } else {
+            // unknown side: fall back to current_odds
+            const p = Number(props.currentOdds)
+            chosenProb = isFinite(p) ? (p > 1 ? Math.max(0, Math.min(1, p / 100)) : Math.max(0, Math.min(1, p))) : 0
+        }
+    } else {
+        const p = Number(props.currentOdds)
+        chosenProb = isFinite(p) ? (p > 1 ? Math.max(0, Math.min(1, p / 100)) : Math.max(0, Math.min(1, p))) : 0
+    }
+
+    // invalid or zero probability -> no payout (avoid infinite multiplier)
+    if (!isFinite(chosenProb) || chosenProb <= 0) return 0
+
+    // gross payout (stake * (1 / prob))
+    const gross = stake * (1 / chosenProb)
+    if (!isFinite(gross) || gross <= 0) return 0
+
+    const payoutBeforeTaxation = Math.min(9999999, Math.round(gross * 100) / 100)
+    const profitBeforeTax = payoutBeforeTaxation - stake
+
+    // final payout after house takes cut on the profit portion
+    const finalPayment = payoutBeforeTaxation - (profitBeforeTax * HOUSE_CUT)
+
+    // round to 2 decimals and ensure non-negative
+    return Math.max(0, Math.round(finalPayment * 100) / 100)
 })
 
 defineEmits(['click', 'share'])
@@ -319,6 +515,7 @@ defineEmits(['click', 'share'])
 
 .card-top .badge--chance {
     justify-self: end;
+    margin-right: 10px;
     padding: 2px 8px;
     display: flex;
     gap: 6px;
@@ -447,12 +644,14 @@ defineEmits(['click', 'share'])
     top: 0;
 }
 
+.meta-win,
 .meta-left {
     display: flex;
     align-items: center;
     gap: 4px;
 }
 
+.meta-win,
 .meta-tag {
     display: flex;
     gap: 3px;
@@ -498,6 +697,39 @@ defineEmits(['click', 'share'])
 
 .share-btn:hover {
     background: rgba(255, 255, 255, 0.06);
+}
+
+/* Giveaway badge (rotated sticker at top-right) */
+.giveaway-badge {
+    position: absolute;
+    top: 8px;
+    right: -35px;
+    /* pushed right so the rotated ribbon sits on corner */
+    width: 100px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(45deg);
+    transform-origin: center;
+    z-index: 6;
+    /* above other content */
+    pointer-events: none;
+    /* don't block clicks */
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    border-radius: 6px;
+    background: linear-gradient(90deg, #4c1d97 0%, #664fc3 100%);
+    color: #eaeaea;
+    letter-spacing: 0.6px;
+    text-transform: none;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.giveaway-badge__text {
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+    font-size: 0.6rem;
+    display: inline-block;
 }
 
 /* responsive tweaks */

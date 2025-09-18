@@ -28,9 +28,27 @@
                                 :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
                             <span class="amount-currency" @click="focusAmountInput">TON</span>
                         </div>
+
+                        <div class="max-button" @click="onMax">Max</div>
+
+                        <!-- 2000 TON limit warning (existing) -->
                         <span v-if="showWarning" class="warning-text" role="alert" aria-live="polite">
                             {{ $t('withdrawal-limit') }}
                         </span>
+
+                        <!-- Commission hint: now part of document flow, below the amount input,
+                             visible only when no 2000 TON warning and amount > 0.3 -->
+                        <div v-if="showCutHint" class="cut-wrapper" role="alert" aria-live="polite">
+                            <span v-if="cutPercentDisplay <= 9" :class="['cut-text', { 'warning-high': isHighCut }]">
+                                {{ $t('withdraw-okay') }} {{ cutPercentDisplay }}%
+                            </span>
+                            <span v-else :class="['cut-text', { 'warning-high': isHighCut }]">
+                                {{ $t('withdraw-high') }} {{ cutPercentDisplay }}%
+                            </span>
+                            <span class="cut-net-text">
+                                ~ {{ netAmountFormatted }} TON
+                            </span>
+                        </div>
                     </div>
                 </div>
 
@@ -57,16 +75,17 @@
 import { ref, computed } from 'vue'
 
 // defineProps exposes modelValue, address, etc directly
-const { modelValue, address, balance, transactionLimit, dailyLimit, dailyUsed } = defineProps({
+const { modelValue, address, balance, transactionLimit, dailyLimit, dailyUsed, house_cut } = defineProps({
     modelValue: Boolean,
     address: String,
     balance: [Number, String],
     transactionLimit: { type: Number, default: 1500 },
     dailyLimit: { type: Number, default: 7500 },
-    dailyUsed: { type: Number, default: 0 }
+    dailyUsed: { type: Number, default: 0 },
+    house_cut: { type: Number, default: 7 }
 })
 // defineEmits returns the emit function
-const emit = defineEmits(['update:modelValue', 'withdraw', 'max'])
+const emit = defineEmits(['update:modelValue', 'withdraw'])
 
 // Local state for user input
 const amount = ref('')
@@ -93,23 +112,16 @@ function focusAmountInput() {
 
 // keyboard handlers for mobile
 function onAmountFocus() {
-    // add class to body so Navbar can be hidden via CSS
     document.body.classList.add('keyboard-open');
-
-    // make sure input is visible (centered)
-    // small timeout helps on some Android browsers
     setTimeout(() => {
         try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
     }, 50);
-
-    // visualViewport: update CSS var for keyboard height (optional)
     if (window.visualViewport) {
         const update = () => {
             const kv = window.visualViewport;
             const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
             document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
         };
-        // store on element so we can remove later
         amountInput._vvListener = update;
         window.visualViewport.addEventListener('resize', update);
         update();
@@ -118,8 +130,6 @@ function onAmountFocus() {
 
 function onAmountBlur() {
     document.body.classList.remove('keyboard-open');
-
-    // remove visualViewport listener
     if (window.visualViewport && amountInput._vvListener) {
         window.visualViewport.removeEventListener('resize', amountInput._vvListener);
         delete amountInput._vvListener;
@@ -180,15 +190,59 @@ function close() {
 
 function onWithdraw() {
     // pass amount back to parent
-    emit('withdraw', amount.value)
+    emit('withdraw', amount.value, netAmountFormatted.value)
     close()
 }
 
 function onMax() {
-    emit('max')
     amount.value = balance.toString()
 }
 
+/* --- Commission hint logic --- */
+
+// numeric value of input (NaN if empty/invalid)
+const amountNumber = computed(() => {
+    const n = parseFloat(amount.value)
+    return Number.isFinite(n) ? n : NaN
+})
+
+// whether to show the commission hint: amount > 0.3 and the 2000 TON warning is not shown
+const showCutHint = computed(() => {
+    return !showWarning.value && Number.isFinite(amountNumber.value) && amountNumber.value > 0.3
+})
+
+// numeric house cut (prop may be string/number, ensure Number)
+const cutPercent = computed(() => {
+    const n = Number(house_cut)
+    return Number.isFinite(n) ? n : 0
+})
+
+// display percent without unnecessary decimals (7 -> "7", 7.5 -> "7.5")
+const cutPercentDisplay = computed(() => {
+    const n = cutPercent.value
+    return Math.round(n) === n ? String(n) : String(Number(n).toFixed(1))
+})
+
+// whether cut is considered "high" (> 9%)
+const isHighCut = computed(() => {
+    return cutPercent.value > 9
+})
+
+// net amount after cut (rounded to 2 decimals)
+const netAmount = computed(() => {
+    const a = amountNumber.value
+    if (!Number.isFinite(a)) return 0
+    const net = a * (1 - cutPercent.value / 100)
+    // don't show negative
+    return Math.max(0, Math.round((net + Number.EPSILON) * 100) / 100)
+})
+
+// formatted net amount, use 2 decimals and trim trailing zeros for neatness (e.g. "1.50" -> "1.5")
+const netAmountFormatted = computed(() => {
+    const n = netAmount.value
+    // show 2 decimals if fractional, otherwise integer
+    return n % 1 === 0 ? String(n) : n.toFixed(2).replace(/\.00$/, '');
+})
 </script>
 
 <style scoped>
@@ -324,35 +378,66 @@ function onMax() {
 /* wrapper that contains input + absolute warning */
 .input-warnings {
     position: relative;
-    /* container for absolutely-positioned warning */
     display: flex;
     flex-direction: column;
     align-items: center;
-    /* center amount-group horizontally */
-    margin-bottom: 1rem;
+    margin-bottom: 0.5rem;
 }
 
-/* warning pops up below the amount-group but does NOT affect layout */
+/* warning text (2000 TON) */
 .warning-text {
     position: absolute;
     top: 100%;
-    /* just below the input group */
     left: 50%;
     transform: translateX(-50%);
     white-space: nowrap;
-    /* keep it on one line; remove if you want wrapping */
-    max-width: calc(180%);
     text-align: center;
     font-size: 1rem;
-    color: rgb(171, 68, 68, 0.7);
-    background: transparent;
-    /* change to semi-opaque for contrast if needed */
+    color: rgb(171, 68, 68, 0.9);
     padding: 0;
-    /* optional small padding if you add background */
     z-index: 1;
     pointer-events: none;
-    /* prevents it from affecting clicks — remove if interactive */
     transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+/* Commission hint wrapper: now part of normal flow and appears below the input (non-overlapping) */
+.cut-wrapper {
+    position: static;
+    /* <-- important: not absolute anymore */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.6rem;
+    /* space below the input */
+    z-index: 1;
+    pointer-events: none;
+    width: 100%;
+}
+
+/* Use the same visual style as warning-text for consistency */
+.cut-text {
+    font-size: 0.8rem;
+    color: rgba(173, 173, 173, 0.5);
+    text-align: center;
+    background: transparent;
+    padding: 0;
+    font-weight: 600;
+}
+
+/* Net amount line slightly bolder but still matches warning look */
+.cut-net-text {
+    font-size: 0.9rem;
+    color: rgba(167, 167, 167, 0.5);
+    text-align: center;
+    font-weight: 700;
+}
+
+/* high-cut accent: subtle yellow background, but still in flow */
+.cut-text.warning-high {
+    color: rgba(246, 235, 113, 0.5);
+    padding: 4px 8px;
+    border-radius: 8px;
 }
 
 /* Wrapper ensures group is centered */
@@ -370,19 +455,13 @@ function onMax() {
     gap: 0.5rem;
     white-space: nowrap;
     z-index: 2;
-    /* keep on top of warning if overlap happens */
 }
 
 /* Input width now based on number of characters */
 .amount-input {
-    /* compute width = number-of-chars * 1ch + extra space for padding */
     width: calc(var(--chars, 1) * 1ch + 1rem);
-
-    /* padding and box model */
     padding: 0.35rem 0.5rem;
     box-sizing: content-box;
-    /* width above excludes padding (we added +1rem) */
-
     font-size: 2.25rem;
     color: white;
     background: #292a2a;
@@ -391,13 +470,9 @@ function onMax() {
     outline: none;
     appearance: textfield;
     font-family: inherit;
-
     flex: 0 0 auto;
-    /* don't grow/shrink */
     min-width: 1ch;
-    /* at least one character */
     max-width: 70vw;
-    /* prevent overflow on tiny screens */
 }
 
 /* Optional: scale down fonts on narrow screens so they fit */
@@ -439,7 +514,6 @@ function onMax() {
     justify-content: space-between;
     padding: 3px;
     font-size: 1.2rem;
-    /* Descriptions inside for fonts */
     font-weight: 400;
     font-family: "Inter", sans-serif;
 }
@@ -453,6 +527,11 @@ function onMax() {
     padding: 1rem;
 }
 
+.max-button {
+    cursor: pointer;
+    color: #0098EA;
+}
+
 .divider {
     height: 2px;
     width: 87%;
@@ -461,7 +540,6 @@ function onMax() {
     opacity: 0.7;
 }
 
-/* footer button */
 .action-btn {
     width: 100%;
     padding: 0.75rem;

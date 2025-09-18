@@ -37,7 +37,8 @@
                         <div class="deposit-method-container" v-show="selectedDeposit === 'TON'">
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
-                                <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect') }}</span>
+                                <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect')
+                                }}</span>
                                 <span v-else="!address" class="deposit-text-info-two">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
@@ -55,7 +56,8 @@
                                 <!-- CENTERED FLEX GROUP -->
                                 <div class="amount-wrapper">
                                     <div class="amount-group">
-                                        <input ref="amountInput" v-model="amount" type="text" inputmode="decimal"
+                                        <!-- TON input -->
+                                        <input ref="amountInputTon" v-model="amount" type="text" inputmode="decimal"
                                             placeholder="0" class="amount-input" @input="onAmountInput"
                                             @focus="onAmountFocus" @blur="onAmountBlur"
                                             :size="amount.length > 0 ? amount.length : 1"
@@ -86,9 +88,10 @@
                                 <div class="amount-wrapper">
                                     <div class="input-warnings">
                                         <div class="amount-group">
-                                            <input ref="amountInput" v-model="amount" type="text" inputmode="numeric"
-                                                pattern="[0-9]*" placeholder="0" class="amount-input"
-                                                @input="onAmountStarsInput" @focus="onAmountFocus"
+                                            <!-- STARS input -->
+                                            <input ref="amountInputStars" v-model="amount" type="text"
+                                                inputmode="numeric" pattern="[0-9]*" placeholder="0"
+                                                class="amount-input" @input="onAmountStarsInput" @focus="onAmountFocus"
                                                 @blur="onAmountStarsBlur" :size="amount.length > 0 ? amount.length : 1"
                                                 :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
                                             <img :src="StarIcon" class="amount-currency-star" @click="focusAmountInput">
@@ -187,7 +190,7 @@ const { tg } = useTelegram()
 
 const emit = defineEmits(['update:modelValue', 'deposit-stars', 'open-wallet-info', 'open-prices', 'close', 'anim-start', 'anim-end', 'connect-new-wallet', 'deposit']) // keep update:modelValue for v-model support
 
-const starsConvertedTon = computed(() => Number(amount.value / 300).toFixed(2))
+const starsConvertedTon = computed(() => Number(amount.value / 250).toFixed(2))
 
 const selectedDeposit = ref('TON')
 const svgContainerOne = ref(null)
@@ -200,9 +203,9 @@ let animThree = null
 const parsedTgsCache = {} // key: media (import string/module), value: parsed json
 
 const lastInputtedNumber = ref('')
-const amountInput = ref(null)
+const amountInputTon = ref(null)
+const amountInputStars = ref(null)
 const modalBody = ref(null)
-// Local state for user input
 const amount = ref('')
 
 const route = useRoute()
@@ -294,56 +297,45 @@ async function onBtnTwoClick() {
     }
 }
 
-async function scrollModalToBottom(smooth = true) {
+async function scrollModalToBottom(smooth = true, inputEl = null) {
     const el = modalBody.value
-    const input = amountInput.value
+    // prefer provided element, otherwise pick by selectedDeposit
+    const input = inputEl ?? (selectedDeposit.value === 'TON' ? amountInputTon.value : amountInputStars.value)
+
     if (!el) return
 
-    // ensure DOM/layout settled
     await nextTick()
-    // allow one rAF for any browser reflow quirks
     await new Promise((r) => requestAnimationFrame(r))
 
-    // Find buttons-group height if present (buttons-group is sibling of modal body)
     let buttonsHeight = 0
     try {
         const settingsRoot = el.closest('.settings-modal') || el.parentElement
         const buttonsEl = settingsRoot ? settingsRoot.querySelector('.buttons-group') : null
         if (buttonsEl) {
-            // use bounding rect to handle transforms or variable heights
             buttonsHeight = Math.round(buttonsEl.getBoundingClientRect().height) || 0
         }
     } catch (e) {
         buttonsHeight = 0
     }
 
-    // If we don't have an input or measurement fails, fallback to full bottom
     if (!input) {
         const kb = window.visualViewport ? Math.max(0, window.innerHeight - window.visualViewport.height) : 0
-        // include buttonsHeight so fallback moves content above the buttons
         const fallbackTop = Math.max(0, el.scrollHeight - el.clientHeight + kb + buttonsHeight + 8)
         if (smooth && el.scrollTo) el.scrollTo({ top: fallbackTop, behavior: 'smooth' })
         else el.scrollTop = fallbackTop
         return
     }
 
-    // Measurements
     const elRect = el.getBoundingClientRect()
     const inputRect = input.getBoundingClientRect()
 
-    // offset of input within the scroll container content (taking current scrollTop into account)
     const inputOffsetTop = inputRect.top - elRect.top + el.scrollTop
 
-    // keyboard height (0 fallback)
     const keyboardHeight = window.visualViewport ? Math.max(0, window.innerHeight - window.visualViewport.height) :
         parseInt(getComputedStyle(document.documentElement).getPropertyValue('--keyboard-height')) || 0
 
-    // how much space inside the container we want beneath the input (16px or more)
     const desiredBottomGap = 16
 
-    // compute desired scrollTop so the input is above the keyboard and above buttons-group:
-    // put input near the bottom of the visible container:
-    // offsetTop - (containerHeight - inputHeight) + keyboardHeight + gap + buttonsHeight
     const desiredTop = Math.max(
         0,
         Math.round(
@@ -352,49 +344,49 @@ async function scrollModalToBottom(smooth = true) {
     )
 
     if (smooth && el.scrollTo) {
-        // some browsers ignore smooth during keyboard animation; still try it
         el.scrollTo({ top: desiredTop, behavior: 'smooth' })
     } else {
         el.scrollTop = desiredTop
     }
 }
 
-
-// called when user clicks “TON”
 function focusAmountInput() {
-    if (amountInput.value) {
-        amountInput.value.focus()
+    const input = selectedDeposit.value === 'TON' ? amountInputTon.value : amountInputStars.value
+    if (input && typeof input.focus === 'function') {
+        input.focus()
     }
 }
 
-function onAmountFocus() {
+function onAmountFocus(e) {
     document.body.classList.add('keyboard-open')
+
+    // get the actual focused element (event target is most reliable)
+    const focusedEl = e?.target ?? (selectedDeposit.value === 'TON' ? amountInputTon.value : amountInputStars.value)
 
     // run initial scroll after short delay to let keyboard show
     setTimeout(() => {
         try {
-            amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+            focusedEl?.scrollIntoView({ behavior: 'smooth', block: 'end' })
         } catch (_) { }
-        scrollModalToBottom(true)
-    }, 400)
+        scrollModalToBottom(true, focusedEl)
+    }, 140) // lowered from 400 to ~140ms
 
     if (window.visualViewport) {
-        // attach only once
         if (!vvResizeListener) {
             vvResizeListener = () => {
                 const kv = window.visualViewport
                 const kbHeight = Math.max(0, window.innerHeight - kv.height)
                 document.documentElement.style.setProperty('--keyboard-height', `${kbHeight}px`)
-                scrollModalToBottom(false)
+                // prefer to pass the focused element so it always measures the correct target
+                scrollModalToBottom(false, focusedEl)
             }
             window.visualViewport.addEventListener('resize', vvResizeListener)
         }
-        // call immediately to set initial state
         vvResizeListener()
     } else {
         if (!windowResizeListener) {
             windowResizeListener = () => {
-                setTimeout(() => scrollModalToBottom(false), 200)
+                setTimeout(() => scrollModalToBottom(false, focusedEl), 200)
             }
             window.addEventListener('resize', windowResizeListener)
         }
@@ -1063,14 +1055,16 @@ function connectNewWallet() {
     appearance: textfield;
     font-family: inherit;
     flex: 0 0 auto;
-    min-width: 1ch;
+    min-width: 3ch;
     max-width: 70vw;
 }
 
 @media (max-width: 420px) {
+    
     .amount-input {
         font-size: 1.6rem;
         padding: 0.35rem;
+        min-width: 4ch;
     }
 
     .amount-currency {

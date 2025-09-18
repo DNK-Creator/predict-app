@@ -1,10 +1,11 @@
 <template>
     <div v-if="!hideMenu" ref="menuRoot" class="menu" role="navigation" aria-label="Main menu">
-        <RouterLink to="/" custom v-slot="{ isActive, navigate }">
+
+        <RouterLink to="/running" custom v-slot="{ isActive, navigate }">
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
-                <i class="fas fa-house icon" :aria-hidden="true"></i>
-                <span class="menu-label">{{ $t('main-page') }}</span>
+                <i class="fas fa-person-running icon" :aria-hidden="true"></i>
+                <span class="menu-label">{{ $t('running-title') }}</span>
             </div>
         </RouterLink>
 
@@ -13,6 +14,14 @@
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-calendar-days icon" :aria-hidden="true"></i>
                 <span class="menu-label">{{ $t('holidays') }}</span>
+            </div>
+        </RouterLink>
+
+        <RouterLink to="/" custom v-slot="{ isActive, navigate }">
+            <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
+                :aria-current="isActive ? 'page' : null" tabindex="0">
+                <i class="fas fa-house icon" :aria-hidden="true"></i>
+                <span class="menu-label">{{ $t('main-page') }}</span>
             </div>
         </RouterLink>
 
@@ -125,7 +134,7 @@ onUpdated(() => {
     justify-content: center;
     cursor: pointer;
     gap: 6px;
-    width: 80px;
+    width: 55px;
     padding: 6px 4px;
     border-radius: 12px;
     border: none;
@@ -172,7 +181,7 @@ onUpdated(() => {
 }
 
 .menu-label {
-    font-size: 0.78rem;
+    font-size: 0.7rem;
     color: #9aa7b2;
     opacity: 0.75;
     font-weight: 600;
@@ -217,15 +226,11 @@ onUpdated(() => {
 }
 
 /* ---------- responsive tweaks ---------- */
-@media (max-width: 420px) {
+@media (max-width: 380px) {
     .menu {
         height: 70px;
         border-radius: 20px;
         padding: 6px 10px;
-    }
-
-    .menu-item {
-        width: 68px;
     }
 
     .icon {
@@ -233,7 +238,7 @@ onUpdated(() => {
     }
 
     .menu-label {
-        font-size: 0.72rem;
+        font-size: 0.65rem;
     }
 }
 

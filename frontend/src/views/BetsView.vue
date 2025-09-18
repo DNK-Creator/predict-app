@@ -1,7 +1,7 @@
 <template>
 
     <!-- root always present to avoid layout jumps -->
-    <div class="bets-root" :aria-hidden="loadingInitial ? 'true' : 'false'">
+    <div class="bets-root" ref="rootEl" :aria-hidden="loadingInitial ? 'true' : 'false'">
         <div class="bets-container">
             <!-- Catalogue (Active / Archived) -->
             <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
@@ -27,15 +27,19 @@
             </div>
 
             <!-- Bets list (normal) -->
-            <!-- We use an out-in transition around the entire list so old list leaves, then new list appears.
-           The listKey is bumped only when new data arrives, so while fetching the old list remains visible. -->
-            <transition name="list-fade" mode="out-in">
-                <div class="bets-list" :key="listKey">
-                    <div v-for="bet in bets" :key="bet.id">
+            <!-- We use an out-in transition that first leaves the old list, then after-leave swaps in the new list -->
+            <transition name="list-fade" @after-leave="handleAfterLeave">
+                <!-- showDisplayed controls whether the currently-displayed list is mounted -->
+                <div class="bets-list" :key="listKey" v-if="showDisplayed">
+                    <div v-for="bet in displayedBets" :key="bet.id">
                         <BetsCard :title="translatedTitle(bet.name, bet.name_en)" :eventLogo="bet.image_path"
                             :endsAt="bet.close_time" :pool="getTotalPool(bet)"
                             :betTypeText="translatedTitle(bet.event_type, bet.event_type_en)" :app="app"
-                            :status="getBetStatus(bet)" :chance="getBetPercent(bet)" @share="shareBetFunction(bet.name, bet.name_en)"
+                            :betResult="bet.result" :isActiveList="selectedTab === 'active'" :status="getBetStatus(bet)"
+                            :chance="getBetPercent(bet)" :volume="bet.volume" :currentOdds="bet.current_odds"
+                            :userStake="Number(bet.user_stake) || 0" :userSide="bet.user_result || null"
+                            :total_tickets="bet.giveaway_total_tickets"
+                            @share="shareBetFunction(bet.name, bet.name_en)"
                             @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
                     </div>
                 </div>
@@ -54,7 +58,7 @@ import { useTelegram } from '@/services/telegram'
 import supabase from '@/services/supabase'
 import { useAppStore } from '@/stores/appStore'
 import BetsCard from '@/components/bet-details/BetsCard.vue'
-import LoaderPepe from '@/components/LoaderPepe.vue'
+import { getUserBetAmount } from '@/services/bets-requests.js'
 
 const app = useAppStore()
 
@@ -65,6 +69,16 @@ const page = ref(0)
 const pageSize = 6
 const loadingMore = ref(false)
 const allLoaded = ref(false)
+
+const rootEl = ref(null)
+const waitingForIncoming = ref(false) // when we left old list and are waiting for incomingBets
+
+// at top, with other refs
+let activeLoadId = 0 // incremented on each resetAndLoad to cancel stale responses
+
+const displayedBets = ref([]) // what is currently shown
+const incomingBets = ref(null) // newly-fetched page waiting to be swapped in
+const showDisplayed = ref(true) // controls mounting to let the old list leave first
 
 // initial full-page loader
 const loadingInitial = ref(true)
@@ -81,6 +95,37 @@ function translatedTitle(titleRu, titleEn) {
         return titleRu
     } else {
         return titleEn
+    }
+}
+
+function ensureBlurInsideRoot() {
+    try {
+        const active = document.activeElement
+        if (!active) return
+        if (rootEl.value && rootEl.value.contains(active)) {
+            // blur the focused element so aria-hidden won't hide a focused descendant
+            if (typeof active.blur === 'function') active.blur()
+            // as a fallback, move focus to document.body
+            // (only if blur didn't remove focus for some reason)
+            if (document.activeElement === active && typeof document.body.focus === 'function') {
+                document.body.focus()
+            }
+        }
+    } catch (e) {
+        // defensive: don't crash the UI on odd environments
+        console.warn('ensureBlurInsideRoot failed', e)
+    }
+}
+
+function setRootInert(flag) {
+    try {
+        if (!rootEl.value) return
+        if ('inert' in rootEl.value) {
+            rootEl.value.inert = !!flag
+        }
+        // if inert not supported we don't break anything — aria-hidden is still used via binding
+    } catch (e) {
+        // ignore
     }
 }
 
@@ -125,12 +170,6 @@ function sumNumeric(x) {
     if (Array.isArray(x)) return x.reduce((s, it) => s + sumNumeric(it), 0)
     if (typeof x === 'object') return Object.values(x).reduce((s, v) => s + sumNumeric(v), 0)
     return 0
-}
-
-/** Round to max 2 decimals and strip trailing zeros (return Number) */
-function round2(n) {
-    if (!Number.isFinite(n)) return 0
-    return Number(Number(n).toFixed(2))
 }
 
 /* ---------------------------
@@ -297,6 +336,26 @@ function getBetStatus(betObj) {
     return app.language === 'ru' ? `Результат "${String(resultRaw)}"` : `Result "${String(resultRaw)}"`
 }
 
+// Fetch user bet amounts for an array of bets and attach to each bet object as _userBet
+// Fetch user bet amounts for an array of bets and attach to each bet object as _userBet
+async function fetchAndAttachUserBets(betArray) {
+    if (!Array.isArray(betArray) || betArray.length === 0) return
+    try {
+        const promises = betArray.map(b => getUserBetAmount(b.id).catch(() => ({ stake: 0, result: '0' })))
+        const results = await Promise.all(promises)
+        for (let i = 0; i < betArray.length; i++) {
+            // attach shadow property so UI can read it
+            betArray[i]._userBet = results[i] || { stake: 0, result: '0' }
+        }
+    } catch (err) {
+        console.warn('fetchAndAttachUserBets failed', err)
+        // ensure default attachments
+        for (const b of betArray) {
+            if (!b._userBet) b._userBet = { stake: 0, result: '0' }
+        }
+    }
+}
+
 /* ---------------------------
    Networking & pagination
    --------------------------- */
@@ -314,30 +373,49 @@ function shareBetFunction(betName, betNameEn) {
 }
 
 const isLoadingFirstPage = computed(() => loadingMore.value && bets.value.length === 0)
-const isEmpty = computed(() => !loadingInitial.value && bets.value.length === 0 && allLoaded.value)
+const isEmpty = computed(() => {
+    return (
+        !loadingInitial.value &&
+        (displayedBets.value.length === 0 && (!incomingBets.value || incomingBets.value.length === 0)) &&
+        allLoaded.value
+    )
+})
 
-// initial load & observe
 onMounted(async () => {
     await resetAndLoad()
+    // direct populate on first mount (no leave animation)
+    displayedBets.value = incomingBets.value
+    showDisplayed.value = true
+    incomingBets.value = null
+    listKey.value = selectedTab.value + '-' + Date.now()
     observeScrollEnd()
 })
 
-// when tab changes, we call resetAndLoad — we DO NOT clear bets until new data is ready
-watch(selectedTab, async () => {
-    await resetAndLoad({ showGlobal: false, clearBefore: false })
+watch(selectedTab, () => {
+    showDisplayed.value = false
+    resetAndLoad({ showGlobal: false })
 })
 
-/**
- * resetAndLoad(options)
- * - showGlobal (default true): whether to allow the global loader debounce to show
- * - clearBefore (default true): whether to clear bets immediately (we keep old list during tab switches)
- */
-async function resetAndLoad({ showGlobal = true, clearBefore = true } = {}) {
+watch(incomingBets, (newVal) => {
+    if (newVal !== null && !showDisplayed.value) {
+        // incoming arrived while list was hidden -> mount it
+        waitingForIncoming.value = false
+        displayedBets.value = Array.isArray(newVal) ? newVal.slice() : []
+        incomingBets.value = null
+        listKey.value = selectedTab.value + '-' + Date.now()
+        showDisplayed.value = true
+        // loadingInitial remains managed by resetAndLoad
+    }
+})
+
+
+async function resetAndLoad({ showGlobal = true } = {}) {
+    activeLoadId += 1
+    const myLoadId = activeLoadId
+
     page.value = 0
     allLoaded.value = false
     loadingMore.value = false
-
-    if (clearBefore) bets.value = []
 
     if (initialLoaderTimer) {
         clearTimeout(initialLoaderTimer)
@@ -345,18 +423,21 @@ async function resetAndLoad({ showGlobal = true, clearBefore = true } = {}) {
     }
     if (showGlobal) {
         initialLoaderTimer = setTimeout(() => {
+            // make region inert (if supported) and blur focused element *before* making aria-hidden true
+            ensureBlurInsideRoot()
+            setRootInert(true)
             loadingInitial.value = true
         }, 150)
     }
 
     try {
-        const firstPage = await fetchBetsPage(0)
+        const firstPage = await fetchBetsPage(0) // <-- no tab passed
+        if (myLoadId !== activeLoadId) return
 
-        // replace UI list only once data is ready to avoid empty flicker.
-        bets.value = firstPage
-        // bump the key so the transition will animate out old -> animate in new
-        listKey.value = selectedTab.value + '-' + Date.now()
+        await fetchAndAttachUserBets(firstPage)
+        if (myLoadId !== activeLoadId) return
 
+        incomingBets.value = Array.isArray(firstPage) ? firstPage : []
         page.value = 1
         if (firstPage.length < pageSize) allLoaded.value = true
     } catch (err) {
@@ -366,43 +447,76 @@ async function resetAndLoad({ showGlobal = true, clearBefore = true } = {}) {
             clearTimeout(initialLoaderTimer)
             initialLoaderTimer = null
         }
+        // ensure we remove inert when loader stops
         loadingInitial.value = false
+        setRootInert(false)
     }
 }
 
-/**
- * fetchBetsPage(pageIndex) -> returns array
- */
-async function fetchBetsPage(pageIndex) {
-    const from = pageIndex * pageSize
-    const to = from + pageSize - 1
-
-    let query = supabase
-        .from('bets')
-        .select('id, name, name_en, image_path, date, result, close_time, volume, event_type, event_type_en, current_odds')
-        .order('date', { ascending: true })
-        .range(from, to)
-
-    if (selectedTab.value === 'active') {
-        query = query.eq('result', 'undefined')
-    } else {
-        query = query.neq('result', 'undefined')
+// --- replace existing handleAfterLeave with this ---
+function handleAfterLeave() {
+    // If incomingBets is still null then the fetch is still in-flight.
+    // Instead of toggling the global loader/aria-hidden, mark waitingForIncoming
+    // so we show a small inline loader and keep the rest of UI interactive.
+    if (incomingBets.value === null) {
+        waitingForIncoming.value = true
+        // Do NOT set loadingInitial here — that hides the whole root and blocks clicks.
+        return
     }
 
-    const { data, error } = await query
+    // incomingBets arrived — perform swap
+    waitingForIncoming.value = false
+    displayedBets.value = Array.isArray(incomingBets.value) ? incomingBets.value.slice() : []
+    incomingBets.value = null
+    listKey.value = selectedTab.value + '-' + Date.now()
+    showDisplayed.value = true
+    // don't touch loadingInitial here; it's controlled by resetAndLoad
+}
+
+async function fetchBetsPage(pageIndex) {
+    const from = pageIndex * pageSize
+    const telegramId = (user && user.id) ? Number(user.id) : 99
+
+    const { data, error } = await supabase.rpc('fetch_bets_with_telegram', {
+        telegram_bigint: telegramId,
+        limit_int: pageSize,
+        offset_int: from,
+        active_only: selectedTab.value === 'active' // always look at ref
+    })
+
     if (error) throw error
     return data || []
 }
 
-/* loadMoreBets */
 async function loadMoreBets() {
     if (loadingMore.value || allLoaded.value) return
+    // capture the current reset token so we can ignore the response if a reset happens
+    const myLoadId = activeLoadId
+
     loadingMore.value = true
 
     try {
         const incoming = await fetchBetsPage(page.value)
+
+        // if a reset started during this fetch, ignore these items
+        if (myLoadId !== activeLoadId) return
+
         if (incoming.length < pageSize) allLoaded.value = true
-        bets.value.push(...incoming)
+
+        // attach user bet info for the incoming page
+        await fetchAndAttachUserBets(incoming)
+
+        // stale check again after awaiting
+        if (myLoadId !== activeLoadId) return
+
+        // dedupe by id (prevent duplicates if page boundaries/gaps overlap)
+        const existingIds = new Set(displayedBets.value.map(b => b.id))
+        const filtered = incoming.filter(item => !existingIds.has(item.id))
+
+        if (filtered.length > 0) {
+            displayedBets.value.push(...filtered)
+        }
+        // advance page even if nothing got added to avoid tight loops
         page.value += 1
     } catch (err) {
         console.error('Error loading bets:', err)

@@ -548,7 +548,7 @@ const potentialProfit = computed(() => {
 })
 
 // put near the other computed properties
-const HOUSE_CUT = 0.1 // 10%
+const HOUSE_CUT = 0.03 // 10%
 
 const grossPayout = computed(() => {
     const stake = currentAmountNumber()

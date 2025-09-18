@@ -54,7 +54,7 @@ const route = useRoute()
 const { user } = useTelegram()
 
 const settingsRoutes = ['deposit', 'bets-history', 'profile']
-const headerHideRoutes = ['deposit', 'privacy', 'bets-history', 'gifts-prices']
+const headerHideRoutes = ['deposit', 'privacy', 'bets-history', 'gifts-prices', 'running']
 
 const showSettings = computed(() =>
     settingsRoutes.includes(route.name)

@@ -1,7 +1,7 @@
 <template>
     <!-- WITHDRAWAL MODAL  -->
     <WithdrawModal v-model="showWithdrawalModal" :address="parsedWalletAddress" :balance="app.points"
-        @withdraw="handleWithdraw" />
+        @withdraw="handleWithdraw" :house_cut="house_cut_rate" />
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
     <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" :balance="walletBalance"
@@ -25,7 +25,7 @@
                     <h1 class="wallet-balance">{{ app.points }} TON</h1>
                     <div class="wallet-buttons">
                         <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
-                        }}</button>
+                            }}</button>
                     </div>
                 </div>
             </div>
@@ -60,6 +60,8 @@ const { ton, ensureTon } = useTon()
 const transactions = ref([])
 const spinnerShow = ref(true)
 const transactionsShow = ref(false)
+
+const house_cut_rate = ref(7)
 
 // inside setup: add this ref
 const showView = ref(false)
@@ -156,7 +158,7 @@ async function reconnectWallet() {
 }
 
 // Called when user clicks “Вывод”
-async function handleWithdraw(amount) {
+async function handleWithdraw(amount, amount_cut) {
     ensureTon()
     if (!walletAddress.value) {
         try {
@@ -170,12 +172,12 @@ async function handleWithdraw(amount) {
         return;
     }
     else {
-        onWithdraw(amount)
+        onWithdraw(amount, amount_cut)
     }
 }
 
 // ——— Withdraw flow ———
-async function onWithdraw(amount) {
+async function onWithdraw(amount, amount_cut) {
 
     if (app.points < amount) {
         toast.error('Недостаточно средств')
@@ -192,6 +194,7 @@ async function onWithdraw(amount) {
     const parsedAddress = (Address.parse(app.walletAddress)).toString({ urlSafe: true, bounceable: false })
 
     const txId = uuidv4()
+    const amountTON_Cut = amount_cut
     const amountTON = amount
 
     await supabase
@@ -203,7 +206,7 @@ async function onWithdraw(amount) {
     await supabase.from('transactions').insert({
         uuid: txId,
         user_id: user?.id ?? 99,
-        amount: amountTON,
+        amount: amountTON_Cut,
         status: 'Ожидание вывода',
         type: 'Withdrawal',
         withdrawal_pending: true,
@@ -218,7 +221,7 @@ async function onWithdraw(amount) {
         .eq('telegram', user?.id ?? 99)
 
     try {
-        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON} TON is saved.\nCurrent balance: ${app.points} TON`, user?.id)
+        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON_Cut} TON is saved.\nCurrent balance: ${app.points} TON`, user?.id)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }
@@ -351,6 +354,22 @@ onMounted(async () => {
         channel.subscribe()
     }
 
+    const { data, error } = await supabase
+        .from('withdraw_information')
+        .select('house_cut')
+        .eq('id', 1)
+        .single()   // .single() is fine if the row exists
+
+    if (error) {
+        console.error('failed to load house_cut', error)
+        // keep default 0 or handle error UI
+        return
+    }
+
+    // Ensure it's a number (DB double precision usually arrives as a JS number)
+    const val = Number(data?.house_cut)
+    house_cut_rate.value = Number.isFinite(val) ? val : 7
+
     spinnerShow.value = false
     transactionsShow.value = true
 })
@@ -388,7 +407,6 @@ watch(
     () => walletAddress.value,
     async (addr) => {
         if (!addr) {
-            walletStatus.value = app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
             walletBalance.value = null
             return
         }
@@ -396,10 +414,7 @@ watch(
         // set status quickly (shortened form)
         try {
             const parsed = Address.parse(addr).toString({ urlSafe: true, bounceable: false })
-            walletStatus.value = app.language === 'ru' ? `Ваш кошелёк ${parsed.slice(0, 4)}...${parsed.slice(-3)}` : `Your wallet ${parsed.slice(0, 4)}...${parsed.slice(-3)}`
-        } catch (_) {
-            walletStatus.value = app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
-        }
+        } catch (_) { }
 
         // fetch fresh balance
         try {

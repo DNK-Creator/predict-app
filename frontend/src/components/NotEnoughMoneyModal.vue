@@ -5,24 +5,19 @@
         </transition>
 
         <transition name="slide-up">
-            <div v-if="show" class="channel-follow-modal" role="dialog" aria-modal="true">
-                <div class="upper-media">
-                    <div class="close-btn" @click="onClose">x</div>
-                    <img class="upper-media-img"
-                        src="https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/PepeHeroicBanner.png">
-                </div>
+            <div v-if="show" class="not-enough-modal" role="dialog" aria-modal="true">
                 <div class="bottom-middle">
                     <div class="items-group">
                         <div class="channel-banner">
-                            <span class="channel-title">{{ title }}</span>
-                            <span class="channel-description">{{ description }}</span>
+                            <span class="channel-title">{{ $t('not-enough-money') }}</span>
+                            <span class="channel-description">{{ $t('redirect-deposit-text') }}</span>
                         </div>
                     </div>
 
                     <div class="items-group">
                         <div class="buttons-group">
-                            <button class="action-btn-two" @click="onSubscribe">
-                                <span>{{ $t('subscribe') }}</span>
+                            <button class="action-btn-two" @click="onRedirect">
+                                <span>{{ $t('goto-deposit') }}</span>
                             </button>
                         </div>
                     </div>
@@ -33,17 +28,17 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
 import { useAppStore } from '@/stores/appStore'
+import { useRouter } from 'vue-router'
 
 const app = useAppStore()
+
+const router = useRouter()
 
 const props = defineProps({
     show: { type: Boolean, required: true },
     channel: { type: String, default: '@giftspredict' }
 })
-const description = computed(() => app.language === 'ru' ? 'В нем мы публикуем обновления, новости и раздаем лучшие подарки!' : 'We publish updates, urgent news and give away best gifts for you!')
-const title = computed(() => app.language === 'ru' ? 'У нас появился канал' : 'We got a new channel')
 
 const emit = defineEmits(['close', 'subscribe'])
 
@@ -51,9 +46,13 @@ function onClose() {
     emit('close')
 }
 
-function onSubscribe() {
-    emit('subscribe')
+function onRedirect() {
+    // navigate to the privacy route — RouterView will render PrivacyView
+    router.push({ name: 'profile' }).catch(() => { })
+    // close settings modal if open
+    onClose()
 }
+
 </script>
 <style scoped>
 /* Bottom modal backdrop */
@@ -64,6 +63,31 @@ function onSubscribe() {
     /* darker like in image */
     backdrop-filter: blur(4px);
     z-index: 20;
+}
+
+.not-enough-modal {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-width: 540px;
+    margin: auto auto;
+    align-self: center;
+    /* taller to match the reference */
+    height: max(35vh, 300px);
+    background: linear-gradient(180deg, rgba(41, 41, 41, 0.96) 0%, #1f1f1f 100%);
+    color: #ffffff;
+    border-top-left-radius: 20px;
+    border-top-right-radius: 20px;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
+    z-index: 22;
+    font-weight: 600;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    user-select: none;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    user-select: none;
 }
 
 /* Header row — small title on left and close on right */
@@ -101,33 +125,8 @@ function onSubscribe() {
     font-size: 24px;
 }
 
-.channel-follow-modal {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    max-width: 420px;
-    margin: auto auto;
-    align-self: center;
-    /* taller to match the reference */
-    height: max(55vh, 500px);
-    background: linear-gradient(180deg, rgba(41, 41, 41, 0.96) 0%, #1f1f1f 100%);
-    color: #ffffff;
-    border-top-left-radius: 20px;
-    border-top-right-radius: 20px;
-    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.6);
-    z-index: 22;
-    font-weight: 600;
-    font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
-    user-select: none;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    user-select: none;
-}
-
 /* The hero/banner area with background image */
-.channel-follow-modal .channel-banner {
+.not-enough-modal .channel-banner {
     position: relative;
     overflow: hidden;
     /* use the provided placeholder image */
@@ -140,7 +139,7 @@ function onSubscribe() {
     align-items: flex-start;
     /* we'll style text so it matches reference */
     justify-content: center;
-    gap: 8px;
+    gap: 12px;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.02);
     margin: auto auto;
     align-self: center;
@@ -197,7 +196,7 @@ function onSubscribe() {
     width: 100%;
     margin-top: auto;
     /* push to bottom */
-    padding-top: 16px;
+    padding-top: 36px;
     align-items: center;
 }
 
