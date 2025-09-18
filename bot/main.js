@@ -202,7 +202,10 @@ app.post('/api/bet-placed', async (req, res) => {
         const sideEscaped = escapeHtml(String(side));
         const betNameEscaped = escapeHtml(String(betNameEn));
         // include TON suffix per your template
-        lines.push(`${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on ${sideEscaped} in the event ${betNameEscaped} ⭐`);
+        // Modified message format
+        lines.push(`${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`);
+        
+        lines.push(`Event: ${betNameEscaped} ⭐`);
 
         // Optionally log totalPool for debugging/metrics
         console.log(`bet-placed: totalPool for bet ${bet_id} = ${totalPool}`);
