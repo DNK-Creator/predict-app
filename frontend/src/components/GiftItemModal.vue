@@ -1,9 +1,9 @@
 <template>
-    <transition name="backdrop" appear>
-        <div v-if="visible" class="overlay" @click.self="close"></div>
-    </transition>
-
     <Teleport to="body">
+        <transition name="backdrop" appear>
+            <div v-if="visible" class="overlay" @click.self="close"></div>
+        </transition>
+
         <transition name="modal" appear>
             <div v-if="visible" class="modal-container" role="dialog" aria-modal="true" :aria-label="headerText">
                 <header class="modal-header">

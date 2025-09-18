@@ -156,11 +156,10 @@ export async function placeBetRequest(betId, side, stake) {
     const row = Array.isArray(data) ? data[0] : data;
 
     // after your RPC returns successfully (inside client)
-    await fetch('/api/bet-placed', {
+    await fetch('https://api.giftspredict.ru/api/bet-placed', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            // 'X-Bet-Webhook-Secret': '<<YOUR_CLIENT_SIDE_SECRET_OR_FROM_ENV_ON_HOST>>' // must match server env BET_WEBHOOK_SECRET
         },
         body: JSON.stringify({
             telegram: Number(user?.id ?? 0),  // same telegram id you passed to RPC
