@@ -331,9 +331,9 @@ function clearCharTimers() {
 
 /* GIFTS */
 const GIFTS = [
-    { id: 'cookie', src: Gift_UI_Cookie, weight: 40, actualChance: 0.55, visibleChance: 30, valueLabel: '2.5 TON' },
-    { id: 'snake', src: Gift_UI_Snake, weight: 40, actualChance: 0.52, visibleChance: 45, valueLabel: '1.5 TON' },
-    { id: 'cat', src: Gift_UI_Cat, weight: 20, actualChance: 0.51, visibleChance: 6, valueLabel: '50 TON' },
+    { id: 'cookie', src: Gift_UI_Cookie, weight: 40, actualChance: 0.15, visibleChance: 30, valueLabel: '2.5 TON' },
+    { id: 'snake', src: Gift_UI_Snake, weight: 35, actualChance: 0.4, visibleChance: 45, valueLabel: '1.5 TON' },
+    { id: 'cat', src: Gift_UI_Cat, weight: 25, actualChance: 0.006, visibleChance: 5, valueLabel: '50 TON' },
 ]
 
 async function boostVideo() {

@@ -3,36 +3,38 @@
         <div v-if="visible" class="overlay" @click.self="close"></div>
     </transition>
 
-    <transition name="modal" appear>
-        <div v-if="visible" class="modal-container" role="dialog" aria-modal="true" :aria-label="headerText">
-            <header class="modal-header">
-                <div class="modal-header-description">
-                    <h2>{{ headerText }}</h2>
-                </div>
-                <button class="close-btn" @click="close" aria-label="Close">×</button>
-            </header>
+    <Teleport to="body">
+        <transition name="modal" appear>
+            <div v-if="visible" class="modal-container" role="dialog" aria-modal="true" :aria-label="headerText">
+                <header class="modal-header">
+                    <div class="modal-header-description">
+                        <h2>{{ headerText }}</h2>
+                    </div>
+                    <button class="close-btn" @click="close" aria-label="Close">×</button>
+                </header>
 
-            <section class="modal-body">
+                <section class="modal-body">
 
-                <!-- Lottie animation container (replaces <img>) -->
-                <div class="gift-image-wrapper">
-                    <div ref="svgContainer" class="tgs-container" aria-hidden="true"></div>
-                </div>
+                    <!-- Lottie animation container (replaces <img>) -->
+                    <div class="gift-image-wrapper">
+                        <div ref="svgContainer" class="tgs-container" aria-hidden="true"></div>
+                    </div>
 
-                <!-- optional extra description area (value / metadata) -->
-                <div class="gift-meta">
-                    <span>{{ $t('price') }}: {{ metaText() }} </span>
-                    <img class="ton-price" :src="TonIcon">
-                </div>
-            </section>
+                    <!-- optional extra description area (value / metadata) -->
+                    <div class="gift-meta">
+                        <span>{{ $t('price') }}: {{ metaText() }} </span>
+                        <img class="ton-price" :src="TonIcon">
+                    </div>
+                </section>
 
-            <footer class="modal-footer">
-                <button class="action-btn" @click="onAction">
-                    {{ $t('withdraw') }}
-                </button>
-            </footer>
-        </div>
-    </transition>
+                <footer class="modal-footer">
+                    <button class="action-btn" @click="onAction">
+                        {{ $t('withdraw') }}
+                    </button>
+                </footer>
+            </div>
+        </transition>
+    </Teleport>
 </template>
 
 <script setup>

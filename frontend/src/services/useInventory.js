@@ -202,7 +202,7 @@ export function useInventory() {
 
         // 5) call backend botmessage endpoint to notify user
         // message text as requested
-        const messageText = `Your request to withdraw ${gift.name} has been successfully accepted. Your gift will arrive within a day!`
+        const messageText = `Your request to withdraw ${gift.name} has been successfully accepted. Your gift will arrive within a day! 🎁`
         let botResult = null
         try {
             const resp = await fetch('https://api.giftspredict.ru/api/botmessage', {
