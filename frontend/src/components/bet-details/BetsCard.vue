@@ -219,7 +219,27 @@ const endsText = computed(() => {
     }
 })
 
-const showGiveawayBadge = computed(() => props.pool < 25 && props.total_tickets > 0 && normalizedResult.value == null)
+// show giveaway only when pool < 25, there are tickets, AND (no endsISO provided OR endsISO is in the future)
+const showGiveawayBadge = computed(() => {
+    // keep numeric parsing robust (works for string/number props.pool)
+    const poolNum = parseNumberLoose(props.pool)
+    const hasTickets = Number(props.total_tickets) > 0
+
+    if (!(poolNum < 25 && hasTickets)) return false
+
+    // if we don't have an endsISO (no endsAt provided), preserve previous behavior and show the badge
+    if (!endsISO.value) return true
+
+    // parse endsISO (endsISO is already an ISO string when valid)
+    const endDate = new Date(endsISO.value)
+    if (Number.isNaN(endDate.getTime())) {
+        // fallback: if date parsing failed, keep showing (or change to `return false` if you prefer hiding on invalid dates)
+        return true
+    }
+
+    // show badge only when end time is still in the future
+    return Date.now() < endDate.getTime()
+})
 
 /* ---------- rest of original helpers / UI colors (unchanged) ---------- */
 

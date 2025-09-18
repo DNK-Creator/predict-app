@@ -1,12 +1,13 @@
 <template>
-    <div v-if="isLoading">
-        <LoaderPepe />
-    </div>
-
-    <!-- background video -->
-    <div v-else class="bg-video-viewport" aria-hidden="true">
+    <!-- background video: always in DOM so it may begin fetching immediately -->
+    <div class="bg-video-viewport" aria-hidden="true">
         <video ref="bgVideo" class="bg-portrait-video" :src="videoLink" autoplay muted loop playsinline preload="auto"
             @timeupdate="onTimeUpdate" @loadedmetadata="onLoadedMetadata"></video>
+
+        <!-- overlay positioned above the video (absolute inside the same container) -->
+        <div class="loader-overlay" :class="{ 'loader-hidden': !isLoading }" aria-hidden="true">
+            <LoaderPepe />
+        </div>
     </div>
 
     <!-- SETTINGS MODAL & BLUR OVERLAY -->
@@ -62,7 +63,7 @@
 </template>
 
 <script setup>
-import { ref, watch, onMounted, onUnmounted, computed } from 'vue'
+import { ref, watch, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/appStore'
 import { useInventory } from '@/services/useInventory'
@@ -119,6 +120,10 @@ const DESCEND_MS = 1900 // when boosted, descend duration
 /* video ref */
 const videoLink = ref('https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/Gameplay_V3_Compressed.mp4')
 const bgVideo = ref(null)
+
+// keep references to handler so we can remove them
+let _videoListeners = []
+let _fallbackTimer = null
 
 /* UI / state */
 const isLoading = ref(true)
@@ -192,6 +197,16 @@ const currentRunningSprite = computed(() => {
     return RUNNING_SPRITES[id] ?? Gift_Running_Cookie
 })
 
+function cleanupVideoListeners() {
+    const el = bgVideo.value
+    if (el && _videoListeners.length) {
+        for (const { ev, fn, opts } of _videoListeners) {
+            el.removeEventListener(ev, fn, opts)
+        }
+    }
+    _videoListeners = []
+    if (_fallbackTimer) { clearTimeout(_fallbackTimer); _fallbackTimer = null }
+}
 
 function openInventory() {
     showInventoryModal.value = true
@@ -214,12 +229,94 @@ function runConfetti() {
     })
 }
 
-onMounted(() => {
-    setTimeout(() => (isLoading.value = false), 2200)
+// function called after loader finishes transition (optional)
+function onLoaderTransitionEnd(e) {
+    // If you want to do something only once the overlay has fully faded out,
+    // you can detect it here (optional). e.g. set a flag to hide pointer-events permanently.
+    // const el = e.currentTarget
+    // if (!isLoading.value) { /* overlay fully hidden */ }
+}
+
+onMounted(async () => {
+    await nextTick()
+    const el = bgVideo.value
+    if (!el) {
+        console.warn('bgVideo ref not found on mount; hiding loader as fallback.')
+        // small graceful fallback
+        isLoading.value = false
+        return
+    }
+
+    // helper: reveal after paint so layout is stable
+    const revealAfterPaint = async () => {
+        if (!isLoading.value) return
+        // yield to nextTick so DOM updates applied
+        await nextTick()
+        // wait two animation frames so browser lays out + paints the video
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+        if (isLoading.value) {
+            isLoading.value = false
+        }
+        cleanupVideoListeners()
+    }
+
+    // mark ready when condition met
+    const markReady = () => {
+        // only proceed if still loading
+        if (!isLoading.value) return
+        const ready = el.readyState >= 3 // HAVE_FUTURE_DATA or better
+        if (ready) {
+            // reveal only after paint (avoids visible resize)
+            revealAfterPaint().catch(() => {
+                isLoading.value = false
+                cleanupVideoListeners()
+            })
+        }
+    }
+
+    // event handlers
+    const onCanPlayThrough = markReady
+    const onCanPlay = markReady
+    const onLoadedData = markReady
+    const onPlaying = markReady
+    const onError = (ev) => {
+        console.error('Video load error', ev)
+        // if an error occurs, reveal the UI so the app isn't stuck (or show an error UI)
+        // small delay so user sees loader briefly
+        setTimeout(() => { isLoading.value = false }, 250)
+        cleanupVideoListeners()
+    }
+
+    const add = (ev, fn, opts) => {
+        el.addEventListener(ev, fn, opts)
+        _videoListeners.push({ ev, fn, opts })
+    }
+
+    add('canplaythrough', onCanPlayThrough)
+    add('canplay', onCanPlay)
+    add('loadeddata', onLoadedData)
+    add('playing', onPlaying)
+    add('error', onError)
+
+    // maybe already ready (cache)
+    if (el.readyState >= 3) {
+        markReady()
+        return
+    }
+
+    // fallback: don't get stuck forever — after 15s reveal the UI
+    _fallbackTimer = setTimeout(() => {
+        if (isLoading.value) {
+            console.warn('Video did not report ready events within timeout — hiding loader as fallback.')
+            revealAfterPaint().catch(() => { isLoading.value = false })
+        }
+    }, 15000)
 })
+
 onUnmounted(() => {
     clearAllTimers()
     clearCharTimers()
+    cleanupVideoListeners()
 })
 
 function clearAllTimers() {
@@ -635,30 +732,58 @@ function onContainerTransitionEnd(e) {
 </script>
 
 <style scoped>
-/* existing styles unchanged... (kept as before) */
 
 .bg-video-viewport {
     position: fixed;
+    /* keeps video fixed to viewport */
     top: 0;
     left: 50%;
     transform: translateX(-50%);
+    /* keeps your centering */
     height: 100vh;
-    width: auto;
+    width: 100vw;
+    overflow: hidden;
+    z-index: 0;
+    /* video layer base */
+}
+
+/* video base */
+.bg-portrait-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+    /* video underneath the overlay */
+}
+
+/* overlay when placed inside .bg-video-viewport */
+.bg-video-viewport .loader-overlay {
+    position: absolute;
+    inset: 0;
+    /* cover the whole container */
     display: flex;
     align-items: center;
     justify-content: center;
-    overflow: hidden;
-    pointer-events: none;
-    z-index: 0;
+    z-index: 2;
+    /* above the video */
+    background-color: #181818;
+    transition: opacity 300ms ease, visibility 300ms;
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
 }
 
-.bg-portrait-video {
-    height: 100vh;
-    width: auto;
-    max-width: 1920px;
-    max-height: 1920px;
-    display: block;
-    image-rendering: -webkit-optimize-contrast;
+.bg-video-viewport .loader-overlay.loader-hidden {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/* small tweak: hide pointer-events on video while loading to prevent accidental taps */
+.bg-video-viewport.loading video {
+    pointer-events: none;
 }
 
 .buttons-container {
