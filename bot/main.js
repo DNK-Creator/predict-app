@@ -46,6 +46,25 @@ bot.catch((err, ctx) => {
     // don't rethrow
 });
 
+async function fetchWithRetry(url, opts = {}, retries = 3, backoff = 500) {
+    let lastErr;
+    for (let i = 0; i <= retries; i++) {
+        try {
+            const controller = new AbortController();
+            const timeout = opts.timeout ?? 10_000;
+            const id = setTimeout(() => controller.abort(), timeout);
+            const res = await fetch(url, { ...opts, signal: controller.signal });
+            clearTimeout(id);
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            return res;
+        } catch (e) {
+            lastErr = e;
+            if (i === retries) break;
+            await new Promise(r => setTimeout(r, backoff * Math.pow(2, i)));
+        }
+    }
+    throw lastErr;
+}
 
 const effectIdTwo = "5046509860389126442"
 
@@ -898,20 +917,31 @@ async function handleStart(ctx) {
             message_effect_id: effectIdTwo
         };
 
-        // try to fetch the banner first (so network problems are handled)
+        // after fetchWithRetry succeeded, download buffer and send as "source"
         try {
-            await fetchWithRetry(bannerUrl, { timeout: 8000 }, 2);
-            return ctx.replyWithPhoto({ url: bannerUrl }, {
-                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
+            const res = await fetchWithRetry(bannerUrl, { timeout: 8000 }, 2);
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            if (!ct.startsWith('image/')) {
+                throw new Error('Not an image, content-type=' + ct);
+            }
+            const arrayBuffer = await res.arrayBuffer();
+            const buf = Buffer.from(arrayBuffer);
+
+            console.log('[banner] downloaded', buf.length, 'bytes, ct=', ct);
+
+            // Send image as buffer so Telegram receives it from your app, not from remote url
+            return ctx.replyWithPhoto({ source: buf }, {
+                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.`,
                 ...replyOptions
             });
         } catch (e) {
-            console.warn('banner fetch failed, sending text-only reply:', e?.message ?? e);
+            console.warn('banner send failed (will fallback to text):', e?.message ?? e);
             return ctx.reply(
-                `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
-                replyOptions
+                `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.`,
+                { disable_web_page_preview: true, ...replyOptions }
             );
         }
+
     } catch (err) {
         console.error('❌ start handler failed:', err);
         // don't expose internals to users; a short user-friendly message is fine
