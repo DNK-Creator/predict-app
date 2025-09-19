@@ -36,7 +36,32 @@ const bot = new Telegraf(token)
 // install session middleware
 bot.use(session())
 
+// after creating bot
+bot.catch((err, ctx) => {
+    try {
+        console.error('[TELEGRAF error] update:', ctx?.update, 'error:', err);
+    } catch (e) {
+        console.error('[TELEGRAF error] (also failed to log ctx)', e, 'origErr:', err);
+    }
+    // don't rethrow
+});
+
+
 const effectIdTwo = "5046509860389126442"
+
+// --- add near the top of main.js ---
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+    // optionally: flush logs / notify Sentry here
+    // Exit so docker (with restart policy) can restart into a clean state
+    setTimeout(() => process.exit(1), 100);
+});
+
+process.on('uncaughtException', (err) => {
+    console.error('[FATAL] Uncaught Exception:', err);
+    // optionally: flush logs / notify Sentry here
+    setTimeout(() => process.exit(1), 100);
+});
 
 const app = express()
 app.use(express.json())
@@ -204,7 +229,7 @@ app.post('/api/bet-placed', async (req, res) => {
         // include TON suffix per your template
         // Modified message format
         lines.push(`${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`);
-        
+
         lines.push(`Event: ${betNameEscaped} ⭐`);
 
         // Optionally log totalPool for debugging/metrics
@@ -823,67 +848,79 @@ function extractPayload(ctx) {
     return null
 }
 
-// pull all the logic into one function
+// Ensure fetchWithRetry is defined somewhere above (implementation shown after)
 async function handleStart(ctx) {
     try {
-
-        await ctx.telegram.setMessageReaction(
-            ctx.chat.id,
-            ctx.message.message_id,
-            [
-                {
-                    type: "emoji",
-                    emoji: "🔥"
-                }
-            ],
-            false
-        );
+        // safe reaction: not critical, so isolate errors
+        try {
+            if (ctx?.chat?.id && ctx?.message?.message_id) {
+                await ctx.telegram.setMessageReaction(
+                    ctx.chat.id,
+                    ctx.message.message_id,
+                    [{ type: "emoji", emoji: "🔥" }],
+                    false
+                );
+            }
+        } catch (err) {
+            console.warn('[bot] setMessageReaction failed (non-fatal):', err?.message ?? err);
+        }
 
         try {
             await ctx.sendChatAction('typing');
         } catch (err) {
-            console.log('[bot telegraf] action blocked: ' + err)
+            console.log('[bot telegraf] action blocked:', err?.message ?? err);
         }
 
         // ensure session exists
-        if (!ctx.session) ctx.session = {}
+        if (!ctx.session) ctx.session = {};
 
-        // if they launched via deep-link, save it
-        const incoming = extractPayload(ctx)
+        // save deep-link payload (if any)
+        const incoming = extractPayload(ctx);
         if (incoming) {
-            ctx.session.ref = incoming
-            console.log("Saved ref for", ctx.from.id, "=", incoming)
+            ctx.session.ref = incoming;
+            console.log('Saved ref for', ctx.from?.id, '=', incoming);
         }
 
         const privacyUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/GiftsPredictPrivacyPolicy.pdf";
         const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png";
-        let startAppQuery = ctx.session.ref ? `?startapp=${ctx.session.ref}` : null;
-        if (startAppQuery === null) {
-            startAppQuery = '?startapp='
-        }
-        return ctx.replyWithPhoto(
-            { url: bannerUrl },
-            {
-                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
-                parse_mode: "HTML",
-                // <-- spread the inlineKeyboard into the options:
-                ...Markup.inlineKeyboard([
-                    [Markup.button.url(
-                        "🕹️ Open App",
-                        `https://t.me/giftspredict_bot${startAppQuery}`
-                    )],
-                    [Markup.button.url(
-                        "📢 Community",
-                        `https://t.me/giftspredict`
-                    )]
-                ]),
-                message_effect_id: effectIdTwo,
-            });
 
-    }
-    catch (err) {
-        console.error("❌ start handler failed:", err)
-        return ctx.reply("An error occured, please try again later.")
+        // build startAppQuery and ensure safe encoding
+        const rawRef = ctx.session.ref ?? '';
+        const startAppQuery = `?startapp=${encodeURIComponent(rawRef)}`;
+
+        // prepare reply options (keyboard + common options)
+        const replyOptions = {
+            parse_mode: "HTML",
+            ...Markup.inlineKeyboard([
+                [Markup.button.url("🕹️ Open App", `https://t.me/giftspredict_bot${startAppQuery}`)],
+                [Markup.button.url("📢 Community", `https://t.me/giftspredict`)]
+            ]),
+            message_effect_id: effectIdTwo
+        };
+
+        // try to fetch the banner first (so network problems are handled)
+        try {
+            await fetchWithRetry(bannerUrl, { timeout: 8000 }, 2);
+            return ctx.replyWithPhoto({ url: bannerUrl }, {
+                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
+                ...replyOptions
+            });
+        } catch (e) {
+            console.warn('banner fetch failed, sending text-only reply:', e?.message ?? e);
+            return ctx.reply(
+                `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.\n\nBy playing, you agree to our <a href="${privacyUrl}">Privacy Policy</a> and the User Agreement in the app profile settings.`,
+                replyOptions
+            );
+        }
+    } catch (err) {
+        console.error('❌ start handler failed:', err);
+        // don't expose internals to users; a short user-friendly message is fine
+        try {
+            return ctx.reply("An error occurred, please try again later.");
+        } catch (_) {
+            // if reply also fails, swallow to avoid throwing out of the handler
+            return null;
+        }
     }
 }
 
