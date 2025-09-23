@@ -1,15 +1,11 @@
 <template>
-  <!-- App shell: RouterView always mounted so pages can render while loader is visible -->
-  <div v-if="loadingStage > 0" class="app">
-    <!-- MAIN SCROLL CONTAINER -->
+  <div v-if="loadingStage > 0 && !outsideTelegram" class="app">
     <div class="app-scroll-container" ref="appScrollRef">
       <Header :balance="app.points" :address="walletAddress" @deposit-click="openDepositWindow"
         @settings-click="openSettings" @wallet-connect="reconnectWallet" />
 
-      <!-- RouterView with a quick out-in fade for route changes -->
       <RouterView v-slot="{ Component }">
         <transition name="route-fade" mode="out-in" appear>
-          <!-- single element root for the transition -->
           <div :key="route.fullPath" class="route-transition-wrapper">
             <keep-alive>
               <component :is="Component" />
@@ -20,28 +16,25 @@
 
     </div>
 
-    <!-- SETTINGS MODAL & BLUR OVERLAY -->
-    <SettingsModal :show="showSettings" @close="closeSettings" @open-privacy="openPrivacy"
+    <SettingsModal v-if="!outsideTelegram" :show="showSettings" @close="closeSettings" @open-privacy="openPrivacy"
       @open-support="openSupport" />
 
-    <Navbar />
+    <Navbar v-if="!outsideTelegram" />
   </div>
 
-  <!-- OVERLAY (covers entire app while appDataLoading or overlayVisible is true) -->
-  <transition name="overlay-fade" @after-leave="onOverlayHidden">
+  <transition v-if="!outsideTelegram" name="overlay-fade" @after-leave="onOverlayHidden">
     <div v-show="overlayVisible" class="app-overlay" aria-hidden="true" role="presentation">
-      <!-- Centered loader - reuse your AppLoader. Keep loader visible while overlayShown -->
       <div class="app-overlay__center">
         <AppLoader :stage="loadingStage" />
       </div>
     </div>
   </transition>
 
-  <TutorialOverlay :show="showTutorialOverlay" :images="tutorialImages" :titles="tutorialTitles"
+  <TutorialOverlay v-if="!outsideTelegram" :show="showTutorialOverlay" :images="tutorialImages" :titles="tutorialTitles"
     :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
 
 
-  <ChannelFollowModal :show="showChannelFollowModal" channel="@giftspredict" @close="closeChannelModal"
+  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@giftspredict" @close="closeChannelModal"
     @subscribe="onSubscribeToChannel" />
 
 </template>
@@ -97,6 +90,17 @@ const overlayShownAt = ref(Date.now())   // timestamp when overlay was shown (fo
 const MIN_OVERLAY_VISIBLE_MS = 450  // ensure overlay visible at least this long (tweak as needed)
 const EXTRA_PAINT_FRAMES = 2        // number of requestAnimationFrame steps to wait for paint
 const SAFETY_TIMEOUT = 60           // small timeout (ms) to give the browser a bit more time
+
+// New: global flag that indicates we're running outside official Telegram
+const outsideTelegram = ref(false)
+
+function assertInTelegram() {
+  if (outsideTelegram.value) {
+    console.error('Outside of telegram. Please return to the official Telegram Application')
+    return false
+  }
+  return true
+}
 
 /* ---------- new: UI state for the two overlays ---------- */
 const showTutorialOverlay = ref(false)
@@ -214,6 +218,7 @@ function closeChannelModal() {
    Optionally you may want to re-check membership afterwards with checkChannelMembership()
 */
 async function onSubscribeToChannel() {
+  if (!assertInTelegram()) return
   try {
     // try to open channel: prefer tg native (if available)
     try {
@@ -334,6 +339,7 @@ watch(
 )
 
 async function reconnectWallet() {
+  if (!assertInTelegram()) return
   ensureTon()
   // If already connected, drop the session
   if (ton.value.connected) {
@@ -358,6 +364,7 @@ async function reconnectWallet() {
 
 // add this helper near the other functions
 async function handleConnected(wallet) {
+  if (!assertInTelegram()) return
   // normalize address
   app.walletAddress = wallet?.account?.address || null
 
@@ -383,10 +390,12 @@ async function handleConnected(wallet) {
 }
 
 function openDepositWindow() {
+  if (!assertInTelegram()) return
   router.push({ name: 'profile' })
 }
 
 function openPrivacy() {
+  if (!assertInTelegram()) return
   // navigate to the privacy route — RouterView will render PrivacyView
   router.push({ name: 'privacy' }).catch(() => { })
   // close settings modal if open
@@ -394,6 +403,7 @@ function openPrivacy() {
 }
 
 function openSupport() {
+  if (!assertInTelegram()) return
   try {
     tg.openTelegramLink('https://t.me/giftspredict_support')
   } catch (e) {
@@ -508,7 +518,19 @@ async function checkChannelMembership() {
   }
 }
 
+const testingLocally = ref(true)
+
 onMounted(async () => {
+  // --- Immediately block if we don't have a Telegram user object ---
+  if ((!user || typeof user !== 'object' || Object.keys(user).length === 0 || !user.id) && testingLocally.value === false) {
+    console.error('Outside of telegram. Please return to the official Telegram Application')
+    outsideTelegram.value = true
+    // ensure overlay blocks interaction just in case (keeps blank screen)
+    overlayVisible.value = true
+    // stop further initialization
+    return
+  }
+
   installGlobalErrorHandlers()
 
   debug('[App] onMounted start', { location: window.location.href })

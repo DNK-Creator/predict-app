@@ -47,6 +47,9 @@
 import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
+import { useAppStore } from '@/stores/appStore'
+
+const app = useAppStore()
 
 // props
 const props = defineProps({
@@ -67,17 +70,17 @@ const initial = computed(() => {
 })
 
 /* ---------------------------
-   SHORT TIME FORMAT FUNCTION
-   output examples:
-   - "now" (under 10s)
-   - "30s ago"
-   - "2m ago"
-   - "51m ago"
-   - "2h ago"
-   - "4d ago"
-   - "3w ago"
-   - "5mo ago"
-   - "2y ago"
+   SHORT TIME FORMAT FUNCTION (localized)
+   outputs examples (ru / en):
+   - "сейчас" / "now" (under 10s)
+   - "30с назад" / "30s ago"
+   - "2м назад" / "2m ago"
+   - "51м назад" / "51m ago"
+   - "2ч назад" / "2h ago"
+   - "4д назад" / "4d ago"
+   - "3н назад" / "3w ago"
+   - "5мес назад" / "5mo ago"
+   - "2г назад" / "2y ago"
    --------------------------- */
 function shortRelativeTime(iso) {
     if (!iso) return ''
@@ -85,20 +88,30 @@ function shortRelativeTime(iso) {
     const t = (typeof iso === 'string') ? parseISO(iso) : new Date(iso)
     if (isNaN(t)) return ''
     const diff = Math.floor((Date.now() - t.getTime()) / 1000) // seconds
-    if (diff < 10) return 'сейчас'
-    if (diff < 60) return `${diff}с назад`
+
+    const isRu = app.language === 'ru'
+
+    // helper localized tokens
+    if (diff < 10) return isRu ? 'сейчас' : 'now'
+    if (diff < 60) return isRu ? `${diff}с назад` : `${diff}s ago`
+
     const mins = Math.floor(diff / 60)
-    if (mins < 60) return `${mins}м назад`
+    if (mins < 60) return isRu ? `${mins}м назад` : `${mins}m ago`
+
     const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}ч назад`
+    if (hours < 24) return isRu ? `${hours}ч назад` : `${hours}h ago`
+
     const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}д назад`
+    if (days < 7) return isRu ? `${days}д назад` : `${days}d ago`
+
     const weeks = Math.floor(days / 7)
-    if (weeks < 5) return `${weeks}н назад`
+    if (weeks < 5) return isRu ? `${weeks}н назад` : `${weeks}w ago`
+
     const months = Math.floor(days / 30)
-    if (months < 12) return `${months}мес назад`
+    if (months < 12) return isRu ? `${months}мес назад` : `${months}mo ago`
+
     const years = Math.floor(days / 365)
-    return `${years}г назад`
+    return isRu ? `${years}г назад` : `${years}y ago`
 }
 
 const formattedTime = computed(() => {
@@ -123,13 +136,21 @@ const stake = computed(() => {
     }
 })
 
+function yesTranslated() {
+    return app.language === 'ru' ? 'ДА' : 'YES'
+}
+
+function noTranslated() {
+    return app.language === 'ru' ? 'НЕТ' : 'NO'
+}
+
 // formatted small label (e.g. "+0.5 TON" or "100.00") — adapt as needed
 const stakeLabel = computed(() => {
     if (!stake.value) return ''
     const amt = Number(stake.value.amount ?? stake.value.amt ?? 0)
     // format with no trailing decimals if integer, else 2 decimal places
     const nice = Number.isInteger(amt) ? String(amt) : amt.toFixed(2)
-    return `${stake.value.side === 'yes' ? 'ДА' : 'НЕТ'} • ${nice} TON`
+    return `${stake.value.side === 'yes' ? yesTranslated() : noTranslated()} • ${nice} TON`
 })
 
 const stakeTooltip = computed(() => {

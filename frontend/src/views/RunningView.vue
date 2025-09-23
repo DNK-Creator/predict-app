@@ -17,6 +17,9 @@
 
     <!-- overlay monitor -->
     <div v-show="!isLoading" class="in-game-monitor" :class="{ 'is-visible': visible }" aria-hidden="false">
+        <span v-if="app.demoMode" class="demo-text">
+            Gifts Predict
+        </span>
         <div class="ui-gift-wrapper" :class="{ 'is-revealed': imageReveal }"
             :style="{ '--reveal-ms': REVEAL_MS + 'ms' }">
             <img v-if="selectedGift" class="ui-gift image-inner" :src="selectedGift.src" :alt="selectedGift.id" />
@@ -97,7 +100,7 @@ const { t } = useI18n()
 
 const lastGameUuid = ref(null)
 
-const { appendGift, logGameAttempt, updateGameAttemptType } = useInventory()
+const { appendGift, logGameAttempt, updateGameAttemptType, inventory } = useInventory()
 const showInventoryModal = ref(false)
 const showNotEnoughMoneyModal = ref(false)
 
@@ -304,6 +307,8 @@ onMounted(async () => {
         return
     }
 
+    console.log(app.demoMode)
+
     // fallback: don't get stuck forever — after 15s reveal the UI
     _fallbackTimer = setTimeout(() => {
         if (isLoading.value) {
@@ -329,29 +334,82 @@ function clearCharTimers() {
     charTimers = []
 }
 
+/**
+ * Return the effective chance (0..1) to use for a given gift.
+ * - In demo mode: use visibleChance (percent) converted to fraction + 0.20 (20%), capped at 1.
+ * - Otherwise: return actualChance (fraction).
+ *
+ * Examples:
+ * - gift.visibleChance = 30 -> demo chance = min(1, 0.30 + 0.20) = 0.50 (50%)
+ * - gift.actualChance = 0.4 -> non-demo chance = 0.4 (40%)
+ */
+function getEffectiveChance(gift) {
+    if (!gift) return 0
+    const demoModeEnabled = !!(app && app.demoMode)
+    if (demoModeEnabled) {
+        const visiblePercent = Number(gift.visibleChance ?? 0)
+        const visibleFrac = Math.max(0, visiblePercent) / 100
+        const boosted = visibleFrac + 0.20
+        return Math.min(1, boosted)
+    }
+    // fallback to actualChance (already a fraction like 0.4 for 40%)
+    return Number(gift.actualChance ?? 0)
+}
+
 /* GIFTS */
 const GIFTS = [
-    { id: 'cookie', src: Gift_UI_Cookie, weight: 40, actualChance: 0.15, visibleChance: 30, valueLabel: '2.5 TON' },
-    { id: 'snake', src: Gift_UI_Snake, weight: 35, actualChance: 0.4, visibleChance: 45, valueLabel: '1.5 TON' },
-    { id: 'cat', src: Gift_UI_Cat, weight: 25, actualChance: 0.006, visibleChance: 5, valueLabel: '50 TON' },
+    { id: 'cookie', src: Gift_UI_Cookie, weight: 40, actualChance: 0.2, visibleChance: 35, valueLabel: '2.5 TON' },
+    { id: 'snake', src: Gift_UI_Snake, weight: 35, actualChance: 0.4, visibleChance: 55, valueLabel: '1.5 TON' },
+    { id: 'cat', src: Gift_UI_Cat, weight: 25, actualChance: 0.005, visibleChance: 5, valueLabel: '50 TON' },
 ]
 
 async function boostVideo() {
     const el = bgVideo.value
     if (!el) return
 
-    // create uuid for attempt
-    const attemptUuid = uuidv4()
-    lastGameUuid.value = attemptUuid
+    // If demo mode is enabled, we skip any server RPC/logging but keep UI behavior identical.
+    const demoModeEnabled = !!(app && app.demoMode)
 
-    // gift id at the moment of attempt (may be null)
-    const giftId = selectedGift.value?.id ?? null
+    // create uuid for attempt only when NOT demo mode (so we don't later try to update game_history)
+    let attemptUuid = null
+    if (!demoModeEnabled) {
+        attemptUuid = uuidv4()
+        lastGameUuid.value = attemptUuid
 
-    // Try to optimistically record the game attempt row in game_history (fire-and-forget)
-    // If you already call logGameAttempt elsewhere, keep as you prefer.
-    logGameAttempt({ uuid: attemptUuid, gift_id: giftId })
-        .catch(err => console.error('logGameAttempt failed', err))
+        // gift id at the moment of attempt (may be null)
+        const giftId = selectedGift.value?.id ?? null
 
+        // Try to optimistically record the game attempt row in game_history (fire-and-forget)
+        logGameAttempt({ uuid: attemptUuid, gift_id: giftId })
+            .catch(err => console.error('logGameAttempt failed', err))
+    } else {
+        // ensure lastGameUuid is null in demo mode (so startDescent won't attempt server updates)
+        lastGameUuid.value = null
+    }
+
+    if (demoModeEnabled) {
+        // DEMO-MODE PATH: skip server RPC and just play the boost UI
+        try {
+            // Proceed with the boost visuals exactly as normal:
+            isBoosted.value = true
+            fabEnabled.value = false
+            fabTimer = null
+
+            // set speed x2
+            el.playbackRate = 2.0
+
+            // reset playback and boosted flag after DESCEND_MS - 200MS
+            setTimeout(() => { if (el) el.playbackRate = 1.0 }, DESCEND_MS - 200)
+
+            setTimeout(() => { isBoosted.value = false }, DESCEND_MS)
+        } catch (err) {
+            console.error('demo boost unexpected error', err)
+        }
+        // done — skip server calls
+        return
+    }
+
+    // NON-DEMO PATH: original server flow (unchanged)
     const telegramId = user?.id ?? 99
     try {
         const { data, error } = await supabase.rpc('deduct_point_or_flag_hacker', {
@@ -366,43 +424,29 @@ async function boostVideo() {
             return
         }
 
-        // data typically comes back as JSON (jsonb) — Supabase returns it in data
-        // depending on client it may be returned as an array or scalar; handle both.
+        // handle RPC response (same as original)
         const res = Array.isArray(data) ? data[0] : data
 
         if (!res || res.status === 'hacker') {
-            // server flagged hacker (not enough points or user not found)
             console.warn('Server flagged hacker or not enough points', res)
-            // game_history row should already be updated to 'HACKER' by the RPC
             showNotEnoughMoneyModal.value = true
             return
         }
 
         if (res.status === 'deducted') {
-            // Optionally sync client-side points to what server returned
             if (typeof res.points_remaining !== 'undefined' && res.points_remaining !== null) {
-                // update your Pinia app store points to match authoritative server
                 app.points = Number(res.points_remaining)
             }
 
-            // Proceed with the boost (we have server-side deduction)
             isBoosted.value = true
             fabEnabled.value = false
             fabTimer = null
 
-            // set speed x2
             el.playbackRate = 2.0
 
-            // reset playback and boosted flag after DESCEND_MS - 200MS
-            setTimeout(() => {
-                if (el) el.playbackRate = 1.0
-            }, DESCEND_MS - 200)
-
-            setTimeout(() => {
-                isBoosted.value = false
-            }, DESCEND_MS);
+            setTimeout(() => { if (el) el.playbackRate = 1.0 }, DESCEND_MS - 200)
+            setTimeout(() => { isBoosted.value = false }, DESCEND_MS)
         } else {
-            // Unexpected response: be safe and block boost
             console.warn('Unexpected RPC response', res)
             showNotEnoughMoneyModal.value = true
             return
@@ -502,7 +546,10 @@ function onTimeUpdate() {
 
         if (showInThisRun.value) {
             selectedGift.value = pickWeightedGift()
-            lastCaught.value = Math.random() < (selectedGift.value?.actualChance ?? 0)
+            // use getEffectiveChance so demo mode uses visibleChance + 20% and normal mode uses actualChance
+            const chance = getEffectiveChance(selectedGift.value)
+            lastCaught.value = Math.random() < chance
+            console.debug('Effective chance for', selectedGift.value?.id, '=>', chance)
         } else {
             if (clearSelectedTimer) clearTimeout(clearSelectedTimer)
             clearSelectedTimer = setTimeout(() => {
@@ -648,25 +695,21 @@ function hideCharacter() {
 }
 
 function startDescent() {
-    // ensure idempotent: if already descending, skip (avoid double appends/timers)
     if (descending.value) return
     descending.value = true
     fadeOut.value = false
 
-    // set transition to DESCEND_MS by simply set target charY
-    // if character currently at 0, move to +150 (downwards)
     const targetY = 200
-    const step = setTimeout(() => {
-        charY.value = targetY
-    }, 10)
+    const step = setTimeout(() => { charY.value = targetY }, 10)
     charTimers.push(step)
 
     const outcomeTimer = setTimeout(async () => {
+        const demoModeEnabled = !!(app && app.demoMode)
+
         if (lastCaught.value) {
             showInventoryModal.value = true
             setTimeout(() => runConfetti(), 200)
 
-            // Friendly display names for each gift id
             const DISPLAY_NAMES = {
                 cookie: 'Ginger Cookie',
                 cat: 'Scared Cat',
@@ -683,29 +726,49 @@ function startDescent() {
             }
 
             try {
-                // append via composable (atomic) – updates shared inventory locally too
-                await appendGift(item)
+                if (demoModeEnabled) {
+                    // LOCAL-ONLY append: update the inventory ref without calling server RPCs.
+                    // `inventory` is the ref returned by useInventory()
+                    try {
+                        // Prepend locally (mirror appendGift optimistic behavior but without DB)
+                        inventory.value = [item, ...inventory.value]
+                    } catch (err) {
+                        console.error('demo local appendGift error', err)
+                    }
+                } else {
+                    // Normal flow: call appendGift which will update DB (as before)
+                    try {
+                        await appendGift(item)
+                    } catch (err) {
+                        console.error('appendGift error', err)
+                    }
+                }
             } catch (err) {
-                console.error('appendGift error', err)
+                console.error('appendGift logic unexpected error', err)
             }
 
-            // update the game_history row -> Game_Success
-            if (lastGameUuid.value) {
+            // update the game_history row -> Game_Success (only when NOT demo)
+            if (!demoModeEnabled && lastGameUuid.value) {
                 try {
                     await updateGameAttemptType(lastGameUuid.value, 'Game_Success')
                 } catch (err) {
                     console.error('updateGameAttemptType Game_Success error', err)
                 }
                 lastGameUuid.value = null
+            } else {
+                // ensure we don't keep a stale uuid in demo mode
+                lastGameUuid.value = null
             }
         } else {
-            // update the game_history row -> Game_Failed
-            if (lastGameUuid.value) {
+            // failure path: don't call server update in demo
+            if (!demoModeEnabled && lastGameUuid.value) {
                 try {
                     await updateGameAttemptType(lastGameUuid.value, 'Game_Failed')
                 } catch (err) {
                     console.error('updateGameAttemptType Game_Failed error', err)
                 }
+                lastGameUuid.value = null
+            } else {
                 lastGameUuid.value = null
             }
         }
@@ -724,7 +787,6 @@ function startDescent() {
     charTimers.push(outcomeTimer)
 }
 
-
 function onContainerTransitionEnd(e) {
     // used to detect end of specific transform transitions if needed.
     // currently we use timers to sequence; keep it lightweight.
@@ -732,7 +794,6 @@ function onContainerTransitionEnd(e) {
 </script>
 
 <style scoped>
-
 .bg-video-viewport {
     position: fixed;
     /* keeps video fixed to viewport */
@@ -854,6 +915,15 @@ function onContainerTransitionEnd(e) {
     align-items: center;
     gap: 8px;
     pointer-events: auto;
+}
+
+.demo-text {
+    color: rgb(201, 201, 201, 0.88);
+    font-family: 'Press Start 2P', system-ui;
+    font-weight: 600;
+    font-size: 0.5rem;
+    margin: 0;
+    padding: 0;
 }
 
 .ui-gift-wrapper {

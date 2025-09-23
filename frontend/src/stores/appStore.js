@@ -31,6 +31,7 @@ export const useAppStore = defineStore('app', {
     _pointsChannel: null,
     _userChannel: null,
     walletAddress: null,
+    demoMode: false, // <-- default: disabled; kept only in-memory (not persisted to DB)
   }),
   actions: {
     /* INIT */
@@ -188,6 +189,15 @@ export const useAppStore = defineStore('app', {
         console.error('syncTelegramUsername unexpected error', err)
         warn('[syncTelegramUsername] unexpected', { err: err?.message ?? err })
         return false
+      }
+    },
+
+    // Set demo mode locally (no DB persistence). This updates the Pinia store only.
+    setDemoMode(value) {
+      try {
+        this.demoMode = !!value
+      } catch (e) {
+        console.warn('setDemoMode failed', e)
       }
     },
 

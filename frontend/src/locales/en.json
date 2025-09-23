@@ -134,5 +134,8 @@
     "redirect-deposit-text": "Please go to your profile and top up your balance to continue playing.",
     "goto-deposit": "To deposit",
     "price": "Price",
-    "gift-withdrawal": "Your request has been successfully accepted. Your gift will arrive within a day!"
+    "gift-withdrawal": "Your request has been successfully accepted. Your gift will arrive within a day!",
+    "game-demo": "Game demo-mode",
+    "holders": "Holders",
+    "no-holders": "No information about the holders."
 }

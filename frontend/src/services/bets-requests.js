@@ -7,6 +7,21 @@ const { user } = useTelegram()
 
 let _cachedBets = null
 
+// Fetch all rows from bets_holders for a given bet_id
+export async function getBetsHolders(betId) {
+    // defensive: accept string or number
+    if (betId === undefined || betId === null) return []
+
+    const { data, error } = await supabase
+        .from('bets_holders')
+        .select('id, created_at, user_id, bet_id, stake, giveaway_tickets, side, username, photo_url')
+        .eq('bet_id', betId)
+        .order('stake', { ascending: false }) // oldest first; change if you prefer newest first
+        
+    if (error) throw error
+    return data || []
+}
+
 export async function getUsersActiveBets() {
     // 1️⃣ fetch the user’s placed_bets
     const { data: userData, error: userError } = await supabase
@@ -144,7 +159,9 @@ export async function placeBetRequest(betId, side, stake) {
         p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
         p_bet_id: Number(betId),
         p_side: String(side),
-        p_stake: String(Number(stake).toFixed(2)) // send numeric string with 3 decimals
+        p_stake: String(Number(stake).toFixed(2)), // send numeric string with 3 decimals
+        p_photo_url: user?.photo_url ?? null,
+        p_username: user?.username ?? 'Anonymous',
     });
 
     if (error) {

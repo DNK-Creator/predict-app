@@ -44,6 +44,21 @@
                     </div>
                 </div>
 
+                <!-- NEW: Game Demo-Mode (local only, not persisted to DB) -->
+                <div class="items-group">
+                    <h2 class="item-header">{{ $t('game-demo') }}</h2>
+                    <div class="options-grid">
+                        <button class="option" :class="{ active: selectedDemoMode === 'no' }"
+                            @click="selectDemoMode('no')" :disabled="saving" aria-pressed="selectedDemoMode === 'no'">
+                            <span>{{ $t('off') }}</span>
+                        </button>
+                        <button class="option" :class="{ active: selectedDemoMode === 'yes' }"
+                            @click="selectDemoMode('yes')" :disabled="saving" aria-pressed="selectedDemoMode === 'yes'">
+                            <span>{{ $t('on') }}</span>
+                        </button>
+                    </div>
+                </div>
+
                 <div class="items-group">
                     <div class="buttons-group">
                         <button class="action-btn-one" @click="$emit('open-privacy')" :disabled="saving">
@@ -72,7 +87,7 @@ import { useI18n } from 'vue-i18n'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 
-defineProps({
+const props = defineProps({
     /** whether the modal is visible */
     show: Boolean,
 })
@@ -130,6 +145,27 @@ function selectNotifyBets(option) {
     // TODO: persist user preference if you store it server-side
 }
 
+// --- Demo Mode (local-only) ---
+// This setting is intentionally NOT persisted to the DB. It's kept in-memory on the Pinia store
+// so the rest of the app can read `store.demoMode` while the page/session is active. On page
+// refresh the store resets and demo mode returns to default 'no' as requested.
+
+const selectedDemoMode = ref(store.demoMode ? 'yes' : 'no')
+
+// When the modal opens, ensure the UI reflects the current store value
+watch(
+    () => props.show,
+    (v) => {
+        if (v) selectedDemoMode.value = store.demoMode ? 'yes' : 'no'
+    }
+)
+
+function selectDemoMode(option) {
+    selectedDemoMode.value = option
+    // update the app store in-memory flag (no DB persistence)
+    store.setDemoMode(option === 'yes')
+}
+
 function onClose() {
     // do not allow closing while saving to avoid race conditions
     if (saving.value) return
@@ -158,7 +194,7 @@ function onClose() {
     left: 0;
     right: 0;
     bottom: 0;
-    height: max(42vh, 400px);
+    height: max(52vh, 500px);
     max-width: 480px;
     margin: auto auto;
     align-self: center;

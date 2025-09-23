@@ -152,9 +152,8 @@ Giveaway information block
 
 
                     <div class="giveaway-top">
-                        <div class="giveaway-top__text">{{ $t('giveaway-rules') }} <span
-                                class="giveaway-prize-name">{{
-                                    bet.giveaway_prize_name }}</span>.</div>
+                        <div class="giveaway-top__text">{{ $t('giveaway-rules') }} <span class="giveaway-prize-name">{{
+                            bet.giveaway_prize_name }}</span>.</div>
 
 
                         <div class="giveaway-top__media" aria-hidden="true">
@@ -183,18 +182,29 @@ Giveaway information block
                 </div>
 
                 <section class="card comments">
-                    <h2 class="card__title">{{ $t('comments') }}</h2>
+                    <div class="comments__tabs" role="tablist" aria-label="Comments and Holders tabs">
+                        <button :class="['comments__tab', { active: activeTab === 'comments' }]"
+                            @click="setActiveTab('comments')" role="tab" :aria-selected="activeTab === 'comments'">
+                            {{ $t('comments') }}
+                        </button>
+
+                        <button :class="['comments__tab', { active: activeTab === 'holders' }]"
+                            @click="setActiveTab('holders')" role="tab" :aria-selected="activeTab === 'holders'">
+                            {{ $t('holders') }}
+                        </button>
+                    </div>
 
                     <div v-if="canComment" class="comments__input-row">
-                        <textarea ref="commentsInput" v-model="newComment" :maxlength="155"
-                            :placeholder="translatePlaceholder()" class="comments__input"
+                        <textarea v-if="activeTab === 'comments'" ref="commentsInput" v-model="newComment"
+                            :maxlength="155" :placeholder="translatePlaceholder()" class="comments__input"
                             :disabled="cooldownRemaining > 0" @focus="onCommentsFocus" @blur="onCommentsBlur"
                             @input="autoResize" @keydown.enter.prevent="onEnterKey"
                             @pointerdown.passive="onTextareaPointerDown" @touchstart.passive="onTextareaPointerDown"
                             aria-label="Write a comment" autocomplete="on" inputmode="text" autocapitalize="sentences"
                             autocorrect="on" rows="1"></textarea>
 
-                        <button class="comments__post" :disabled="isSendDisabled" @click="tryPostComment"
+                        <button v-if="activeTab === 'comments'" class="comments__post"
+                            :disabled="isSendDisabled || manuallyDisabled" @click="tryPostComment"
                             @pointerdown.passive="onPostPointerDown" @pointerup.passive="onPostPointerUp"
                             :aria-label="cooldownRemaining > 0 ? `${translateWait()} ${formattedCooldown}` : translateSendComment()">
                             <span v-if="cooldownRemaining > 0">{{ formattedCooldown }}</span>
@@ -202,16 +212,29 @@ Giveaway information block
                         </button>
                     </div>
 
-                    <div v-if="betStatus === '000'" class="comments__warning">
-                        {{ $t('comments-limited-one') }}
-                    </div>
-                    <div v-else-if="!canComment" class="comments__warning">
-                        {{ $t('comments-limited-two') }}
-                    </div>
-
                     <div class="comments__list">
-                        <CommentItem v-for="c in comments" :key="c.id" :comment="c" @delete-comment="handleDelete" />
-                        <div ref="commentsAnchor" class="comments__anchor"></div>
+                        <!-- COMMENTS -->
+                        <template v-if="activeTab === 'comments'">
+
+                            <div v-if="betStatus === '000' && !canComment" class="comments__warning">
+                                {{ $t('comments-limited-one') }}
+                            </div>
+                            <div v-else-if="!canComment" class="comments__warning">
+                                {{ $t('comments-limited-two') }}
+                            </div>
+
+                            <CommentItem v-for="c in comments" :key="c.id" :comment="c"
+                                @delete-comment="handleDelete" />
+                            <div ref="commentsAnchor" class="comments__anchor"></div>
+                        </template>
+
+                        <!-- HOLDERS -->
+                        <template v-else>
+                            <div v-if="holdersList.length === 0" class="comments__warning">{{ $t('no-holders') }}</div>
+                            <div v-else>
+                                <HolderItem v-for="h in holdersList" :key="h.id" :holder="h" @open="clickHolder" />
+                            </div>
+                        </template>
                     </div>
                 </section>
             </main>
@@ -253,9 +276,11 @@ import {
     availableComments,
     computeBetStatus,
     getUserLastCommentTime,
+    getBetsHolders
 } from '@/services/bets-requests.js'
 import MemoryOrb from './MemoryOrb.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
+import HolderItem from '@/components/bet-details/HolderItem.vue'
 import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
 import GiveawayModal from './GiveawayModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
@@ -288,6 +313,75 @@ const commentsInput = ref(null)
 const isKeyboardOpen = ref(false)
 
 let bodyClassObserver = null
+
+const activeTab = ref('comments')
+function setActiveTab(t) {
+    activeTab.value = t
+}
+
+const holders = ref([])   // fetched from bets_holders table
+
+// derive holders list from explicit DB table (preferred) or fall back to history/comments
+const holdersList = computed(() => {
+    if (holders.value <= 0) {
+        return []
+    }
+
+    try {
+        // prefer explicit table results if available
+        if (holders.value && holders.value.length) {
+            return holders.value.map(h => ({
+                id: h.id,
+                username: h.username ?? 'Anonymous',
+                photo_url: h.photo_url ?? null,
+                // numeric stake is stored in 'stake' column
+                amount: Number(h.stake ?? 0) || 0,
+                // normalize side to 'yes' | 'no'
+                side: (String(h.side ?? '')).trim().toLowerCase() === 'yes' ? 'yes' : 'no'
+            }))
+        }
+
+        // fallback: derive from history (existing logic)
+        if (history.value && history.value.length) {
+            return history.value.map(h => ({
+                id: h.id ?? `${h.user_id || h.username}-${h.side || h.result}-${h.amount || h.stake}`,
+                username: h.username ?? h.user_name ?? h.user ?? 'Anonymous',
+                photo_url: h.photo_url ?? null,
+                amount: Number(h.amount ?? h.stake ?? (h.users_stake?.amount) ?? 0) || 0,
+                side: (String(h.side ?? h.result ?? (h.users_stake?.side) ?? '')).toLowerCase() === 'yes' ? 'yes' : 'no'
+            }))
+        }
+
+        // final fallback: aggregate commenters who have users_stake
+        const map = new Map()
+        for (const c of comments.value) {
+            if (!c.users_stake) continue
+            const key = c.user_id ?? c.username
+            const existing = map.get(key)
+            const side = (String(c.users_stake.side ?? '')).toLowerCase() === 'yes' ? 'yes' : 'no'
+            const amount = Number(c.users_stake.amount ?? 0) || 0
+            if (!existing) {
+                map.set(key, {
+                    id: key,
+                    username: c.username ?? 'Anonymous',
+                    photo_url: c.photo_url ?? null,
+                    amount: amount,
+                    side: side
+                })
+            } else {
+                existing.amount = (existing.amount || 0) + amount
+            }
+        }
+        return Array.from(map.values())
+    } catch (e) {
+        return []
+    }
+})
+
+function clickHolder(username) {
+    if (!username || username === 'Anonymous') return
+    try { tg.openTelegramLink(`https://t.me/${username}`) } catch (e) { /* ignore */ }
+}
 
 const showGiveawayModal = ref(false)
 
@@ -503,6 +597,8 @@ const isSendDisabled = computed(() => {
     // disabled if no text OR cooldown active
     return (!newComment.value || newComment.value.trim().length === 0) || cooldownRemaining.value > 0
 })
+
+const manuallyDisabled = ref(false)
 
 // formatted MM:SS
 const formattedCooldown = computed(() => {
@@ -882,9 +978,11 @@ async function loadData(idToLoad) {
         userBetAmount.value = await getUserBetAmount(id)
         comments.value = await getComments(id, commentsPage)
         canComment.value = await availableComments(id)
+        holders.value = await getBetsHolders(id)
 
         const betResultNorm = normalizeResult(bet.value?.result)
         const userResultNorm = normalizeResult(userBetAmount.value?.result)
+
         if (
             betResultNorm &&
             betResultNorm !== 'undefined' &&            // keep your original "undefined" guard
@@ -897,6 +995,7 @@ async function loadData(idToLoad) {
 
     } catch (err) {
         console.error('Error loading bet data:', err)
+        holders.value = []
     } finally {
         spinnerShow.value = false
     }
@@ -914,18 +1013,6 @@ async function onBetPlaced() {
     bet.value = await getBetById(betId.value)
     volume.value = bet.value.volume
     userBetAmount.value = await getUserBetAmount(betId.value)
-}
-
-// Called when document becomes visible again (browser tab or webview back)
-async function handleVisibilityChange() {
-    try {
-        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-            // re-sync last comment time from the server and restart cooldown
-            await refreshUserLastCommentTime()
-        }
-    } catch (err) {
-        console.error('Visibility refresh failed', err)
-    }
 }
 
 // If component is used inside <KeepAlive>, onActivated runs when it becomes active again
@@ -1070,6 +1157,7 @@ async function tryPostComment() {
 // updated postComment - handles server-side cooldown response
 async function postComment() {
     if (!newComment.value) return
+    manuallyDisabled.value = true
 
     const commentId = uuidv4()
     try {
@@ -1124,6 +1212,7 @@ async function postComment() {
             console.error('Failed to post comment', err)
         }
     }
+    manuallyDisabled.value = false
 }
 
 async function handleDelete(commentId) {
@@ -1351,8 +1440,6 @@ const potentialWinningsForUser = computed(() => {
 
     const userSide = normalizeUserSide(userBetAmount.value?.result)
 
-    console.log(userSide)
-
     // derive chosen probability from existing volumes (do NOT add stake)
     let chosenProb = 0
 
@@ -1372,8 +1459,6 @@ const potentialWinningsForUser = computed(() => {
         chosenProb = isFinite(p) ? (p <= 1 ? p : p / 100) : 0
     }
 
-    console.log('Probability is: ' + chosenProb)
-
     // invalid or zero probability -> no payout (avoid infinite multiplier)
     if (!isFinite(chosenProb) || chosenProb <= 0) return 0
 
@@ -1383,8 +1468,6 @@ const potentialWinningsForUser = computed(() => {
 
     const payoutBeforeTaxation = Math.min(9999999, Math.round(gross * 100) / 100)
     const profitBeforeTax = payoutBeforeTaxation - stake
-
-    console.log('Payout before taxation: ' + payoutBeforeTaxation)
 
     // final payout after house takes cut on the profit portion
     const finalPayment = payoutBeforeTaxation - (profitBeforeTax * HOUSE_CUT)
@@ -2117,6 +2200,30 @@ const potentialWinningsForUser = computed(() => {
     -webkit-user-select: text !important;
 }
 
+/* Tabs (Comments / Holders) */
+.comments__tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.comments__tab {
+    padding: 6px 12px;
+    border-radius: 10px;
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: #F7F9FB;
+    cursor: pointer;
+    font-weight: 600;
+    font-family: "Inter", sans-serif;
+    user-select: none;
+}
+
+.comments__tab.active {
+    background: #3b82f6;
+    border-color: transparent;
+}
+
 /* Input row: make children stretch to the same height */
 .comments__input-row {
     display: flex;
@@ -2196,7 +2303,7 @@ const potentialWinningsForUser = computed(() => {
 }
 
 .comments__warning {
-    margin-bottom: 16px;
+    margin: 16px 0px;
     text-align: left;
 }
 
