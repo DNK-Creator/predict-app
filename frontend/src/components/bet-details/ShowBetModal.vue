@@ -305,7 +305,7 @@ async function placeBet() {
         let messageText = app.language === 'ru' ? 'Ставка успешно поставлена!' : 'Bet placed successfully!'
         toast.success(messageText)
         emit('placed', { side: props.side, amount: +amount.value })
-        app.points -= Number(amount.value)
+        //  app.points -= Number(amount.value)
         close()
     } catch (err) {
         let messageText = app.language === 'ru' ? 'Не удалось поставить ставку.' : 'Unable to place bet.'

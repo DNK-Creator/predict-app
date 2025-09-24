@@ -17,7 +17,7 @@ export async function getBetsHolders(betId) {
         .select('id, created_at, user_id, bet_id, stake, giveaway_tickets, side, username, photo_url')
         .eq('bet_id', betId)
         .order('stake', { ascending: false }) // oldest first; change if you prefer newest first
-        
+
     if (error) throw error
     return data || []
 }
@@ -154,7 +154,6 @@ export async function getHistory(betId) {
 export async function placeBetRequest(betId, side, stake) {
     if (!betId || !side || !stake) throw new Error('missing args');
 
-    // prefer to pass stake as string (preserve precision)
     const { data, error } = await supabase.rpc('place_bet_rpc', {
         p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
         p_bet_id: Number(betId),

@@ -137,13 +137,6 @@
                     </div>
                 </section>
 
-                <!-- ==========================
-Giveaway information block
-- left: explanatory text
-- right: prize image + value
-- bottom: horizontal slider (fill from RIGHT -> LEFT) showing tickets left
-- hint text below slider, half-visible (only top half shown)
-========================== -->
                 <div v-show="showGiveawayInfo()" class="giveaway-information" :style="{
                     '--fill-percent': fillPercent,
                     '--tickets-left': giveawayTicketsLeft,
@@ -176,7 +169,6 @@ Giveaway information block
                                 bet.giveaway_total_tickets
                             }}</div>
                         </div>
-
 
                     </div>
                 </div>
@@ -330,6 +322,15 @@ const holdersList = computed(() => {
     try {
         // prefer explicit table results if available
         if (holders.value && holders.value.length) {
+            console.log(holders.value.map(h => ({
+                id: h.id,
+                username: h.username ?? 'Anonymous',
+                photo_url: h.photo_url ?? null,
+                // numeric stake is stored in 'stake' column
+                amount: Number(h.stake ?? 0) || 0,
+                // normalize side to 'yes' | 'no'
+                side: (String(h.side ?? '')).trim().toLowerCase() === 'yes' ? 'yes' : 'no'
+            })))
             return holders.value.map(h => ({
                 id: h.id,
                 username: h.username ?? 'Anonymous',
@@ -343,6 +344,13 @@ const holdersList = computed(() => {
 
         // fallback: derive from history (existing logic)
         if (history.value && history.value.length) {
+            console.log(history.value.map(h => ({
+                id: h.id ?? `${h.user_id || h.username}-${h.side || h.result}-${h.amount || h.stake}`,
+                username: h.username ?? h.user_name ?? h.user ?? 'Anonymous',
+                photo_url: h.photo_url ?? null,
+                amount: Number(h.amount ?? h.stake ?? (h.users_stake?.amount) ?? 0) || 0,
+                side: (String(h.side ?? h.result ?? (h.users_stake?.side) ?? '')).toLowerCase() === 'yes' ? 'yes' : 'no'
+            })))
             return history.value.map(h => ({
                 id: h.id ?? `${h.user_id || h.username}-${h.side || h.result}-${h.amount || h.stake}`,
                 username: h.username ?? h.user_name ?? h.user ?? 'Anonymous',
@@ -372,6 +380,7 @@ const holdersList = computed(() => {
                 existing.amount = (existing.amount || 0) + amount
             }
         }
+        console.log(Array.from(map.values()))
         return Array.from(map.values())
     } catch (e) {
         return []

@@ -13,7 +13,9 @@
             <div class="holder-row">
                 <span class="username">{{ holder.username || 'Anonymous' }}</span>
                 <span class="holder-stake" :class="holder.side === 'yes' ? 'stake-yes' : 'stake-no'">
-                    {{ holder.side === 'yes' ? yesTranslated() : noTranslated() }} • {{ formatAmount(holder.amount) }} TON
+                    {{ sideNormalized(holder.side) === 'yes' ? yesTranslated() : noTranslated() }} • {{
+                        formatAmount(holder.amount) }}
+                    TON
                 </span>
             </div>
         </div>
@@ -21,7 +23,7 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useAppStore } from '@/stores/appStore'
 
 const app = useAppStore()
@@ -45,6 +47,11 @@ const initial = computed(() => {
     return name ? String(name).trim().charAt(0).toUpperCase() : '?'
 })
 
+function sideNormalized(side) {
+    console.log(side.toLowerCase())
+    return side.toLowerCase()
+}
+
 function onClick() {
     emit('open', props.holder?.username ?? null)
 }
@@ -53,6 +60,7 @@ function formatAmount(v) {
     const num = Number(v ?? 0)
     return Number.isInteger(num) ? String(num) : num.toFixed(2)
 }
+
 </script>
 
 <style scoped>
