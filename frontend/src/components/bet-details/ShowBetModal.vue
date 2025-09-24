@@ -312,6 +312,7 @@ async function placeBet() {
         toast.error(err.message || messageText)
     } finally {
         loading.value = false
+        await app.fetchPoints()
     }
 }
 
