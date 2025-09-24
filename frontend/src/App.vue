@@ -34,8 +34,8 @@
     :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
 
 
-  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@giftspredict" @close="closeChannelModal"
-    @subscribe="onSubscribeToChannel" />
+  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@giftspredict"
+    @close="closeChannelModal" @subscribe="onSubscribeToChannel" />
 
 </template>
 
@@ -201,6 +201,11 @@ async function openTutorial() {
 
 function closeTutorial() {
   showTutorialOverlay.value = false
+
+  // Notify others that tutorial changed (detail.visible = current state)
+  try {
+    window.dispatchEvent(new CustomEvent('tutorial-visibility', { detail: { visible: showTutorialOverlay.value } }))
+  } catch (e) { /* ignore */ }
 }
 
 function onTutorialFinished() {
@@ -518,7 +523,7 @@ async function checkChannelMembership() {
   }
 }
 
-const testingLocally = ref(false)
+const testingLocally = ref(true)
 
 onMounted(async () => {
   // --- Immediately block if we don't have a Telegram user object ---
@@ -654,10 +659,11 @@ onMounted(async () => {
   if (userFirstTime.value) {
     // Preload images so they appear instantly when overlay fades
     const results = await preloadTutorialImages(tutorialImages.value)
-    console.log('Preloaded tutorial images:', results)
+    console.log('[App] preloadTutorialImages done', results)
 
     // you could also delay showing the tutorial until they are ready:
     showTutorialOverlay.value = results.every(r => r.ok)
+    console.log('[App] showTutorialOverlay set true', showTutorialOverlay.value, 'overlayVisible=', overlayVisible.value)
 
     // We do NOT open channel modal in this case — tutorial is superior
     showChannelFollowModal.value = false
@@ -721,29 +727,6 @@ onMounted(async () => {
     })
   }, 500);
 })
-
-// small helper to attempt expand with retries
-async function tryExpandTG(tg, attempts = 6, intervalMs = 200) {
-  if (!tg || typeof tg.expand !== 'function') return false;
-  try {
-    for (let i = 0; i < attempts; i++) {
-      try {
-        // Only call expand if it seems relevant
-        if (tg.isExpanded && tg.isExpanded()) return true;
-        await tg.expand?.();
-        // brief pause for client to actually update
-        await new Promise(r => setTimeout(r, intervalMs));
-        if (tg.isExpanded && tg.isExpanded()) return true;
-      } catch (err) {
-        // ignore per-attempt errors; continue retry loop
-      }
-    }
-  } catch (e) {
-    // ignore
-  }
-  return !!(tg.isExpanded && tg.isExpanded());
-}
-
 
 // cleanup at top-level
 onBeforeUnmount(() => {

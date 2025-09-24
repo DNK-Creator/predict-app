@@ -38,8 +38,7 @@
                             :betResult="bet.result" :isActiveList="selectedTab === 'active'" :status="getBetStatus(bet)"
                             :chance="getBetPercent(bet)" :volume="bet.volume" :currentOdds="bet.current_odds"
                             :userStake="Number(bet.user_stake) || 0" :userSide="bet.user_result || null"
-                            :total_tickets="bet.giveaway_total_tickets"
-                            @share="shareBetFunction(bet.name, bet.name_en)"
+                            :total_tickets="bet.giveaway_total_tickets" @share="shareBetFunction(bet.name, bet.name_en)"
                             @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
                     </div>
                 </div>
@@ -53,7 +52,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, watch, computed } from 'vue'
+import { ref, onMounted, watch, computed, onUnmounted } from 'vue'
 import { useTelegram } from '@/services/telegram'
 import supabase from '@/services/supabase'
 import { useAppStore } from '@/stores/appStore'
@@ -381,14 +380,47 @@ const isEmpty = computed(() => {
     )
 })
 
+function onTutorialVisibility(e) {
+    // If tutorial was just closed, and we currently have no displayed bets,
+    // trigger a fresh load. Defensive: avoid reloading when already loading.
+    const wasClosed = e?.detail?.visible === false
+    if (!wasClosed) return
+
+    // If UI already shows bets, nothing to do
+    if (displayedBets.value && displayedBets.value.length > 0) return
+
+    // If a fetch is already going on, let it finish
+    if (loadingMore.value || loadingInitial.value) return
+
+    // Reload and display results (we keep activeLoadId semantics)
+    resetAndLoad().then(() => {
+        // If incomingBets was filled by resetAndLoad, swap them in
+        if (incomingBets.value != null) {
+            displayedBets.value = Array.isArray(incomingBets.value) ? incomingBets.value.slice() : []
+            incomingBets.value = null
+            listKey.value = selectedTab.value + '-' + Date.now()
+            showDisplayed.value = true
+        }
+    }).catch((err) => {
+        console.error('reload after tutorial close failed', err)
+    })
+}
+
 onMounted(async () => {
+    console.log('[Bets] onMounted: overlayVisible=', /* access via global or debug */)
     await resetAndLoad()
+    console.log('[Bets] resetAndLoad returned incomingBets=', incomingBets.value)
     // direct populate on first mount (no leave animation)
     displayedBets.value = incomingBets.value
     showDisplayed.value = true
     incomingBets.value = null
     listKey.value = selectedTab.value + '-' + Date.now()
     observeScrollEnd()
+    window.addEventListener('tutorial-visibility', onTutorialVisibility)
+})
+
+onUnmounted(() => {
+    window.removeEventListener('tutorial-visibility', onTutorialVisibility)
 })
 
 watch(selectedTab, () => {
@@ -407,7 +439,6 @@ watch(incomingBets, (newVal) => {
         // loadingInitial remains managed by resetAndLoad
     }
 })
-
 
 async function resetAndLoad({ showGlobal = true } = {}) {
     activeLoadId += 1
