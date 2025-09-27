@@ -116,7 +116,7 @@ onUpdated(() => {
     align-items: center;
     padding: 8px 12px;
     border-radius: 24px;
-    z-index: 3;
+    z-index: 10;
 
     background: rgba(18, 23, 28, 0.82);
     border: none;
