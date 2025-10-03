@@ -3,12 +3,12 @@ import ProfileView from '../views/ProfileView.vue'
 import HolidaysView from '@/views/HolidaysView.vue'
 import BetsView from '@/views/BetsView.vue'
 import BetDetails from '@/components/bet-details/BetDetails.vue'
-import DepositView from '@/views/DepositView.vue'
 import BetsHistoryList from '@/components/BetsHistoryList.vue'
 import PrivacyView from '@/views/PrivacyView.vue'
 import GiftsPricesView from '@/views/GiftsPricesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
-import RunningView from '@/views/RunningView.vue'
+// import RunningView from '@/views/RunningView.vue'
+// import CreateEventView from '@/views/CreateEventView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -55,11 +55,16 @@ const router = createRouter({
       name: 'history',
       component: HistoryView,
     },
-    {
-      path: '/running',
-      name: 'running',
-      component: RunningView,
-    },
+    // {
+    //   path: '/running',
+    //   name: 'running',
+    //   component: RunningView,
+    // },
+    // {
+    //   path: '/create-event',
+    //   name: 'create-event',
+    //   component: CreateEventView,
+    // },
   ],
 })
 

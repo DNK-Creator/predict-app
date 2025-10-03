@@ -1,13 +1,13 @@
 <template>
     <div v-if="!hideMenu" ref="menuRoot" class="menu" role="navigation" aria-label="Main menu">
 
-        <RouterLink to="/running" custom v-slot="{ isActive, navigate }">
+        <!-- <RouterLink to="/running" custom v-slot="{ isActive, navigate }">
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-person-running icon" :aria-hidden="true"></i>
                 <span class="menu-label">{{ $t('running-title') }}</span>
             </div>
-        </RouterLink>
+        </RouterLink> -->
 
         <RouterLink to="/holidays" custom v-slot="{ isActive, navigate }">
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
