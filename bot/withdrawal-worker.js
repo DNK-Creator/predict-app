@@ -137,7 +137,7 @@ async function fetchSeedFromVault(wallet_id) {
     }
 }
 
-async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdrawal_address, seqno) {
+async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdrawal_address) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
         throw new Error('unsignedTransaction must include messages array');
@@ -171,48 +171,6 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
     return transfer;
-}
-
-async function debugInspectBoc(bocBase64) {
-    try {
-        const cells = Cell.fromBoc(Buffer.from(bocBase64, 'base64'));
-        if (!cells || cells.length === 0) {
-            console.warn('[debugInspectBoc] no cells parsed');
-            return null;
-        }
-
-        // loadTransaction expects a slice of a transaction cell
-        // some providers return a transaction BOC, some return message BOC.
-        // try to parse each cell with loadTransaction and print inMessage fields
-        for (const c of cells) {
-            try {
-                const tx = loadTransaction(c.beginParse());
-                // tx.inMessage / tx.inMessage.validUntil / tx.inMessage.msgData ...
-                console.log('[debugInspectBoc] loadTransaction result preview:', JSON.stringify({
-                    inMessage: tx?.inMessage && {
-                        valid_until: tx.inMessage.valid_until,
-                        expireAt: tx.inMessage.valid_until ? new Date(tx.inMessage.valid_until * 1000).toISOString() : null,
-                        msg_type: tx.inMessage.type,
-                        src: tx.inMessage?.src?.toString?.()
-                    },
-                    from: tx?.from?.toString?.(),
-                    to: tx?.to?.toString?.(),
-                    lt: tx?.lt?.toString?.(),
-                }, null, 2).slice(0, 4000));
-                return tx;
-            } catch (e) {
-                // not a transaction cell — keep trying
-                // console.debug('[debugInspectBoc] loadTransaction failed for cell', e?.message ?? e);
-            }
-        }
-
-        // If we reach here, try to parse as an *external message* or show raw
-        console.warn('[debugInspectBoc] could not parse as transaction; returning raw cell count', cells.length);
-        return null;
-    } catch (err) {
-        console.error('[debugInspectBoc] parse error', err?.message ?? err);
-        return null;
-    }
 }
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
@@ -258,16 +216,6 @@ async function processClaim(claim) {
         return;
     }
 
-    let seqno;
-    try {
-        seqno = await reserveSeq(wallet_id);
-        if (seqno === null || seqno === undefined) throw new Error('no seqno');
-    } catch (err) {
-        console.error('[worker] reserveSeq failed', err?.message ?? err);
-        await revertToPending(uuid, 'reserve_seq_failed');
-        return;
-    }
-
     // Build unsignedTransaction using nanotons as amount values (string)
     const unsignedTransaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
@@ -278,7 +226,7 @@ async function processClaim(claim) {
                 // no payload
             }
         ],
-        meta: { source_uuid: uuid, seqno }
+        meta: { source_uuid: uuid}
     };
 
     // fetch seed
@@ -297,7 +245,7 @@ async function processClaim(claim) {
     let signedBocBase64 = null;
     console.log('[debug] unsignedTransaction.validUntil', unsignedTransaction.validUntil, 'nowSec', Math.floor(Date.now() / 1000));
     try {
-        const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
+        const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address);
         sendResp = signedResponse?.sendResult;
         signedBocBase64 = signedResponse?.signed_boc ?? null;
         if (!sendResp) throw new Error('no send result from signTransactionWithSeed');
