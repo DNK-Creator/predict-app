@@ -141,7 +141,6 @@ async function fetchSeedFromVault(wallet_id) {
         throw err;
     }
 }
-
 async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAddress, seqno) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
@@ -153,14 +152,15 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAd
     const keyPair = await mnemonicToPrivateKey(words);
     if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
-    // create wallet instance and open via client
+    // create wallet instance
     const walletContract = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
     const wallet = tonClient.open(walletContract);
 
-    // build messages expected by library (internal() from @ton/core)
+    // Build messages using internal()
     const messages = unsignedTransaction.messages.map((m) => {
         let value = m.amount;
         if (typeof value === 'number') value = String(Math.round(value));
+        // assume amount is nanotons (1 TON = 1e9)
         return internal({
             to: m.address,
             value: value,
@@ -169,51 +169,61 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAd
         });
     });
 
-    // Also create the signed transfer Cell (we can use for audit)
+    // Compute timeout (seconds) from unsignedTransaction.validUntil (which you already set)
+    const nowSec = Math.floor(Date.now() / 1000);
+    let timeoutSec = null;
+    if (typeof unsignedTransaction.validUntil === 'number') {
+        timeoutSec = Math.floor(unsignedTransaction.validUntil) - nowSec;
+    }
+    // If caller didn't set validUntil, default to 5 minutes
+    if (timeoutSec === null || timeoutSec <= 0) {
+        // you can choose a safer default here (e.g., 60 seconds is small — use 300)
+        timeoutSec = 300; // 5 minutes
+        console.warn('[sign] validUntil missing or <= now — falling back to timeoutSec=300s');
+    }
+
+    // Create signed transfer cell for audit (using the same timeout)
     let signedCell;
     try {
         signedCell = wallet.createTransfer({
             messages,
             secretKey: keyPair.secretKey,
-            seqno: Number(seqno)
+            seqno: Number(seqno),
+            timeout: Number(timeoutSec) // forward timeout to createTransfer
         });
     } catch (err) {
-        // log and rethrow with context
         console.error('[sign] createTransfer failed', err?.message ?? err);
-        // zero out secret
         try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
         throw err;
     }
 
     // Serialize signed BOC for audit/storage
-    const bocBytes = signedCell.toBoc(); // Uint8Array
+    const bocBytes = signedCell.toBoc();
     const bocBase64 = Buffer.from(bocBytes).toString('base64');
 
-    // Now send via library (this both wraps and broadcasts correctly)
+    // Now send via library, passing same timeout so library will set valid_until correctly
     let sendResult;
     try {
         sendResult = await wallet.sendTransfer({
             messages,
             secretKey: keyPair.secretKey,
             seqno: Number(seqno),
-            timeout: 120_000
+            timeout: Number(timeoutSec)
         });
-        console.log('[sign] wallet.sendTransfer OK - result preview:', JSON.stringify(sendResult).slice(0, 2000));
+        console.log('[sign] wallet.sendTransfer OK; preview:', JSON.stringify(sendResult).slice(0, 2000));
     } catch (err) {
-        // Provider/network errors often have .response.data (axios style) or nested error info
         console.error('[sign] wallet.sendTransfer FAILED:', err?.message ?? err);
         if (err?.response?.data) console.error('[sign] provider response:', JSON.stringify(err.response.data).slice(0, 2000));
-        if (err?.request) console.error('[sign] request sent but no response (request object trimmed)');
-        // zero out secretKey before rethrowing
         try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
         throw err;
     }
 
-    // zero out secretKey in memory
+    // zero secretKey in memory (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
     return { sendResult, signed_boc: bocBase64 };
 }
+
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
     try {
@@ -295,6 +305,7 @@ async function processClaim(claim) {
     // sign
     let sendResp;
     let signedBocBase64 = null;
+    console.log('[debug] unsignedTransaction.validUntil', unsignedTransaction.validUntil, 'nowSec', Math.floor(Date.now() / 1000));
     try {
         const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
         sendResp = signedResponse?.sendResult;
