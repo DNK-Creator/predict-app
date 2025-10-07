@@ -27,6 +27,30 @@ const tonClient = new TonClient({
     endpoint: 'https://toncenter.com/api/v2/jsonRPC',
 });
 
+function sleep(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+}
+
+// parse Retry-After header: may be seconds or HTTP date
+function parseRetryAfter(retryAfterHeader) {
+    if (!retryAfterHeader) return null;
+    const s = retryAfterHeader.trim();
+    // numeric seconds
+    if (/^\d+$/.test(s)) return Number(s) * 1000;
+    // http-date
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return Math.max(0, t - Date.now());
+    return null;
+}
+
+// jitter helper: base ms * (2^attempt) + random jitter
+function backoffMs(attempt, base = 1000, max = 60000) {
+    const expo = Math.min(max, base * Math.pow(2, attempt));
+    // jitter +- 30%
+    const jitter = Math.floor((Math.random() * 0.6 - 0.3) * expo);
+    return Math.max(0, expo + jitter);
+}
+
 async function claimOne() {
     try {
         // supabase.rpc often returns { data, error } with v2 client
@@ -137,6 +161,87 @@ async function fetchSeedFromVault(wallet_id) {
     }
 }
 
+// Try to send via SDK contract.send with retries on 429
+async function sendTransferWithRetry(contract, transferCell, attempts = 5) {
+    for (let i = 0; i < attempts; ++i) {
+        try {
+            // some SDKs accept contract.send(transferCell). Others require a provider.
+            await contract.send(transferCell);
+            return { ok: true, method: 'sdk_send' };
+        } catch (err) {
+            // If provider returned HTTP info, try to detect 429
+            const status = err?.response?.status ?? err?.status ?? null;
+            const retryAfterHeader = err?.response?.headers?.['retry-after'] ?? err?.response?.headers?.['Retry-After'] ?? null;
+            if (status === 429) {
+                const waitMs = parseRetryAfter(retryAfterHeader) ?? backoffMs(i, 1000, 30000);
+                console.warn(`[sendTransferWithRetry] SDK send rate-limited (429). attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue; // retry
+            }
+            // non-429: either transient server error (5xx) or fatal — retry a few times for 5xx
+            if (status && status >= 500 && status < 600 && i < attempts - 1) {
+                const waitMs = backoffMs(i, 500, 20000);
+                console.warn(`[sendTransferWithRetry] SDK send server error ${status}. attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue;
+            }
+            // fatal or last attempt
+            throw err;
+        }
+    }
+    throw new Error('sendTransferWithRetry: exceeded attempts');
+}
+
+// HTTP sendBoc with retries that honors Retry-After
+async function sendBocWithRetry(bocBase64, attempts = 6) {
+    const url = 'https://toncenter.com/api/v2/sendBoc';
+    for (let i = 0; i < attempts; ++i) {
+        try {
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
+                },
+                body: JSON.stringify({ boc: bocBase64 })
+            });
+            // Read headers for Retry-After
+            if (resp.status === 429) {
+                const header = resp.headers.get('retry-after');
+                const waitMs = parseRetryAfter(header) ?? backoffMs(i, 1000, 30000);
+                console.warn(`[sendBocWithRetry] sendBoc rate-limited (429). attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue;
+            }
+            const json = await resp.json().catch(() => ({ ok: false, error: 'invalid-json-response', status: resp.status }));
+            // If success according to toncenter protocol
+            if (resp.ok && (json?.ok === true || resp.status >= 200 && resp.status < 300)) {
+                return json;
+            }
+            // For 5xx, retry a few times
+            if (resp.status >= 500 && i < attempts - 1) {
+                const waitMs = backoffMs(i, 1000, 30000);
+                console.warn(`[sendBocWithRetry] sendBoc server error ${resp.status}. attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue;
+            }
+            // Other errors - return json so caller can log them
+            return json;
+        } catch (e) {
+            // network or fetch-level error - retry a few times
+            if (i < attempts - 1) {
+                const waitMs = backoffMs(i, 500, 20000);
+                console.warn(`[sendBocWithRetry] network error, attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`, e?.message ?? e);
+                await sleep(waitMs);
+                continue;
+            }
+            throw e;
+        }
+    }
+    throw new Error('sendBocWithRetry: exceeded attempts');
+}
+
+
 async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
@@ -197,38 +302,24 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     const bocBuffer = transferCell.toBoc(); // Buffer
     const bocBase64 = Buffer.from(bocBuffer).toString('base64');
 
-    // --- PREFERRED: send via SDK (this will wrap to external message correctly) ---
+    // PREFERRED: try to send via SDK with retries
     try {
-        // contract.send is available on opened contract; it will call provider.external(...) under the hood
-        await contract.send(transferCell);
-        // Mark success — some SDKs don't return tx id here.
-        const signedResponse = { ok: true, method: 'sdk_send' };
-        console.log('[withdrawals] sent via SDK (contract.send) for', addressStr);
-        return { bocBase64, signedResponse };
+        const sdkResp = await sendTransferWithRetry(contract, transferCell, 5);
+        console.log('[withdrawals] sent via SDK (contract.send)', JSON.stringify(sdkResp));
+        return { bocBase64, signedResponse: sdkResp, address: addressStr };
     } catch (sdkErr) {
-        console.warn('[withdrawals] contract.send failed, falling back to HTTP sendBoc:', sdkErr?.message ?? sdkErr);
-        // fallback to HTTP /sendBoc — note TON Center expects a FULL external message BOC.
-        // Passing the transferCell BOC directly *may* still fail depending on how createTransfer produced it.
-        // But keep fallback for providers that accept signed transfer BOCs.
+        // If SDK failed with rate-limit or other, we fall back to HTTP sendBoc
+        console.warn('[withdrawals] contract.send failed or exhausted retries, will fallback to sendBocWithRetry:', sdkErr?.message ?? sdkErr);
     }
 
-    // --- fallback HTTP sendBoc via TON Center (kept for robustness) ---
+    // fallback HTTP sendBoc with retries
     try {
-        const resp = await fetch('https://toncenter.com/api/v2/sendBoc', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
-            },
-            body: JSON.stringify({ boc: bocBase64 })
-        });
-        const json = await resp.json();
-        console.log('[withdrawals] response from toncenter sendBoc:', JSON.stringify(json));
-        return { bocBase64, signedResponse: json };
+        const json = await sendBocWithRetry(bocBase64, 6);
+        console.log('[withdrawals] fallback sendBoc response:', JSON.stringify(json));
+        return { bocBase64, signedResponse: json, address: addressStr };
     } catch (httpErr) {
-        console.error('[withdrawals] sendBoc HTTP fallback failed', httpErr?.message ?? httpErr);
-        // bubble up so processClaim can revert or act accordingly
-        throw new Error('broadcast_failed: ' + (httpErr?.message ?? httpErr));
+        console.error('[withdrawals] sendBoc fallback failed after retries:', httpErr?.message ?? httpErr);
+        throw httpErr; // let caller handle revertToPending
     }
 }
 
