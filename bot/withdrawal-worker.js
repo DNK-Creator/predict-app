@@ -162,10 +162,11 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
 
     let transfer = await contract.createTransfer({
         seqno,
+        secretKey: keyPair.secretKey,
         messages: [internal({
             value: '0.1',
-            dest: withdrawal_address,
-            body: 'Withdrawal'
+            to: String(withdrawal_address),
+            body: 'Gifts Predict'
         })]
     });
 
