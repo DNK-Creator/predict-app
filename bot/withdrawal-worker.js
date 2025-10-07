@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
 import { WalletContractV4, TonClient } from '@ton/ton';
 import { internal, toNano, Cell, loadTransaction } from '@ton/core';
@@ -7,13 +6,10 @@ import { Buffer } from 'buffer';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // server-only
-const POLL_INTERVAL_MS = Number(15000);
+const POLL_INTERVAL_MS = Number(30000);
 const walletKey = process.env.VITE_WALLET_KEY;
 const WORKER_ID = process.env.VITE_WORKER_ID;
 
-// TON broadcast / provider configuration.
-// Replace this with your provider's recommended endpoint & auth method.
-const TON_BROADCAST_URL = 'https://toncenter.com/api/v2/sendBoc';
 const TON_API_KEY = process.env.VITE_TONCENTER_API_KEY || '';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -29,7 +25,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 // create client (use json-rpc endpoint)
 const tonClient = new TonClient({
     endpoint: 'https://toncenter.com/api/v2/jsonRPC',
-    apiKey: TON_API_KEY // optional depending on provider
 });
 
 async function claimOne() {
@@ -141,91 +136,41 @@ async function fetchSeedFromVault(wallet_id) {
         throw err;
     }
 }
-async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAddress, seqno) {
+
+async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdrawal_address, seqno) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
         throw new Error('unsignedTransaction must include messages array');
     }
 
-    // derive keypair
     const words = seedPhrase.trim().split(/\s+/);
     const keyPair = await mnemonicToPrivateKey(words);
     if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
-    // create wallet instance
-    const walletContract = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
-    const wallet = tonClient.open(walletContract);
+    // Create wallet contract
+    let workchain = 0; // Usually you need a workchain 0
+    let wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
+    let contract = tonClient.open(wallet);
 
-    const provider = tonClient.provider; // usually tonClient.provider exists
-    const state = await provider.getAccount(walletContract.address); // provider method may differ by client
-    console.log('[debug] wallet contract state', state);
-    
-    // Build messages using internal()
-    const messages = unsignedTransaction.messages.map((m) => {
-        let value = m.amount;
-        if (typeof value === 'number') value = String(Math.round(value));
-        // assume amount is nanotons (1 TON = 1e9)
-        return internal({
-            to: m.address,
-            value: value,
-            body: m.payload ? m.payload : undefined,
-            bounce: false
-        });
+    // Get balance
+    let balance = await contract.getBalance();
+    console.log('[debug] the balance of hot wallet is ' + balance)
+
+    let seqno = await contract.getSeqno();
+
+    let transfer = await contract.createTransfer({
+        seqno,
+        messages: [internal({
+            value: '0.1',
+            dest: withdrawal_address,
+            body: 'Withdrawal'
+        })]
     });
-
-    // Compute timeout (seconds) from unsignedTransaction.validUntil (which you already set)
-    const nowSec = Math.floor(Date.now() / 1000);
-    let timeoutSec = null;
-    if (typeof unsignedTransaction.validUntil === 'number') {
-        timeoutSec = Math.floor(unsignedTransaction.validUntil) - nowSec;
-    }
-    // If caller didn't set validUntil, default to 5 minutes
-    if (timeoutSec === null || timeoutSec <= 0) {
-        // you can choose a safer default here (e.g., 60 seconds is small — use 300)
-        timeoutSec = 300; // 5 minutes
-        console.warn('[sign] validUntil missing or <= now — falling back to timeoutSec=300s');
-    }
-
-    // Create signed transfer cell for audit (using the same timeout)
-    let signedCell;
-    try {
-        signedCell = wallet.createTransfer({
-            messages,
-            secretKey: keyPair.secretKey,
-            seqno: Number(seqno),
-            timeout: unsignedTransaction.validUntil // forward timeout to createTransfer
-        });
-    } catch (err) {
-        console.error('[sign] createTransfer failed', err?.message ?? err);
-        try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
-        throw err;
-    }
-
-    // Serialize signed BOC for audit/storage
-    const bocBytes = signedCell.toBoc();
-    const bocBase64 = Buffer.from(bocBytes).toString('base64');
-
-    // Now send via library, passing same timeout so library will set valid_until correctly
-    let sendResult;
-    try {
-        sendResult = await wallet.sendTransfer({
-            messages,
-            secretKey: keyPair.secretKey,
-            seqno: Number(seqno),
-            timeout: Number(timeoutSec)
-        });
-        console.log('[sign] wallet.sendTransfer OK; preview:', JSON.stringify(sendResult).slice(0, 2000));
-    } catch (err) {
-        console.error('[sign] wallet.sendTransfer FAILED:', err?.message ?? err);
-        if (err?.response?.data) console.error('[sign] provider response:', JSON.stringify(err.response.data).slice(0, 2000));
-        try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
-        throw err;
-    }
 
     // zero secretKey in memory (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
-    return { sendResult, signed_boc: bocBase64 };
+    return transfer;
 }
 
 async function debugInspectBoc(bocBase64) {
@@ -352,8 +297,7 @@ async function processClaim(claim) {
     let signedBocBase64 = null;
     console.log('[debug] unsignedTransaction.validUntil', unsignedTransaction.validUntil, 'nowSec', Math.floor(Date.now() / 1000));
     try {
-        const { signedResponse, signed_boc } = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
-        await debugInspectBoc(signed_boc);
+        const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
         sendResp = signedResponse?.sendResult;
         signedBocBase64 = signedResponse?.signed_boc ?? null;
         if (!sendResp) throw new Error('no send result from signTransactionWithSeed');
