@@ -156,6 +156,8 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
     let balance = await contract.getBalance();
     console.log('[debug] the balance of hot wallet is ' + balance)
 
+    console.log(withdrawal_address)
+
     let seqno = await contract.getSeqno();
 
     let transfer = await contract.createTransfer({
