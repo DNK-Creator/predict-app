@@ -137,6 +137,25 @@ async function fetchSeedFromVault(wallet_id) {
     }
 }
 
+async function isAddressActive(address) {
+    try {
+        const url = `https://toncenter.com/api/v2/getAddressInfo?address=${encodeURIComponent(address)}`;
+        const resp = await fetch(url, {
+            method: 'GET',
+            headers: {
+                ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
+            }
+        });
+        const json = await resp.json();
+        // toncenter returns { ok, result: { state: 'active' | 'uninitialized' | ... } }
+        return json?.result?.state === 'active';
+    } catch (e) {
+        console.error('[isAddressActive] error', e?.message ?? e);
+        // On error, be conservative: return false so we don't attempt broadcast blindly
+        return false;
+    }
+}
+
 async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
@@ -147,37 +166,49 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     const keyPair = await mnemonicToPrivateKey(words);
     if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
-    // Create wallet contract
+    // Create wallet contract object and bound contract
     const workchain = 0;
     const wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
-    const contract = tonClient.open(wallet); // client-bound contract object
+    const contract = tonClient.open(wallet);
 
-    // Get balance
-    const balance = await contract.getBalance();
-    console.log('[debug] the balance of hot wallet is ' + balance)
+    // Derive address string for checks / logging
+    const addressStr = (contract?.address && typeof contract.address.toString === 'function')
+        ? contract.address.toString()
+        : null;
 
-    let seqno = await contract.getSeqno();
+    console.log('[debug] wallet address:', addressStr ?? '<unknown>');
 
-    console.log('The seqno of the contract is: ' + seqno)
+    // Check account state via TONCenter — bail early if not active
+    if (!addressStr) throw new Error('unable to derive wallet address');
+    const active = await isAddressActive(addressStr);
+    if (!active) {
+        // Provide a clear error so caller knows it's an undeployed wallet
+        throw new Error(`wallet_not_active: ${addressStr}`);
+    }
 
-    // Build messages for createTransfer using unsignedTransaction.messages
+    // Get balance & seqno using SDK provider (contract methods expect provider arg)
+    try {
+        const balance = await contract.getBalance();
+        console.log('[debug] the balance of hot wallet is', balance);
+    } catch (e) {
+        console.warn('[debug] failed to read balance via contract.getBalance()', e?.message ?? e);
+    }
+
+    const seqno = await contract.getSeqno();
+    console.log('The seqno of the contract is:', seqno);
+
+    // Build internal messages (use nanotons as bigint)
     const messages = unsignedTransaction.messages.map((m) => {
-        // m.amount might be a nanotons string or a TON decimal; normalize:
-        // If your processClaim sets amount as nanotons string (like "1500000000"), pass BigInt.
-        // If it's a decimal (0.1), use toNano('0.1').
         let value;
         if (typeof m.amount === 'string' && /^\d+$/.test(m.amount)) {
-            // already nanotons digits
             value = BigInt(m.amount);
         } else {
-            // attempt to convert decimal TON string/number to nanotons
             value = toNano(String(m.amount)); // returns bigint
         }
-
         return internal({
             to: String(m.address),
-            value, // internal accepts string | bigint
-            body: m.payload || 'Gifts Predict' // optional body
+            value,
+            body: m.payload || 'Gifts Predict'
         });
     });
 
@@ -188,15 +219,34 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
         messages
     });
 
-    // zero secretKey in memory (best-effort)
+    // wipe secret key buffer (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
     // Convert transfer Cell to BOC base64 for storage / RPC broadcast
     const bocBuffer = transferCell.toBoc();               // returns Buffer
     const bocBase64 = Buffer.from(bocBuffer).toString('base64');
 
-    // return both cell and base64 so caller may broadcast
-    return { transferCell, bocBase64 };
+    // Broadcast via TON Center sendBoc
+    let signedResponse = null;
+    try {
+        const resp = await fetch('https://toncenter.com/api/v2/sendBoc', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
+            },
+            body: JSON.stringify({ boc: bocBase64 })
+        });
+        signedResponse = await resp.json();
+        console.log('[withdrawals] response from toncenter sendBoc:', JSON.stringify(signedResponse));
+    } catch (e) {
+        console.error('[withdrawals] sendBoc failed', e?.message ?? e);
+        // bubble up so caller can revert to pending
+        throw new Error('sendBoc_failed: ' + (e?.message ?? e));
+    }
+
+    // Return signedBoc and provider response for DB storage
+    return { bocBase64, signedResponse, address: addressStr };
 }
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
@@ -242,7 +292,7 @@ async function processClaim(claim) {
         return;
     }
 
-    console.log('[withdrawals] Processing claim for withdrawal address - ' + withdrawal_address )
+    console.log('[withdrawals] Processing claim for withdrawal address - ' + withdrawal_address)
 
     // Build unsignedTransaction using nanotons as amount values (string)
     const unsignedTransaction = {
@@ -275,49 +325,17 @@ async function processClaim(claim) {
     try {
         const signResult = await signTransactionWithSeed(unsignedTransaction, seed);
         signedBocBase64 = signResult.bocBase64;
-        const transferCell = signResult.transferCell;
-
-        // Option A — use library helper if available (sign+send in one call):
-        // many lib versions expose sendTransfer or contract.send(transferCell)
-        try {
-            // try sendTransfer helper first (some versions accept no explicit provider)
-            if (typeof contract?.sendTransfer === 'function') {
-                // NOTE: if sendTransfer needs provider as first arg, add tonClient.provider
-                console.log('[withdrawals] trying contract sendTransfer function')
-                await contract.sendTransfer({ seqno: await contract.getSeqno(), secretKey: null, messages: [] });
-            } else if (typeof contract?.send === 'function') {
-                // contract.send(provider?, transferCell) - some bindings accept no provider
-                console.log('[withdrawals] trying contract send function')
-                await contract.send(transferCell); // try to send with bound client
-            }
-        } catch (libSendErr) {
-            // Library helper didn't work or is not available — fallback to raw RPC broadcast
-            console.log('[worker] library send failed, falling back to sendBoc RPC', libSendErr?.message ?? libSendErr);
-            // Use TonCenter/QuickNode / your RPC sendBoc method
-            // Example with TON Center JSON-RPC /sendBoc endpoint (adjust headers if your provider needs an API key)
-            const resp = await fetch('https://toncenter.com/api/v2/sendBoc', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
-                },
-                body: JSON.stringify({ boc: signedBocBase64 })
-            });
-            const json = await resp.json();
-            signedResponse = json;
-            console.log('[withdrawals] response from toncenter fetch json: ' + signedResponse)
-        }
-
+        signedResponse = signResult.signedResponse;
     } catch (err) {
         console.error('[worker] signing/sending failed:', err?.message ?? err);
-        await revertToPending(uuid, 'sign_or_send_failed');
+        // if wallet not active, mark special reason so you can debug later
+        await revertToPending(uuid, err?.message ?? 'sign_or_send_failed');
         return;
     } finally {
         seed = null;
     }
 
-    // Inspect sendResp for tx hash (provider-dependent)
-
+    // provider-specific tx hash extraction
     let txHash = signedResponse?.result?.hash ?? signedResponse?.hash ?? signedResponse?.id ?? null;
 
     try {
