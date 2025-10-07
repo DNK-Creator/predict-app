@@ -137,26 +137,6 @@ async function fetchSeedFromVault(wallet_id) {
     }
 }
 
-async function isAddressActive(address) {
-    try {
-        const url = `https://toncenter.com/api/v2/getAddressInfo?address=${encodeURIComponent(address)}`;
-        const resp = await fetch(url, {
-            method: 'GET',
-            headers: {
-                ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
-            }
-        });
-        const json = await resp.json();
-        console.log('TonCenter check active wallet returned: ' + json)
-        // toncenter returns { ok, result: { state: 'active' | 'uninitialized' | ... } }
-        return json?.result?.state === 'active';
-    } catch (e) {
-        console.error('[isAddressActive] error', e?.message ?? e);
-        // On error, be conservative: return false so we don't attempt broadcast blindly
-        return false;
-    }
-}
-
 async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
@@ -178,14 +158,6 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
         : null;
 
     console.log('[debug] wallet address:', addressStr ?? '<unknown>');
-
-    // Check account state via TONCenter — bail early if not active
-    if (!addressStr) throw new Error('unable to derive wallet address');
-    const active = await isAddressActive(addressStr);
-    if (!active) {
-        // Provide a clear error so caller knows it's an undeployed wallet
-        throw new Error(`wallet_not_active: ${addressStr}`);
-    }
 
     // Get balance & seqno using SDK provider (contract methods expect provider arg)
     try {
