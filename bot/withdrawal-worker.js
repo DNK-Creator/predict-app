@@ -147,6 +147,7 @@ async function isAddressActive(address) {
             }
         });
         const json = await resp.json();
+        console.log('TonCenter check active wallet returned: ' + json)
         // toncenter returns { ok, result: { state: 'active' | 'uninitialized' | ... } }
         return json?.result?.state === 'active';
     } catch (e) {
