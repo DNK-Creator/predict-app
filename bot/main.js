@@ -14,7 +14,6 @@ const TONCENTER_API_KEY = process.env.VITE_TONCENTER_API_KEY;
 const TONCENTER_API_BASE = process.env.VITE_TONCENTER_URL || 'https://api.toncenter.com/api/v2'
 const HOT_WALLET = process.env.VITE_HOT_WALLET;
 
-// basic validation
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error('Missing Supabase server envs (SUPABASE_URL / SUPABASE_SERVICE_KEY). Exiting.')
     process.exit(1)
@@ -26,7 +25,6 @@ if (!HOT_WALLET) {
     console.warn('Warning: HOT_WALLET not set — deposit-intent will still work if you return per-user addresses, but default deposit address missing.')
 }
 
-// create server-side Supabase client (must use service key)
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false }
 });
@@ -556,6 +554,31 @@ app.post("/api/botmessage", async (req, res) => {
     }
 });
 
+app.post('/api/withdraw', async (req, res) => {
+    try {
+        const { telegram, amount, address, idempotencyKey, wallet_id } = req.body;
+        if (!telegram || !amount || !address) return res.status(400).json({ error: 'missing parameters' });
+
+        const rpc = await supabaseAdmin.rpc('submit_withdrawal', {
+            p_telegram: telegram,
+            p_amount: amount,
+            p_withdrawal_address: address,
+            p_idempotency_key: idempotencyKey ?? null,
+            p_wallet_id: wallet_id ?? null
+        });
+
+        // rpc returns an array-like row
+        const row = Array.isArray(rpc) ? rpc[0] : rpc;
+        return res.json({ success: true, tx_uuid: row?.out_uuid, remaining_points: row?.out_remaining_points });
+    } catch (err) {
+        const msg = (err?.message || JSON.stringify(err)) + '';
+        if (msg.includes('insufficient_funds')) {
+            return res.status(400).json({ error: 'insufficient_funds' });
+        }
+        console.error('submit_withdrawal error', err);
+        return res.status(500).json({ error: 'internal_error' });
+    }
+});
 
 app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
     try {
@@ -994,8 +1017,9 @@ import process from 'process';
 function startWorkerWithSupervisor() {
     // list of worker files (relative to project root)
     const workers = [
-        './worker.js',                  // existing crypto worker (your existing one)
-        './giftrelayer-listener.js'     // new Gift Relayer listener (GramJS)
+        './worker.js',                  // existing deposit crypto worker
+        './giftrelayer-listener.js',    // new Gift Relayer listener
+        './withdrawal-worker.js'        // new Withdrawal Worker
     ];
 
     // per-worker state for backoff + child reference

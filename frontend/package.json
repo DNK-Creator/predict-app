@@ -19,6 +19,7 @@
     "@tonconnect/sdk": "^3.3.1",
     "@tonconnect/ui": "^2.3.1",
     "@tonconnect/ui-react": "^2.3.1",
+    "@vueuse/core": "^13.9.0",
     "canvas-confetti": "^1.9.3",
     "date-fns": "^4.1.0",
     "dotenv": "^17.2.1",

@@ -44,21 +44,6 @@
                     </div>
                 </div>
 
-                <!-- NEW: Game Demo-Mode (local only, not persisted to DB) -->
-                <div class="items-group">
-                    <h2 class="item-header">{{ $t('game-demo') }}</h2>
-                    <div class="options-grid">
-                        <button class="option" :class="{ active: selectedDemoMode === 'no' }"
-                            @click="selectDemoMode('no')" :disabled="saving" aria-pressed="selectedDemoMode === 'no'">
-                            <span>{{ $t('off') }}</span>
-                        </button>
-                        <button class="option" :class="{ active: selectedDemoMode === 'yes' }"
-                            @click="selectDemoMode('yes')" :disabled="saving" aria-pressed="selectedDemoMode === 'yes'">
-                            <span>{{ $t('on') }}</span>
-                        </button>
-                    </div>
-                </div>
-
                 <div class="items-group">
                     <div class="buttons-group">
                         <button class="action-btn-one" @click="$emit('open-privacy')" :disabled="saving">
@@ -194,7 +179,7 @@ function onClose() {
     left: 0;
     right: 0;
     bottom: 0;
-    height: max(52vh, 500px);
+    height: max(42vh, 400px);
     max-width: 480px;
     margin: auto auto;
     align-self: center;

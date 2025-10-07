@@ -1,431 +1,204 @@
 <template>
-    <!-- WITHDRAWAL MODAL  -->
-    <WithdrawModal v-model="showWithdrawalModal" :address="parsedWalletAddress" :balance="app.points"
-        @withdraw="handleWithdraw" :house_cut="house_cut_rate" />
-
-    <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
-    <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" :balance="walletBalance"
-        @reconnect-wallet="reconnectWallet" @close="closeWalletInfo" />
-
     <!-- animated wrapper -->
+
+    <ActivityEventModal :show="activityModalShow" :name="selected ? selected.bet_name : ''"
+        :side="selected ? selected.side : null" :stake="selected ? selected.stake : null"
+        :multiplier="selected ? selected.multiplier : null" :username="selected ? selected.username : ''"
+        :photo_url="selected ? selected.photo_url : null" :gifts_bet="selected ? selected.gifts_bet : null"
+        :name_en="selected ? selected.bet_name_en : ''" @close="closeActivityModal"
+        @open-bet-page="openActivityEvent(selected ? selected.bet_id : '39')" />
+
     <transition name="history-fade" appear>
         <div v-show="showView" class="transactions-view-container">
-            <div v-if="transactions.length > 0" class="wallet-wrapper">
-                <div class="wallet-top-header" @click="openWalletInfo">
-                    <div class="status-container">
-                        <img :src="walletIcon">
-                        <span class="wallet-status-text"> {{ walletStatus }} </span>
-                    </div>
-
-                    <div class="wallet-action-text" v-if="app.walletAddress"> {{ $t("connected") }} </div>
-                    <div class="wallet-action-text" v-else> {{ $t("connect-plus") }} </div>
-                </div>
-                <div class="wallet">
-                    <h3 class="wallet-balance-hint">{{ $t("gifts-predict-balance") }}</h3>
-                    <h1 class="wallet-balance">{{ app.points }} TON</h1>
-                    <div class="wallet-buttons">
-                        <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
-                            }}</button>
-                    </div>
-                </div>
+            <!-- initial/global spinner -->
+            <div v-if="spinnerShow" class="inline-loader" role="status" aria-live="polite">
+                <!-- simple placeholder spinner/text (replace with your loader component if you have one) -->
+                <div class="loading-spinner">{{ $t('loading-dots') }}</div>
             </div>
 
-            <TransactionsTable :transactions="transactions" :loaded="transactionsShow" />
+            <!-- empty state -->
+            <div v-else-if="isEmpty" class="empty-state" role="status" aria-live="polite">
+                <div class="empty-icon">🧾</div>
+                <h3 class="empty-title">{{ $t('no-activity') }}</h3>
+                <p class="empty-desc">{{ $t('none-to-show') }}</p>
+            </div>
+
+            <!-- list -->
+            <div v-else class="history-list">
+                <transition-group name="list-fade" tag="div">
+                    <ActivityListItem v-for="tx in displayedTransactions" :key="tx.id" :stake="tx.stake"
+                        :multiplier="tx.multiplier" :gifts_bet="tx.gifts_bet" :bet_name="tx.bet_name || ''"
+                        :username="tx.username" :side="tx.side" :created_at="tx.created_at" :photo_url="tx.photo_url"
+                        :bet_name_en="tx.bet_name_en" @click="openActivityModal(tx)" />
+                </transition-group>
+
+                <!-- inline loader while loading more pages -->
+                <div v-if="loadingMore && displayedTransactions.length > 0" class="inline-loader">
+                    <div class="loading-spinner">{{ $t('loading-dots') }}</div>
+                </div>
+
+                <!-- sentinel for intersection observer (only when not all loaded) -->
+                <div v-if="!allLoaded" ref="scrollAnchor" class="scroll-anchor"></div>
+            </div>
         </div>
     </transition>
 </template>
 
-
 <script setup>
-import 'vue3-toastify/dist/index.css'
 import supabase from '@/services/supabase'
-import { toast } from 'vue3-toastify'
-import { ref, onMounted, computed, onActivated, watch, nextTick } from 'vue'
-import { getLastWithdrawalTime } from '@/api/requests'
-import { useTelegram } from '@/services/telegram'
-import { useAppStore } from '@/stores/appStore'
-import { Address } from '@ton/core'
-import { v4 as uuidv4 } from 'uuid'
-import { fetchBotMessageTransaction } from '@/services/payments'
-import { useTon } from '@/services/useTon'
-import TransactionsTable from '@/components/TransactionsTable.vue'
-import YourWalletModal from '@/components/YourWalletModal.vue'
-import WithdrawModal from '@/components/WithdrawalModal.vue'
-import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
+import { ref, onMounted, watch, nextTick, onUnmounted, computed } from 'vue'
+import ActivityListItem from '@/components/ActivityListItem.vue'
+import ActivityEventModal from '@/components/ActivityEventModal.vue'
+import { useRouter } from 'vue-router'
 
-const app = useAppStore()
+const router = useRouter()
 
-const { ton, ensureTon } = useTon()
+const pageSize = 12
+let activeLoadId = 0
 
-const transactions = ref([])
+const displayedTransactions = ref([]) // shown in the list
+const loadingMore = ref(false)
+const allLoaded = ref(false)
+const pages = ref(0) // next page index to request (0-based)
+
+const selected = ref(null)
+
+const activityModalShow = ref(false)
+
 const spinnerShow = ref(true)
-const transactionsShow = ref(false)
-
-const house_cut_rate = ref(7)
-
-// inside setup: add this ref
 const showView = ref(false)
 
-const showWithdrawalModal = ref(false)
-const showWalletInfo = ref(false)
+const scrollAnchor = ref(null)
+let observer = null
 
-const API_BASE = 'https://api.giftspredict.ru'
-
-const walletBalance = ref(null)
-
-const walletAddress = computed(() => {
-    return app.walletAddress ?? null
-})
-
-const walletStatus = computed(() => {
-    if (app.walletAddress) {
-        return `${app.walletAddress.slice(0, 4)}...${app.walletAddress.slice(-3)}`
-    }
-    return app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
-})
-
-const lastWithdrawalRequest = ref(null)
-const { user } = useTelegram()
-
-const parsedWalletAddress = computed(() => {
-    const a = walletAddress.value
-    if (!a) return null
-    try {
-        return Address.parse(a).toString({ urlSafe: true, bounceable: false })
-    } catch (err) {
-        console.warn('parse error', err)
-        return null
-    }
-})
-
-async function openWalletInfo() {
-    if (walletAddress.value !== null) {
-        showWalletInfo.value = true
-    }
-    else {
-        // after (works)
-        ensureTon()
-        const wallet = await ton.value.connectWallet()
-        if (wallet) {
-            await handleConnected(wallet)
-        }
-    }
+function openActivityEvent(id) {
+    router.push({ name: 'BetDetails', params: { id } })
 }
 
-async function closeWalletInfo() {
-    showWalletInfo.value = false
+function openActivityModal(event) {
+    selected.value = event
+    activityModalShow.value = true
 }
 
-async function openWithdrawalModal() {
-    if (app.walletAddress === null || app.walletAddress === undefined) {
-        try {
-            ensureTon()
-            const wallet = await ton.value.connectWallet()
-            if (wallet) {
-                await handleConnected(wallet)
-            }
-        } catch (e) {
-            console.error("Could not connect:", e)
-        }
-        return
-    }
-    else {
-        showWithdrawalModal.value = true
-    }
+function closeActivityModal() {
+    activityModalShow.value = false
+    selected.value = null
 }
 
-async function reconnectWallet() {
-    // If already connected, drop the session
-    ensureTon()
-    if (ton.value.connected) {
-        app.walletAddress = null
-        await ton.value.disconnect()
-
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: null })
-            .eq('telegram', user?.id ?? 99)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
-
-    }
-    // Then always open the wallet selector
-    const wallet = await ton.value.connectWallet()
-    if (wallet) {
-        await handleConnected(wallet)
-    }
+function formatRangeForPage(pageIndex) {
+    const from = pageIndex * pageSize
+    const to = from + pageSize - 1
+    return { from, to }
 }
 
-// Called when user clicks “Вывод”
-async function handleWithdraw(amount, amount_cut) {
-    ensureTon()
-    if (!walletAddress.value) {
-        try {
-            const wallet = await ton.value.connectWallet()
-            if (wallet) {
-                await handleConnected(wallet)
-            }
-        } catch (e) {
-            console.error("Could not connect:", e);
-        }
-        return;
-    }
-    else {
-        onWithdraw(amount, amount_cut)
-    }
-}
-
-// ——— Withdraw flow ———
-async function onWithdraw(amount, amount_cut) {
-
-    if (app.points < amount) {
-        toast.error('Недостаточно средств')
-        return
-    }
-
-    // if still on cooldown, exit early
-    if (!canRequestWithdrawal(lastWithdrawalRequest.value)) {
-        return;
-    }
-
-    lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
-
-    const parsedAddress = (Address.parse(app.walletAddress)).toString({ urlSafe: true, bounceable: false })
-
-    const txId = uuidv4()
-    const amountTON_Cut = amount_cut
-    const amountTON = amount
-
-    await supabase
-        .from('users')
-        .update({ last_withdrawal_request: lastWithdrawalRequest.value })
-        .eq('telegram', user?.id ?? 99)
-
-    // insert withdrawal request
-    await supabase.from('transactions').insert({
-        uuid: txId,
-        user_id: user?.id ?? 99,
-        amount: amountTON_Cut,
-        status: 'Ожидание вывода',
-        type: 'Withdrawal',
-        withdrawal_pending: true,
-        withdrawal_address: parsedAddress,
-        created_at: new Date().toISOString()
-    })
-
-    // deduct balance immediately
-    app.points -= amountTON
-    await supabase.from('users')
-        .update({ points: app.points })
-        .eq('telegram', user?.id ?? 99)
-
-    try {
-        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON_Cut} TON is saved.\nCurrent balance: ${app.points} TON`, user?.id)
-    } catch (err) {
-        console.warn('Failed to send bot message for user. Error: ' + err)
-    }
-}
-
-function canRequestWithdrawal(lastWithdrawalRequest) {
-    const MS_PER_DAY = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const last = new Date(lastWithdrawalRequest).getTime();
-    const elapsed = now - last;
-
-    if (elapsed >= MS_PER_DAY) {
-        // more than 24h have passed
-        return true;
-    }
-
-    // compute remaining time
-    const remainingMs = MS_PER_DAY - elapsed;
-    const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-    const remainingMinutes = Math.floor(
-        (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
-    );
-
-    toast.error(`Вывод доступен через ${remainingHours} ч. ${remainingMinutes} мин.`)
-    return false;
-}
-
-// add this helper near the other functions
-async function handleConnected(wallet) {
-    // normalize address
-    let addr = wallet?.account?.address || null
-
-    let parsedAddress = null
-
-    if (addr !== null && addr !== undefined) {
-        try {
-            parsedAddress = (Address.parse(addr)).toString({ urlSafe: true, bounceable: false })
-        } catch (err) {
-            console.warn('Failed to parse address', err)
-        }
-
-        if (parsedAddress !== null && parsedAddress !== undefined) {
-            app.walletAddress = parsedAddress
-        }
-
-        // fetch balance (guard with try/catch)
-        try {
-            const tonBal = await fetchTonBalance(app.walletAddress)
-            walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
-        } catch (err) {
-            console.warn('Failed to fetch TON balance', err)
-            walletBalance.value = null
-        }
-    }
-
-    // update Supabase users.wallet_address (keep your previous logic)
-    if (user || !user) {
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: parsedAddress })
-            .eq('telegram', user?.id ?? 99)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
-    }
-}
-
-
-// ---------------------
-// Backend-backed balance fetch
-// ---------------------
-async function fetchTonBalance(address) {
-    if (!address) return;
-    try {
-        const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
-        const resp = await fetch(url);
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => null);
-            throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
-        }
-        const json = await resp.json();
-        // backend returns { balance: number } in TON
-        return Number(json.balance);
-    } catch (err) {
-        console.error('fetchTonBalance error', err);
-        throw err;
-    }
-}
-
-// ——— Load transactions from Supabase ———
-async function loadTransactions() {
-    // if (!user) return
+async function fetchActivityPage(pageIndex) {
+    const { from, to } = formatRangeForPage(pageIndex)
     const { data, error } = await supabase
-        .from('transactions')
-        .select('uuid, amount, status, created_at, type')
-        .eq('user_id', user?.id ?? 99)
+        .from('bets_holders')
+        .select('id, stake, multiplier, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
+        .eq('dont_show', false)
         .order('created_at', { ascending: false })
+        .range(from, to)
 
-    if (error) {
-        console.error('Error loading transactions:', error)
-    } else {
-        transactions.value = data
+    if (error) throw error
+    return data || []
+}
+
+async function resetAndLoad() {
+    activeLoadId += 1
+    const myLoadId = activeLoadId
+
+    pages.value = 0
+    allLoaded.value = false
+    loadingMore.value = false
+
+    try {
+        const firstPage = await fetchActivityPage(0)
+        if (myLoadId !== activeLoadId) return
+
+        displayedTransactions.value = Array.isArray(firstPage) ? firstPage.slice() : []
+        pages.value = 1 // next page to fetch
+        if (firstPage.length < pageSize) allLoaded.value = true
+    } catch (err) {
+        console.error('Error loading activity first page', err)
+        displayedTransactions.value = []
+        allLoaded.value = true
+    } finally {
+        spinnerShow.value = false
     }
 }
+async function loadMore() {
+    if (loadingMore.value) return
+    if (allLoaded.value) return
+
+    const myLoadId = activeLoadId
+    loadingMore.value = true
+    try {
+        const pageIndex = pages.value
+        const incoming = await fetchActivityPage(pageIndex)
+        if (myLoadId !== activeLoadId) return
+
+        if (incoming.length < pageSize) allLoaded.value = true
+
+        // dedupe by id
+        const existingIds = new Set(displayedTransactions.value.map(t => t.id))
+        const filtered = incoming.filter(item => !existingIds.has(item.id))
+        if (filtered.length > 0) displayedTransactions.value.push(...filtered)
+
+        pages.value = pages.value + 1
+    } catch (err) {
+        console.error('Error loading more activity', err)
+        // don't flip allLoaded — allow retry
+    } finally {
+        loadingMore.value = false
+    }
+}
+
+function observeScrollEnd() {
+    if (observer) observer.disconnect()
+    observer = new IntersectionObserver(
+        ([entry]) => {
+            if (entry.isIntersecting) loadMore()
+        },
+        { rootMargin: '200px' }
+    )
+
+    const tryObserve = () => {
+        if (scrollAnchor.value) observer.observe(scrollAnchor.value)
+        else requestAnimationFrame(tryObserve)
+    }
+    tryObserve()
+}
+
 
 onMounted(async () => {
-    await loadTransactions()
-    lastWithdrawalRequest.value = await getLastWithdrawalTime()
+    await resetAndLoad()
 
-    // Subscribe to realtime updates (Supabase JS v2)
-    if (user || !user) {
-        // Create or reuse a channel
-        const channel = supabase
-            .channel('transactions-' + user?.id ?? 99)            // a unique name
-            .on(
-                'postgres_changes',                          // listen to Postgres changes
-                {
-                    event: '*',                                // INSERT, UPDATE, DELETE
-                    schema: 'public',                          // your schema
-                    table: 'transactions',
-                    filter: `user_id=eq.${user?.id ?? 99}`            // only this user’s rows
-                },
-                async (payload) => {
-                    console.log('Realtime payload:', payload)
-                    await loadTransactions()
-                }
-            )
+    // wait a paint to avoid flicker when spinner hides
+    requestAnimationFrame(async () => {
+        showView.value = true
+    })
 
-        // finally subscribe
-        channel.subscribe()
-    }
-
-    const { data, error } = await supabase
-        .from('withdraw_information')
-        .select('house_cut')
-        .eq('id', 1)
-        .single()   // .single() is fine if the row exists
-
-    if (error) {
-        console.error('failed to load house_cut', error)
-        // keep default 0 or handle error UI
-        return
-    }
-
-    // Ensure it's a number (DB double precision usually arrives as a JS number)
-    const val = Number(data?.house_cut)
-    house_cut_rate.value = Number.isFinite(val) ? val : 7
-
-    spinnerShow.value = false
-    transactionsShow.value = true
+    // attach observer after first render
+    observeScrollEnd()
 })
 
-// toggle the view when spinner hides (avoid flicker by waiting a paint)
+
+onUnmounted(() => {
+    if (observer) observer.disconnect()
+})
+
+const isEmpty = computed(() => !spinnerShow.value && displayedTransactions.value.length === 0)
+
+// keep compatibility for the original watch used in your file (avoid flicker)
 watch(spinnerShow, async (spinnerIsVisible) => {
     if (spinnerIsVisible) {
-        // still loading -> hide content
         showView.value = false
         return
     }
-    // spinner hidden -> show content after paint
     await nextTick()
     requestAnimationFrame(() => { showView.value = true })
 }, { immediate: true })
-
-// update onMounted remains (you already set spinnerShow=false and transactionsShow=true there)
-// but the watch will pick it up and showView will become true
-
-// enhance onActivated so animation replays when returning to this kept-alive view
-onActivated(async () => {
-    // otherwise replay appear animation
-    showView.value = false
-    await nextTick()
-    requestAnimationFrame(() => { showView.value = true })
-
-    // every time DepositView is shown again…
-    if (ton.value?.connected && app.walletAddress) {
-        const freshBal = await fetchTonBalance(app.walletAddress)
-        walletBalance.value = +freshBal.toFixed(2)
-    }
-})
-
-watch(
-    () => walletAddress.value,
-    async (addr) => {
-        if (!addr) {
-            walletBalance.value = null
-            return
-        }
-
-        // set status quickly (shortened form)
-        try {
-            const parsed = Address.parse(addr).toString({ urlSafe: true, bounceable: false })
-        } catch (_) { }
-
-        // fetch fresh balance
-        try {
-            const bal = await fetchTonBalance(addr)
-            walletBalance.value = (typeof bal === 'number') ? +bal.toFixed(2) : null
-        } catch (err) {
-            walletBalance.value = null
-        }
-    },
-    { immediate: true }
-)
 
 </script>
 
@@ -586,9 +359,87 @@ watch(
     transform: translateY(0) scale(1);
 }
 
-/* container so layout won't jump */
 .transactions-view-container {
     /* keep layout same as before; use min-height if you need consistent height */
     min-height: 1px;
+    margin-top: 1rem;
+}
+
+.transactions-view-container {
+    min-height: 1px;
+    margin-top: 1rem;
+}
+
+
+.history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 8px;
+}
+
+
+.inline-loader {
+    display: flex;
+    justify-content: center;
+    padding: 18px 0;
+}
+
+
+.scroll-anchor {
+    height: 1px;
+    width: 100%;
+}
+
+
+/* reuse small transitions (same as BetsView) */
+.list-fade-enter-from {
+    opacity: 0;
+    transform: translateY(-8px);
+}
+
+.list-fade-enter-active {
+    transition: opacity 260ms cubic-bezier(.22, .9, .32, 1), transform 260ms cubic-bezier(.22, .9, .32, 1);
+}
+
+.list-fade-enter-to {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.list-fade-leave-from {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.list-fade-leave-active {
+    transition: opacity 220ms cubic-bezier(.22, .9, .32, 1), transform 220ms cubic-bezier(.22, .9, .32, 1);
+}
+
+.list-fade-leave-to {
+    opacity: 0;
+    transform: translateY(8px);
+}
+
+
+/* minimal empty state look */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    padding: 18px
+}
+
+.empty-title {
+    margin: 0;
+    font-weight: 600
+}
+
+.empty-desc {
+    margin: 0;
+    color: #888
 }
 </style>

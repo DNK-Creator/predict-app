@@ -1,11 +1,37 @@
 // src/services/bets-requests.js
 import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
-import { parseISO, differenceInMilliseconds } from 'date-fns'
 
 const { user } = useTelegram()
 
 let _cachedBets = null
+
+export async function fetchActiveBets({ offset = 0, limit = 10 } = {}) {
+    const to = offset + limit - 1
+    const { data, error } = await supabase
+        .from('bets')
+        .select('*')
+        .eq('result', 'undefined')
+        .order('volume_number', { ascending: false })
+        .range(offset, to)
+
+    if (error) throw error
+    return data || []
+}
+
+export async function fetchPastBets({ offset = 0, limit = 8 } = {}) {
+    console.log(offset, limit)
+    const to = offset + limit - 1
+    const { data, error } = await supabase
+        .from('bets')
+        .select('*')
+        .neq('result', 'undefined')
+        .order('volume_number', { ascending: false })
+        .range(offset, to)
+
+    if (error) throw error
+    return data || []
+}
 
 // Fetch all rows from bets_holders for a given bet_id
 export async function getBetsHolders(betId) {
@@ -110,44 +136,6 @@ export async function getBetById(betId) {
         .single()
     if (error) throw error
     return data
-}
-
-/**
- * Given an ISO timestamp for close_time,
- * returns either:
- *   - "Closed"         (if past)
- *   - "X h Y m left"   (if still open)
- */
-export function computeBetStatus(closeTimeIso) {
-    if (!closeTimeIso) return '111'
-    const now = new Date()
-    const close = parseISO(closeTimeIso)
-    const diffMs = differenceInMilliseconds(close, now)
-
-    if (diffMs <= 0) {
-        return '000'
-    }
-
-    return '111'
-}
-
-// Fetch the JSON and transform into [{ timestamp, value }, …]
-export async function getHistory(betId) {
-    const { data, error } = await supabase
-        .from('bets')
-        .select('bet_history')
-        .eq('id', betId)
-        .single()
-
-    if (error) throw error
-
-    const historyObj = data.bet_history || {}
-    // Convert and sort by timestamp ascending
-    const historyArr = Object.entries(historyObj)
-        .map(([ts, val]) => ({ timestamp: ts, value: val }))
-        .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
-
-    return historyArr
 }
 
 // client: call RPC

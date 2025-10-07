@@ -1,363 +1,248 @@
 <template>
-
-    <!-- root always present to avoid layout jumps -->
-    <div class="bets-root" ref="rootEl" :aria-hidden="loadingInitial ? 'true' : 'false'">
-        <div class="bets-container">
-            <!-- Catalogue (Active / Archived) -->
-            <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
-                <button class="catalog-btn" :class="{ active: selectedTab === 'active' }" @click="switchTab('active')"
-                    role="tab" :aria-selected="selectedTab === 'active'">
-                    {{ $t('active') }}
-                </button>
-                <button class="catalog-btn" :class="{ active: selectedTab === 'archived' }"
-                    @click="switchTab('archived')" role="tab" :aria-selected="selectedTab === 'archived'">
-                    {{ $t('past') }}
-                </button>
+    <div class="bets-catalogue" role="tablist" aria-label="Каталог ставок">
+        <button class="catalog-btn" :class="{ active: helperQuickSelected === 'active' }" role="tab"
+            @click="selectActiveTab">
+            {{ $t('active') }}
+        </button>
+        <button class="catalog-btn" :class="{ active: helperQuickSelected === 'past' }" role="tab"
+            @click="selectPastTab">
+            {{ $t('past') }}
+        </button>
+    </div>
+    <div class="lists-parent">
+        <div class="bets-list" v-show="helperQuickSelected === 'active' || selectedTab === 'active'"
+            :class="{ listActive: isActiveShown }">
+            <div class="list-element" v-for="event in activeEvents" :key="event.id">
+                <BetsCard :title="translatedTitle(event)" :app="app" :eventLogo="event.image_path"
+                    :pool="event.volume_number" :chance="normalizedOdds(event)" :betResult="event.result"
+                    :isActiveList="isActiveSelected" :volume="event.volume" :currentOdds="event.currentOdds"
+                    :status="computeBetStatus(event.close_time, event.result)" :betTypeText="translatedEventType(event)"
+                    :totalTickets="event.giveaway_total_tickets" :endsAt="event.close_time"
+                    @click="openBetPage(event.id)" @share="shareBetFunction(event.name, event.name_en)" />
             </div>
-
-            <!-- Empty state when there are no bets in the selected tab -->
-            <div v-if="isEmpty && !isLoadingFirstPage" class="empty-state" role="status" aria-live="polite">
-                <div class="empty-icon">🧾</div>
-                <h3 class="empty-title">{{ $t('empty-now') }}</h3>
-                <p class="empty-desc">{{ $t('no-bets-here') }}</p>
-                <div class="empty-actions">
-                    <button class="catalog-btn" @click="switchTab('active')">{{ $t('active') }}</button>
-                    <button class="catalog-btn" @click="switchTab('archived')">{{ $t('past') }}</button>
-                </div>
+            <div ref="activeSentinel" class="list-sentinel" aria-hidden="true"></div>
+        </div>
+        <div class="bets-list" v-show="helperQuickSelected === 'past' || selectedTab === 'past'"
+            :class="{ listActive: isPastShown }">
+            <div class="list-element" v-for="event in pastEvents" :key="event.id">
+                <BetsCard :title="translatedTitle(event)" :app="app" :eventLogo="event.image_path"
+                    :pool="event.volume_number" :chance="normalizedOdds(event)" :betResult="event.result"
+                    :isActiveList="isActiveSelected" :volume="event.volume" :currentOdds="event.currentOdds"
+                    :status="computeBetStatus(event.close_time, event.result)" :betTypeText="translatedEventType(event)"
+                    :totalTickets="event.giveaway_total_tickets" :endsAt="event.close_time"
+                    @click="openBetPage(event.id)" @share="shareBetFunction(event.name, event.name_en)" />
             </div>
-
-            <!-- Bets list (normal) -->
-            <!-- We use an out-in transition that first leaves the old list, then after-leave swaps in the new list -->
-            <transition name="list-fade" @after-leave="handleAfterLeave">
-                <!-- showDisplayed controls whether the currently-displayed list is mounted -->
-                <div class="bets-list" :key="listKey" v-if="showDisplayed">
-                    <div v-for="bet in displayedBets" :key="bet.id">
-                        <BetsCard :title="translatedTitle(bet.name, bet.name_en)" :eventLogo="bet.image_path"
-                            :endsAt="bet.close_time" :pool="getTotalPool(bet)"
-                            :betTypeText="translatedTitle(bet.event_type, bet.event_type_en)" :app="app"
-                            :betResult="bet.result" :isActiveList="selectedTab === 'active'" :status="getBetStatus(bet)"
-                            :chance="getBetPercent(bet)" :volume="bet.volume" :currentOdds="bet.current_odds"
-                            :userStake="Number(bet.user_stake) || 0" :userSide="bet.user_result || null"
-                            :total_tickets="bet.giveaway_total_tickets" @share="shareBetFunction(bet.name, bet.name_en)"
-                            @click="$router.push({ name: 'BetDetails', params: { id: bet.id } })" />
-                    </div>
-                </div>
-            </transition>
-
-            <!-- Sentinel for IntersectionObserver (only show when not empty) -->
-            <div v-if="!isEmpty" ref="scrollAnchor" class="scroll-anchor"></div>
+            <div ref="pastSentinel" class="list-sentinel" aria-hidden="true"></div>
         </div>
     </div>
 </template>
 
 <script setup>
-// Vue
-import { ref, onMounted, watch, computed, onUnmounted } from 'vue'
-import { useTelegram } from '@/services/telegram'
-import supabase from '@/services/supabase'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter } from 'vue-router'
+import { parseISO, differenceInMilliseconds } from 'date-fns'
+import { fetchActiveBets, fetchPastBets } from '@/services/bets-requests'
 import { useAppStore } from '@/stores/appStore'
+import { useTelegram } from '@/services/telegram'
 import BetsCard from '@/components/bet-details/BetsCard.vue'
-import { getUserBetAmount } from '@/services/bets-requests.js'
+
+const activeEvents = ref([])
+const activeLoading = ref(true)
+
+const pastEvents = ref([])
+const pastLoading = ref(true)
+
+const selectedTab = ref('active')
+const helperQuickSelected = ref('active')
+const helperAnimPassed = ref(true)
+const isActiveShown = ref(true)
+const isPastShown = ref(false)
+
+// Infinite Scroll Values below
+const activePage = ref(0)
+const pastPage = ref(0)
+const pageSize = 8
+const activeHasMore = ref(true)
+const pastHasMore = ref(true)
+const isLoadingMoreActive = ref(false)
+const isLoadingMorePast = ref(false)
+
+const activeSentinel = ref(null)
+const pastSentinel = ref(null)
+
+let activeObserver = null
+let pastObserver = null
 
 const app = useAppStore()
-
 const { tg, user } = useTelegram()
+const router = useRouter()
 
-const bets = ref([])
-const page = ref(0)
-const pageSize = 6
-const loadingMore = ref(false)
-const allLoaded = ref(false)
+const translatedTitle = (event) => {
+    return app.language === 'ru' ? event.name : event.name_en
+}
 
-const rootEl = ref(null)
-const waitingForIncoming = ref(false) // when we left old list and are waiting for incomingBets
+const translatedEventType = (event) => {
+    return app.language === 'ru' ? event.event_type : event.event_type_en
+}
 
-// at top, with other refs
-let activeLoadId = 0 // incremented on each resetAndLoad to cancel stale responses
+const normalizedOdds = (event) => {
+    return Number(event.current_odds.toFixed(2) * 100).toFixed(0)
+}
 
-const displayedBets = ref([]) // what is currently shown
-const incomingBets = ref(null) // newly-fetched page waiting to be swapped in
-const showDisplayed = ref(true) // controls mounting to let the old list leave first
+const isActiveSelected = computed(() => {
+    return selectedTab.value === 'active'
+})
 
-// initial full-page loader
-const loadingInitial = ref(true)
-let initialLoaderTimer = null
+function openBetPage(id) {
+    router.push({ name: 'BetDetails', params: { id } })
+}
 
-// Catalogue
-const selectedTab = ref('active') // 'active' | 'archived'
+function computeBetStatus(closeTimeIso, result) {
+    if (!closeTimeIso) return app.language === 'ru' ? 'Обработка' : 'Validating'
+    const now = new Date()
+    const close = parseISO(closeTimeIso)
+    const diffMs = differenceInMilliseconds(close, now)
 
-// key for the visible list. we bump this after new data is assigned to trigger out-in transition
-const listKey = ref('initial-' + Date.now())
+    if (diffMs <= 0 && result === 'undefined') {
+        return app.language === 'ru' ? 'Обработка' : 'Validating'
+    }
+    else if (diffMs <= 0) {
+        return app.language === 'ru' ? 'Закрыто' : 'Closed'
+    }
 
-function translatedTitle(titleRu, titleEn) {
-    if (app.language === 'ru') {
-        return titleRu
+    return app.language === 'ru' ? 'Открыто' : 'Open'
+}
+
+onMounted(async () => {
+    await loadMoreActiveEvents()
+    await loadMorePastEvents()
+
+    if (helperQuickSelected.value === 'active') {
+        observeActiveSentinel()
     } else {
-        return titleEn
+        observePastSentinel()
     }
+})
+
+onBeforeUnmount(() => {
+    if (activeObserver) activeObserver.disconnect()
+    if (pastObserver) pastObserver.disconnect()
+})
+
+watch(helperQuickSelected, (newVal) => {
+    if (newVal === 'active') {
+        observeActiveSentinel()
+        if (activeEvents.value.length === 0 && activeHasMore.value) loadMoreActiveEvents()
+    } else {
+        observePastSentinel()
+        if (pastEvents.value.length === 0 && pastHasMore.value) loadMorePastEvents()
+    }
+})
+
+function appendUnique(listRef, items) {
+    const existingIds = new Set(listRef.value.map(i => i.id))
+    const filtered = items.filter(i => !existingIds.has(i.id))
+
+    listRef.value = listRef.value.concat(filtered)
 }
 
-function ensureBlurInsideRoot() {
+async function loadMoreActiveEvents() {
+    if (!activeHasMore.value || isLoadingMoreActive.value) return
+    isLoadingMoreActive.value = true
+
     try {
-        const active = document.activeElement
-        if (!active) return
-        if (rootEl.value && rootEl.value.contains(active)) {
-            // blur the focused element so aria-hidden won't hide a focused descendant
-            if (typeof active.blur === 'function') active.blur()
-            // as a fallback, move focus to document.body
-            // (only if blur didn't remove focus for some reason)
-            if (document.activeElement === active && typeof document.body.focus === 'function') {
-                document.body.focus()
-            }
-        }
+        const offset = activePage.value * pageSize
+        const newItems = await fetchActiveBets({ offset, limit: pageSize })
+        if (newItems.length < pageSize) activeHasMore.value = false
+        appendUnique(activeEvents, newItems)
+        activePage.value += 1
     } catch (e) {
-        // defensive: don't crash the UI on odd environments
-        console.warn('ensureBlurInsideRoot failed', e)
+        console.error('Failed to load new active bets: ' + e)
+    } finally {
+        isLoadingMoreActive.value = false
+        activeLoading.value = false
     }
 }
 
-function setRootInert(flag) {
+async function loadMorePastEvents() {
+    if (!pastHasMore.value || isLoadingMorePast.value) return
+    isLoadingMorePast.value = true
+
     try {
-        if (!rootEl.value) return
-        if ('inert' in rootEl.value) {
-            rootEl.value.inert = !!flag
-        }
-        // if inert not supported we don't break anything — aria-hidden is still used via binding
+        const offset = pastPage.value * pageSize
+        const newItems = await fetchPastBets({ offset, limit: pageSize })
+        if (newItems.length < pageSize) pastHasMore.value = false
+        appendUnique(pastEvents, newItems)
+        pastPage.value += 1
     } catch (e) {
-        // ignore
+        console.error('Error when trying to load more past events: ' + e)
+    } finally {
+        isLoadingMorePast.value = false
+        pastLoading.value = false
     }
 }
 
-/* ---------------------------
-   Utility / parsing helpers
-   --------------------------- */
-
-/** Coerce a string/number into a finite Number, handling commas, symbols. */
-function parseNumber(v) {
-    if (v == null) return NaN
-    if (typeof v === 'number') return Number.isFinite(v) ? v : NaN
-    if (typeof v === 'string') {
-        const trimmed = v.trim()
-        try {
-            const maybe = JSON.parse(trimmed)
-            if (typeof maybe === 'number') return Number.isFinite(maybe) ? maybe : NaN
-        } catch (e) { /* ignore */ }
-
-        const cleaned = trimmed.replace(',', '.').replace(/[^\d.\-+eE]/g, '')
-        const n = parseFloat(cleaned)
-        return Number.isFinite(n) ? n : NaN
-    }
-    return NaN
-}
-
-function normalizeOdds(raw) {
-    if (raw == null) return NaN
-    const n = parseNumber(raw)
-    if (!Number.isFinite(n)) return NaN
-    if (n > 1) return Math.max(0, Math.min(1, n / 100))
-    return Math.max(0, Math.min(1, n))
-}
-
-/** Recursively sum numeric values inside arrays/objects */
-function sumNumeric(x) {
-    if (x == null) return 0
-    if (typeof x === 'number') return Number.isFinite(x) ? x : 0
-    if (typeof x === 'string') {
-        const n = parseNumber(x)
-        return Number.isFinite(n) ? n : 0
-    }
-    if (Array.isArray(x)) return x.reduce((s, it) => s + sumNumeric(it), 0)
-    if (typeof x === 'object') return Object.values(x).reduce((s, v) => s + sumNumeric(v), 0)
-    return 0
-}
-
-/* ---------------------------
-   Volume & percent helpers
-   (reused by the BetsCard props)
-   --------------------------- */
-
-function getTotalPool(betObj) {
-    if (!betObj) return 0
-    const source = (betObj && typeof betObj === 'object' && 'value' in betObj) ? betObj.value : betObj
-    let vol = source && source.volume
-    if (vol == null) return 0
-
-    if (typeof vol === 'string') {
-        const s = vol.trim()
-        if ((s[0] === '{' && s[s.length - 1] === '}') || (s[0] === '[' && s[s.length - 1] === ']')) {
-            try { vol = JSON.parse(s) } catch (e) { /* not JSON */ }
-        }
-    }
-
-    function sumVolume(x) {
-        if (x == null) return 0
-        if (typeof x === 'number') return Number.isFinite(x) ? x : 0
-        if (typeof x === 'string') {
-            const n = parseFloat(x.replace(/[^\d.-]+/g, ''))
-            return Number.isFinite(n) ? n : 0
-        }
-        if (Array.isArray(x)) return x.reduce((s, it) => s + sumVolume(it), 0)
-        if (typeof x === 'object') return Object.values(x).reduce((s, v) => s + sumVolume(v), 0)
-        return 0
-    }
-
-    const rawSum = sumVolume(vol)
-    if (!Number.isFinite(rawSum)) return 0
-    return Number(rawSum.toFixed(2))
-}
-
-/**
- * Compute integer percent (0..100) for a single bet object.
- * Uses volume Yes/No if present; otherwise uses total pool + odds; fallback to bet.current_odds.
- */
-function getBetPercent(bet) {
-    if (!bet) return 0
-
-    const rawVol = bet.volume ?? bet.value?.volume ?? bet.value ?? bet
-    let vol = rawVol
-    if (typeof vol === 'string') {
-        const s = vol.trim()
-        if ((s[0] === '{' && s[s.length - 1] === '}') || (s[0] === '[' && s[s.length - 1] === ']')) {
-            try { vol = JSON.parse(s) } catch (e) { /* leave vol as string */ }
-        }
-    }
-
-    if (vol && typeof vol === 'object' && !Array.isArray(vol)) {
-        const keys = Object.keys(vol)
-        const yesKey = keys.find(k => /^(yes|y|yesamount|yes_amount|yesAmount|yes_value)$/i.test(k))
-        const noKey = keys.find(k => /^(no|n|noamount|no_amount|noAmount|no_value)$/i.test(k))
-
-        if (yesKey || noKey) {
-            const yes = parseNumber(vol[yesKey]) || 0
-            const no = parseNumber(vol[noKey]) || 0
-            const total = yes + no
-            if (total > 0) return Math.round((yes / total) * 100)
-        }
-
-        const total = sumNumeric(vol)
-        const p = normalizeOdds(bet.current_odds ?? bet.value?.current_odds)
-        if (total > 0 && Number.isFinite(p)) return Math.round(p * 100)
-    }
-
-    if (Array.isArray(vol)) {
-        let yesAcc = 0, noAcc = 0
-        for (const item of vol) {
-            if (!item || typeof item !== 'object') continue
-            const yk = Object.keys(item).find(k => /yes/i.test(k))
-            const nk = Object.keys(item).find(k => /no/i.test(k))
-            if (yk || nk) {
-                yesAcc += parseNumber(item[yk]) || 0
-                noAcc += parseNumber(item[nk]) || 0
+function createObserver(callback) {
+    return new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                callback()
             }
         }
-        const totalAcc = yesAcc + noAcc
-        if (totalAcc > 0) return Math.round((yesAcc / totalAcc) * 100)
-
-        const total = sumNumeric(vol)
-        const p = normalizeOdds(bet.current_odds ?? bet.value?.current_odds)
-        if (total > 0 && Number.isFinite(p)) return Math.round(p * 100)
-    }
-
-    const tot = parseNumber(vol)
-    const p = normalizeOdds(bet.current_odds ?? bet.value?.current_odds)
-    if (Number.isFinite(tot) && Number.isFinite(p)) {
-        return Math.round(p * 100)
-    }
-
-    if (bet.current_odds != null || (bet.value && bet.value.current_odds != null)) {
-        const pf = normalizeOdds(bet.current_odds ?? bet.value?.current_odds)
-        if (Number.isFinite(pf)) return Math.round(pf * 100)
-    }
-
-    return 0
+    }, {
+        root: null,
+        rootMargin: '200px',
+        threshold: 0.1
+    })
 }
 
-/**
- * Determine localized bet status string.
- * Accepts betObj (or Vue ref with .value).
- */
-function getBetStatus(betObj) {
-    const bet = betObj && typeof betObj === 'object' && 'value' in betObj ? betObj.value : (betObj || {})
-    const closeRaw = bet.close_time ?? null
-    const resultRaw = bet.result ?? null
-
-    const isMissing = (v) => {
-        if (v == null) return true
-        if (typeof v === 'string') {
-            const t = v.trim().toLowerCase()
-            return t === '' || t === 'undefined' || t === 'null'
-        }
-        return false
-    }
-
-    let closeDate = null
-    if (closeRaw != null) {
-        try {
-            closeDate = (typeof closeRaw === 'number') ? new Date(closeRaw) : new Date(String(closeRaw))
-            if (Number.isNaN(closeDate.getTime())) closeDate = null
-        } catch (e) {
-            closeDate = null
-        }
-    }
-
-    if (closeDate && Date.now() < closeDate.getTime()) {
-        if (app.language === 'ru') {
-            return 'Открыто'
-        } else {
-            return 'Open'
-        }
-    }
-    if (isMissing(resultRaw)) {
-        if (closeDate && Date.now() >= closeDate.getTime()) {
-            if (app.language === 'ru') {
-                return 'Обработка'
-            } else {
-                return 'Validating'
-            }
-        }
-        if (app.language === 'ru') {
-            return 'Открыто'
-        } else {
-            return 'Open'
-        }
-    }
-
-    let r = resultRaw
-    if (typeof r === 'boolean') r = r ? 'yes' : 'no'
-    else r = String(r).trim().toLowerCase()
-
-    const yesSet = new Set(['yes', 'y', 'да', 'дa', 'true', '1', 'yes!'])
-    const noSet = new Set(['no', 'n', 'нет', 'false', '0', 'no!'])
-
-    if (yesSet.has(r)) return app.language === 'ru' ? 'Результат "Да"' : 'Result "Yes"'
-    if (noSet.has(r)) return app.language === 'ru' ? 'Результат "Нет"' : 'Result "No"'
-
-    return app.language === 'ru' ? `Результат "${String(resultRaw)}"` : `Result "${String(resultRaw)}"`
+function observeActiveSentinel() {
+    if (activeObserver) activeObserver.disconnect()
+    if (!activeSentinel.value) return
+    activeObserver = createObserver(loadMoreActiveEvents)
+    activeObserver.observe(activeSentinel.value)
 }
 
-// Fetch user bet amounts for an array of bets and attach to each bet object as _userBet
-// Fetch user bet amounts for an array of bets and attach to each bet object as _userBet
-async function fetchAndAttachUserBets(betArray) {
-    if (!Array.isArray(betArray) || betArray.length === 0) return
-    try {
-        const promises = betArray.map(b => getUserBetAmount(b.id).catch(() => ({ stake: 0, result: '0' })))
-        const results = await Promise.all(promises)
-        for (let i = 0; i < betArray.length; i++) {
-            // attach shadow property so UI can read it
-            betArray[i]._userBet = results[i] || { stake: 0, result: '0' }
-        }
-    } catch (err) {
-        console.warn('fetchAndAttachUserBets failed', err)
-        // ensure default attachments
-        for (const b of betArray) {
-            if (!b._userBet) b._userBet = { stake: 0, result: '0' }
-        }
+function observePastSentinel() {
+    if (pastObserver) pastObserver.disconnect()
+    if (!pastSentinel.value) return
+    pastObserver = createObserver(loadMorePastEvents)
+    pastObserver.observe(pastSentinel.value)
+}
+
+function selectActiveTab() {
+    console.log(helperAnimPassed.value)
+    if (helperAnimPassed.value === true && helperQuickSelected.value !== 'active') {
+        isPastShown.value = false
+        helperQuickSelected.value = 'active'
+        helperAnimPassed.value = false
+
+        setTimeout(() => {
+            selectedTab.value = 'active'
+            isActiveShown.value = true
+            setTimeout(() => {
+                helperAnimPassed.value = true
+            }, 150);
+        }, 150);
     }
 }
 
-/* ---------------------------
-   Networking & pagination
-   --------------------------- */
+function selectPastTab() {
+    console.log(helperAnimPassed.value)
+    if (helperAnimPassed.value === true && helperQuickSelected.value !== 'past') {
+        isActiveShown.value = false
+        helperQuickSelected.value = 'past'
+        helperAnimPassed.value = false
+
+        setTimeout(() => {
+            selectedTab.value = 'past'
+            isPastShown.value = true
+            setTimeout(() => {
+                helperAnimPassed.value = true
+            }, 150);
+        }, 150);
+    }
+}
 
 function shareBetFunction(betName, betNameEn) {
     let ref = user?.id ?? ''
@@ -371,422 +256,85 @@ function shareBetFunction(betName, betNameEn) {
     tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
 }
 
-const isLoadingFirstPage = computed(() => loadingMore.value && bets.value.length === 0)
-const isEmpty = computed(() => {
-    return (
-        !loadingInitial.value &&
-        (displayedBets.value.length === 0 && (!incomingBets.value || incomingBets.value.length === 0)) &&
-        allLoaded.value
-    )
-})
-
-function onTutorialVisibility(e) {
-    // If tutorial was just closed, and we currently have no displayed bets,
-    // trigger a fresh load. Defensive: avoid reloading when already loading.
-    const wasClosed = e?.detail?.visible === false
-    if (!wasClosed) return
-
-    // If UI already shows bets, nothing to do
-    if (displayedBets.value && displayedBets.value.length > 0) return
-
-    // If a fetch is already going on, let it finish
-    if (loadingMore.value || loadingInitial.value) return
-
-    // Reload and display results (we keep activeLoadId semantics)
-    resetAndLoad().then(() => {
-        // If incomingBets was filled by resetAndLoad, swap them in
-        if (incomingBets.value != null) {
-            displayedBets.value = Array.isArray(incomingBets.value) ? incomingBets.value.slice() : []
-            incomingBets.value = null
-            listKey.value = selectedTab.value + '-' + Date.now()
-            showDisplayed.value = true
-        }
-    }).catch((err) => {
-        console.error('reload after tutorial close failed', err)
-    })
-}
-
-onMounted(async () => {
-    console.log('[Bets] onMounted: overlayVisible=', /* access via global or debug */)
-    await resetAndLoad()
-    console.log('[Bets] resetAndLoad returned incomingBets=', incomingBets.value)
-    // direct populate on first mount (no leave animation)
-    displayedBets.value = incomingBets.value
-    showDisplayed.value = true
-    incomingBets.value = null
-    listKey.value = selectedTab.value + '-' + Date.now()
-    observeScrollEnd()
-    window.addEventListener('tutorial-visibility', onTutorialVisibility)
-})
-
-onUnmounted(() => {
-    window.removeEventListener('tutorial-visibility', onTutorialVisibility)
-})
-
-watch(selectedTab, () => {
-    showDisplayed.value = false
-    resetAndLoad({ showGlobal: false })
-})
-
-watch(incomingBets, (newVal) => {
-    if (newVal !== null && !showDisplayed.value) {
-        // incoming arrived while list was hidden -> mount it
-        waitingForIncoming.value = false
-        displayedBets.value = Array.isArray(newVal) ? newVal.slice() : []
-        incomingBets.value = null
-        listKey.value = selectedTab.value + '-' + Date.now()
-        showDisplayed.value = true
-        // loadingInitial remains managed by resetAndLoad
-    }
-})
-
-async function resetAndLoad({ showGlobal = true } = {}) {
-    activeLoadId += 1
-    const myLoadId = activeLoadId
-
-    page.value = 0
-    allLoaded.value = false
-    loadingMore.value = false
-
-    if (initialLoaderTimer) {
-        clearTimeout(initialLoaderTimer)
-        initialLoaderTimer = null
-    }
-    if (showGlobal) {
-        initialLoaderTimer = setTimeout(() => {
-            // make region inert (if supported) and blur focused element *before* making aria-hidden true
-            ensureBlurInsideRoot()
-            setRootInert(true)
-            loadingInitial.value = true
-        }, 150)
-    }
-
-    try {
-        const firstPage = await fetchBetsPage(0) // <-- no tab passed
-        if (myLoadId !== activeLoadId) return
-
-        await fetchAndAttachUserBets(firstPage)
-        if (myLoadId !== activeLoadId) return
-
-        incomingBets.value = Array.isArray(firstPage) ? firstPage : []
-        page.value = 1
-        if (firstPage.length < pageSize) allLoaded.value = true
-    } catch (err) {
-        console.error('resetAndLoad error', err)
-    } finally {
-        if (initialLoaderTimer) {
-            clearTimeout(initialLoaderTimer)
-            initialLoaderTimer = null
-        }
-        // ensure we remove inert when loader stops
-        loadingInitial.value = false
-        setRootInert(false)
-    }
-}
-
-// --- replace existing handleAfterLeave with this ---
-function handleAfterLeave() {
-    // If incomingBets is still null then the fetch is still in-flight.
-    // Instead of toggling the global loader/aria-hidden, mark waitingForIncoming
-    // so we show a small inline loader and keep the rest of UI interactive.
-    if (incomingBets.value === null) {
-        waitingForIncoming.value = true
-        // Do NOT set loadingInitial here — that hides the whole root and blocks clicks.
-        return
-    }
-
-    // incomingBets arrived — perform swap
-    waitingForIncoming.value = false
-    displayedBets.value = Array.isArray(incomingBets.value) ? incomingBets.value.slice() : []
-    incomingBets.value = null
-    listKey.value = selectedTab.value + '-' + Date.now()
-    showDisplayed.value = true
-    // don't touch loadingInitial here; it's controlled by resetAndLoad
-}
-
-async function fetchBetsPage(pageIndex) {
-    const from = pageIndex * pageSize
-    const telegramId = (user && user.id) ? Number(user.id) : 99
-
-    const { data, error } = await supabase.rpc('fetch_bets_with_telegram', {
-        telegram_bigint: telegramId,
-        limit_int: pageSize,
-        offset_int: from,
-        active_only: selectedTab.value === 'active' // always look at ref
-    })
-
-    if (error) throw error
-    return data || []
-}
-
-async function loadMoreBets() {
-    if (loadingMore.value || allLoaded.value) return
-    // capture the current reset token so we can ignore the response if a reset happens
-    const myLoadId = activeLoadId
-
-    loadingMore.value = true
-
-    try {
-        const incoming = await fetchBetsPage(page.value)
-
-        // if a reset started during this fetch, ignore these items
-        if (myLoadId !== activeLoadId) return
-
-        if (incoming.length < pageSize) allLoaded.value = true
-
-        // attach user bet info for the incoming page
-        await fetchAndAttachUserBets(incoming)
-
-        // stale check again after awaiting
-        if (myLoadId !== activeLoadId) return
-
-        // dedupe by id (prevent duplicates if page boundaries/gaps overlap)
-        const existingIds = new Set(displayedBets.value.map(b => b.id))
-        const filtered = incoming.filter(item => !existingIds.has(item.id))
-
-        if (filtered.length > 0) {
-            displayedBets.value.push(...filtered)
-        }
-        // advance page even if nothing got added to avoid tight loops
-        page.value += 1
-    } catch (err) {
-        console.error('Error loading bets:', err)
-    } finally {
-        loadingMore.value = false
-    }
-}
-
-/* IntersectionObserver for infinite scroll */
-const scrollAnchor = ref(null)
-function observeScrollEnd() {
-    const observer = new IntersectionObserver(
-        ([entry]) => {
-            if (entry.isIntersecting) loadMoreBets()
-        },
-        { rootMargin: '200px' }
-    )
-
-    const tryObserve = () => {
-        if (scrollAnchor.value) observer.observe(scrollAnchor.value)
-        else requestAnimationFrame(tryObserve)
-    }
-    tryObserve()
-}
-
-/* switch tab */
-function switchTab(tab) {
-    if (selectedTab.value === tab) return
-    selectedTab.value = tab
-}
-
-/* ---------------------------
-   Styles remain below
-   --------------------------- */
 </script>
 
 <style scoped>
-.bets-container {
-    max-width: 600px;
-    margin: 0 auto;
-    padding: 12px;
-    flex-shrink: 0;
-    user-select: none;
-}
-
-/* Catalogue buttons row */
 .bets-catalogue {
     display: flex;
-    gap: 0.5rem;
+    width: 100%;
+    gap: 8px;
+    align-items: center;
     justify-content: center;
-    margin-bottom: 12px;
+    margin-top: 12px;
 }
 
-/* Transition for whole-list out-in */
-.list-fade-enter-from {
-    opacity: 0;
-    transform: translateY(-8px);
-}
-
-.list-fade-enter-active {
-    transition: opacity 260ms cubic-bezier(.22, .9, .32, 1), transform 260ms cubic-bezier(.22, .9, .32, 1);
-}
-
-.list-fade-enter-to {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.list-fade-leave-from {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-.list-fade-leave-active {
-    transition: opacity 220ms cubic-bezier(.22, .9, .32, 1), transform 220ms cubic-bezier(.22, .9, .32, 1);
-}
-
-.list-fade-leave-to {
-    opacity: 0;
-    transform: translateY(8px);
-}
-
-/* Use the same look as your other buttons (keeps visual consistency) */
 .catalog-btn {
-    padding: 0.5rem 0.9rem;
-    border-radius: 10px;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    background: transparent;
-    color: #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    font-weight: 600;
-    font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial;
-    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    padding: 10px 20px;
     min-width: 120px;
-    text-align: center;
-}
-
-/* Active state — visually prominent */
-.catalog-btn.active {
-    background: #fff;
-    color: #000;
-    border-color: #fff;
-}
-
-/* Small hover active */
-.catalog-btn.active:hover {
-    background: rgba(255, 255, 255, 0.96);
-}
-
-/* Small hover */
-.catalog-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
-}
-
-/* Bets list */
-.bets-list {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    align-items: stretch;
-    gap: 0.65rem;
-}
-
-/* Sentinel anchor */
-.scroll-anchor {
-    height: 1px;
-    width: 100%;
-}
-
-/* Empty state */
-.empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 28px 12px;
-    color: #cfcfcf;
-    text-align: center;
-}
-
-.empty-icon {
-    color: #8b8b8b;
-    opacity: 0.95;
-}
-
-.empty-title {
-    margin: 0;
-    font-size: 1.15rem;
-    color: #e6e6e6;
+    border: none;
+    border-radius: 12px;
+    font-family: "Inter", sans-serif;
     font-weight: 600;
+    background-color: rgb(41, 41, 41);
+    border: solid 1px rgb(255, 255, 255);
+    color: white;
+    transition: background-color 0.15s, color 0.15s;
 }
 
-.empty-desc {
-    margin: 0;
-    color: #bdbdbd;
-    font-size: 0.95rem;
-    max-width: 340px;
+.active {
+    background-color: white;
+    color: black;
+    transition: background-color 0.15s, color 0.15s;
 }
 
-/* Actions in empty state */
-.empty-actions {
-    display: flex;
-    gap: 0.6rem;
-    margin-top: 6px;
-    width: 100%;
-    justify-content: center;
-}
-
-.empty-actions .catalog-btn {
-    min-width: 140px;
-}
-
-/* Press feedback for cards */
-.bet-card:active {
-    transform: scale(0.98);
-    transition: transform 0.1s;
-}
-
-/* Responsive tweaks */
-@media (max-width: 420px) {
-    .bets-catalogue {
-        gap: 0.4rem;
-    }
-
-    .catalog-btn {
-        min-width: 46%;
-        padding: 0.45rem 0.6rem;
-        font-size: 0.95rem;
-    }
-
-    .empty-desc {
-        max-width: 90%;
-    }
-
-    .empty-actions .catalog-btn {
-        min-width: 46%;
-        padding: 0.45rem 0.6rem;
-    }
-}
-
-/* Full viewport overlay that centers the loader visually */
-.global-loader {
-    position: fixed;
-    inset: 0;
+.lists-parent {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 9999;
-    pointer-events: auto;
+    align-self: center;
+    margin: auto auto;
+    min-height: 200px;
+    width: 95%;
 }
 
-/* ensure underlying UI is inert (prevents accidental clicks)
-   the aria-hidden attr is set on .bets-root in the template */
-.bets-root[aria-hidden="true"] {
-    pointer-events: none;
-    user-select: none;
-    -webkit-user-select: none;
-    opacity: 0.98;
-}
-
-/* Keep inline loader reserved space so list doesn't jump */
-.inline-loader {
+.bets-list {
+    position: absolute;
+    top: 0;
+    left: 0;
+    align-self: center;
     display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+    align-items: center;
     justify-content: center;
-    padding: 28px 0;
-    min-height: 120px;
-    /* reserve approximate space so layout is stable */
+    align-self: center;
+    margin: auto auto;
+    margin-top: 12px;
+    padding-bottom: 120px;
+    opacity: 0;
+    transition: opacity 0.15s ease-out, visibility 0s linear 0.15s;
+    /* Fade out opacity, then hide */
+    visibility: hidden;
 }
 
-/* Override LoaderPepe inner margin so the animation truly centers */
-.global-loader ::v-deep(.empty-media) {
-    margin-bottom: 0 !important;
+.bets-list.listActive {
+    opacity: 1;
+    visibility: visible;
+    transition: opacity 0.15s ease-in, visibility 0s linear 0s;
+    /* Fade in opacity, then show */
 }
 
-.global-loader ::v-deep(.loading-spinner) {
-    height: auto !important;
-    width: auto !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
+.list-sentinel {
+    width: 100%;
+    height: 32px;
+}
+
+.list-element {
+    width: 100%;
 }
 </style>

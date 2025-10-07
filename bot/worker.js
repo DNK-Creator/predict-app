@@ -59,7 +59,6 @@ function extractUuidFromText(text) {
     return match ? match[0] : null;
 }
 
-
 function extractAmountTON(tx) {
     // This attempts to get the incoming value and convert from nanotons -> TON
     // Inspect your TONCenter responses and adjust this if units differ.
@@ -156,7 +155,6 @@ async function processOnchainTx(tx) {
         rememberTxHash(txHash);
     }
 }
-
 
 async function pollOnce() {
     try {

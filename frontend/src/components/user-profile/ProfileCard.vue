@@ -256,52 +256,41 @@ async function handleWithdraw(amount, amount_cut) {
     }
 }
 
-// ——— Withdraw flow ———
 async function onWithdraw(amount, amount_cut) {
-
     if (appStoreObj.points < amount) {
-        toast.error('Недостаточно средств')
-        return
-    }
-
-    // if still on cooldown, exit early
-    if (!canRequestWithdrawal(lastWithdrawalRequest.value)) {
+        toast.error('Недостаточно средств');
         return;
     }
 
-    lastWithdrawalRequest.value = new Date(Date.now()).toISOString()
+    const parsedAddress = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false });
+    const idempotencyKey = uuidv4();
 
-    const parsedAddress = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false })
+    // POST to your server endpoint
+    const resp = await fetch(`${API_BASE}/api/withdraw`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            telegram: user?.id ?? 99,
+            amount: amount_cut,
+            address: parsedAddress,
+            idempotencyKey
+        })
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+        toast.error('Withdrawal failed: ' + (data?.error || 'unknown'));
+        return;
+    }
 
-    const txId = uuidv4()
-    const amountTON = amount
-    const amountTON_Cut = amount_cut
-
-    await supabase
-        .from('users')
-        .update({ last_withdrawal_request: lastWithdrawalRequest.value })
-        .eq('telegram', user?.id ?? 99)
-
-    // insert withdrawal request
-    await supabase.from('transactions').insert({
-        uuid: txId,
-        user_id: user?.id ?? 99,
-        amount: amountTON_Cut,
-        status: 'Ожидание вывода',
-        type: 'Withdrawal',
-        withdrawal_pending: true,
-        withdrawal_address: parsedAddress,
-        created_at: new Date().toISOString()
-    })
-
-    // deduct balance immediately
-    appStoreObj.points -= amountTON
-    await supabase.from('users')
-        .update({ points: appStoreObj.points })
-        .eq('telegram', user?.id ?? 99)
+    // optimistic update or fetch fresh user points from server
+    appStoreObj.points -= amount;
+    let successText = appStoreObj.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
+    toast.success(successText);
 
     try {
-        fetchBotMessageTransaction(`💎 Request to withdraw ${amountTON_Cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`, user?.id)
+        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
+            `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
+        fetchBotMessageTransaction(botMessageText, user?.id)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }

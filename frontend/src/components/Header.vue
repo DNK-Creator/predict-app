@@ -1,13 +1,17 @@
 <template>
     <header v-if="!hideHeader" class="app-header">
         <!-- Show if the current page is profile view -->
-        <button v-if="showSettings" class="icon-button" @click="onSettingsClick">
-            <!-- Gear Icon -->
-            <img :src="settingsImg" class="icon-button">
-        </button>
+        <div class="profile-left-group" v-if="showSettings">
+            <button class="icon-button-two" @click="onSettingsClick">
+                <img :src="settingsImg" class="icon-button-two">
+            </button>
+            <button class="icon-button-two" @click="onHistoryClick">
+                <img :src="historyImg" class="icon-button-two">
+            </button>
+        </div>
         <!-- Else show the user logo -->
-        <img v-else-if="user" :src="user.photo_url" alt="Profile" class="profile-pic" />
-        <div v-else class="profile-avatar">
+        <img v-else-if="user" :src="user.photo_url" alt="Profile" class="profile-pic" @click="onDepositClick" />
+        <div v-else class="profile-avatar" @click="onDepositClick">
             {{ (user?.first_name ?? 'A').charAt(0) }}
         </div>
 
@@ -36,6 +40,7 @@ import { defineProps, defineEmits, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTelegram } from '@/services/telegram.js'
 import settingsImg from '@/assets/icons/Settings_Icon.png'
+import historyImg from '@/assets/icons/History_Icon.png'
 import tonImg from '@/assets/icons/TON_Icon.png'
 import tonIcon from '@/assets/icons/TON_White_Icon.png'
 import plusImg from '@/assets/icons/Plus_Icon.png'
@@ -47,7 +52,7 @@ const props = defineProps({
     },
     address: String
 })
-const emit = defineEmits(['settings-click', 'deposit-click', 'wallet-connect'])
+const emit = defineEmits(['settings-click', 'deposit-click', 'wallet-connect', 'history-click'])
 
 const route = useRoute()
 
@@ -75,6 +80,10 @@ function walletConnect() {
 function onDepositClick() {
     emit('deposit-click')
 }
+
+function onHistoryClick() {
+    emit('history-click')
+}
 </script>
 
 <style scoped>
@@ -89,6 +98,7 @@ function onDepositClick() {
 
 /* wrapper for letter-avatar fallback (keeps same size as image) */
 .profile-avatar {
+    cursor: pointer;
     width: 2.3rem;
     height: 2.3rem;
     font-size: 0.95rem;
@@ -109,6 +119,7 @@ function onDepositClick() {
 
 /* actual profile image */
 .profile-pic {
+    cursor: pointer;
     width: 2.3rem;
     height: 2.3rem;
     display: block;
@@ -129,6 +140,12 @@ function onDepositClick() {
     width: 100%;
 }
 
+.profile-left-group {
+    display: flex;
+    gap: 8px;
+}
+
+.icon-button-two,
 .icon-button {
     background: none;
     border: none;
@@ -139,6 +156,10 @@ function onDepositClick() {
     justify-content: center;
     width: 2.5rem;
     height: 2.5rem;
+}
+
+.icon-button-two {
+    padding: 0px;
 }
 
 .icon {

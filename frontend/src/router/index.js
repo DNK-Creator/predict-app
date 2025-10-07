@@ -7,7 +7,7 @@ import BetsHistoryList from '@/components/BetsHistoryList.vue'
 import PrivacyView from '@/views/PrivacyView.vue'
 import GiftsPricesView from '@/views/GiftsPricesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
-// import RunningView from '@/views/RunningView.vue'
+import TransactionsUserView from '@/views/TransactionsUserView.vue'
 // import CreateEventView from '@/views/CreateEventView.vue'
 
 const router = createRouter({
@@ -49,6 +49,11 @@ const router = createRouter({
       path: '/gifts-prices',
       name: 'gifts-prices',
       component: GiftsPricesView,
+    },
+    {
+      path: '/transactions',
+      name: 'transactions',
+      component: TransactionsUserView,
     },
     {
       path: '/history',

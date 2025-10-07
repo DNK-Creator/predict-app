@@ -2,7 +2,7 @@
   <div v-if="loadingStage > 0 && !outsideTelegram" class="app">
     <div class="app-scroll-container" ref="appScrollRef">
       <Header :balance="app.points" :address="walletAddress" @deposit-click="openDepositWindow"
-        @settings-click="openSettings" @wallet-connect="reconnectWallet" />
+        @history-click="historyOpenView" @settings-click="openSettings" @wallet-connect="reconnectWallet" />
 
       <RouterView v-slot="{ Component }">
         <transition name="route-fade" mode="out-in" appear>
@@ -425,6 +425,10 @@ function closeSettings() {
   showSettings.value = false
 }
 
+function historyOpenView() {
+  router.push({ name: 'transactions' }).catch(() => { })
+}
+
 /* -------------------------
    NEW: ref for scroll container
    ------------------------- */
@@ -438,7 +442,7 @@ let __menuMo = null
 let _removeBackHandler = null
 let _backHandler = null
 // routes where we want Telegram's back button visible
-const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy', 'bets-history', 'gifts-prices'])
+const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy', 'bets-history', 'gifts-prices', 'transactions'])
 
 function enableTelegramBackButton() {
   if (!tg?.BackButton) return
@@ -523,7 +527,7 @@ async function checkChannelMembership() {
   }
 }
 
-const testingLocally = ref(false)
+const testingLocally = ref(true)
 
 onMounted(async () => {
   // --- Immediately block if we don't have a Telegram user object ---
@@ -891,7 +895,7 @@ onBeforeUnmount(() => {
 /* existing route-fade from before (copy if not present) */
 .route-fade-enter-active,
 .route-fade-leave-active {
-  transition: opacity 200ms cubic-bezier(.22, .9, .32, 1), transform 200ms ease;
+  transition: opacity 350ms cubic-bezier(.22, .9, .32, 1), transform 200ms ease;
 }
 
 .route-fade-enter-from,

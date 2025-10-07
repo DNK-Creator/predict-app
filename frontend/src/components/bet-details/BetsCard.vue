@@ -13,7 +13,7 @@
         <!-- Top row — left status, center pool, right chance -->
         <div class="card-top">
             <div class="card-top-right-group">
-                <div class="badge badge--status">{{ status }}</div>
+                <div class="status-badge">{{ status }}</div>
                 <div class="badge badge--pool">
                     <img class="badge__currency-logo" :src="tonLogo" alt="TON" />
                     <span class="badge__amount">{{ pool }} </span>
@@ -37,9 +37,7 @@
         <div class="card-body">
             <div class="symbol-wrap" aria-hidden="true">
                 <div class="coin">
-                    <img :src="eventLogo" class="event-logo" alt="event" />
-                    <!-- <img src="https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/PlushPepes.webp"
-                        class="event-logo" alt="event" /> -->
+                    <img :src="eventLogo" loading="lazy" class="event-logo" alt="event" />
                 </div>
             </div>
 
@@ -112,12 +110,12 @@ const props = defineProps({
     userStake: { type: [Number, String], default: 0 },
     userSide: { type: [String], default: null },
     betResult: { type: [String, null], default: null }, // the resolved result from backend
-    isActiveList: { type: Boolean, default: true },      // true if current tab is active bets
+    isActiveList: { type: Boolean, default: true },     // true if current tab is active bets
     volume: { type: [Object, Number, String], default: null },
     currentOdds: { type: [Number, String], default: null },
     status: { type: String, default: 'Открыто' },
     betTypeText: { type: String, default: 'Крипто событие' },
-    total_tickets: { type: [Number], default: 0 },
+    totalTickets: { type: [Number], default: 0 },
     endsAt: { type: [String, Date, Number], default: '' } // iso string, Date, or timestamp (we format)
 })
 
@@ -223,7 +221,7 @@ const endsText = computed(() => {
 const showGiveawayBadge = computed(() => {
     // keep numeric parsing robust (works for string/number props.pool)
     const poolNum = parseNumberLoose(props.pool)
-    const hasTickets = Number(props.total_tickets) > 0
+    const hasTickets = Number(props.totalTickets) > 0
 
     if (!(poolNum < 25 && hasTickets)) return false
 
@@ -509,7 +507,16 @@ defineEmits(['click', 'share'])
     font-weight: 600;
 }
 
-.card-top .badge--status {
+.status-badge {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px;
+    padding-bottom: 6px;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     justify-self: start;
     background: rgba(104, 104, 104, 0.38);
     padding: 4px 6px 4px 6px;
@@ -518,6 +525,7 @@ defineEmits(['click', 'share'])
     min-width: 35px;
     text-align: center;
     font-size: 12px;
+    border-radius: 12px;
 }
 
 .card-top .badge--pool {
@@ -753,7 +761,7 @@ defineEmits(['click', 'share'])
 }
 
 /* responsive tweaks */
-@media (max-width: 420px) {
+@media (max-width: 400px) {
     .bet-card {
         height: 160px;
         border-radius: 16px;
@@ -771,7 +779,7 @@ defineEmits(['click', 'share'])
     }
 
     .title {
-        font-size: 0.98rem;
+        font-size: 0.9rem;
     }
 }
 </style>

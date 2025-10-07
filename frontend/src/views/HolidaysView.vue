@@ -28,8 +28,8 @@
             </div>
         </div>
 
-        <!-- Holiday list with transition -->
-        <TransitionGroup name="card" tag="div" class="holiday-list" v-if="!isEmpty">
+        <TransitionGroup :key="listKey" name="card" tag="div" class="holiday-list" v-if="!isEmpty && showDisplayed"
+            appear @before-leave="handleBeforeLeave" @after-leave="handleAfterLeave">
             <HolidayCard v-for="holiday in holidays" :key="holiday.id"
                 :title="translatedTitle(holiday.name, holiday.name_en)" :language="language"
                 :short-desc="getShortDescription(holiday.description, holiday.description_en)"
@@ -47,7 +47,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, onActivated, onDeactivated } from 'vue'
 
 // Components / services
 import HolidayCard from '@/components/HolidayCard.vue'
@@ -71,6 +71,10 @@ const scrollAnchor = ref(null)
 const showModal = ref(false)
 const selectedHoliday = ref(null)
 
+function cacheKey(tab, pageIndex) {
+    return `${tab}:${pageIndex}`
+}
+
 const isEmpty = computed(() => allHolidays.value.length === 0 && allLoaded.value)
 
 // Tabbing
@@ -79,6 +83,16 @@ let cachedPages = [] // paged cache for current tab (client side)
 
 // keep a reference to observer so we can disconnect on unmount
 let _infiniteObserver = null
+
+// initial full-page loader
+const loadingInitial = ref(true)
+
+const displayedTab = ref(selectedTab.value) // which tab's content is currently mounted
+const showDisplayed = ref(true)             // whether the mounted list is visible (mounted)
+const incomingPage = ref(null)              // holds the first page for the new tab while leaving
+const isLeaving = ref(false)
+const waitingForIncoming = ref(false)
+const listKey = ref(selectedTab.value + '-' + Date.now())
 
 /* ---------------- helpers copied/kept from original (date helpers etc) ---------------- */
 
@@ -188,6 +202,7 @@ async function fetchAllAndPrepare() {
 
         normalized.sort(sortFutureThenPastByCloseness)
         allHolidays.value = normalized
+        preparePagedCacheForTab(selectedTab.value)
 
         // prepare paged cache for currently selected tab and load first page
         preparePagedCacheForTab(selectedTab.value)
@@ -200,7 +215,6 @@ async function fetchAllAndPrepare() {
     }
 }
 
-/** Build cachedPages for a given tab (upcoming | past) and reset pagination */
 function preparePagedCacheForTab(tab) {
     // filter for the tab
     const filtered = (allHolidays.value || []).filter(h => {
@@ -210,13 +224,24 @@ function preparePagedCacheForTab(tab) {
         return diff < 0
     })
 
-    // use the same sorting (already sorted globally, but keep stable)
+    // paginate
     const pages = chunkArray(filtered, pageSize)
     cachedPages = pages
-    page.value = 0
-    allLoaded.value = pages.length === 0
+
+    // Stage the first page to be mounted after the current list finishes leaving.
+    // If there is no page, stage an empty array.
+    if (Array.isArray(pages) && pages.length > 0) {
+        incomingPage.value = pages[0].slice()
+        // pages array stored in cachedPages already; page index reset to next page
+        page.value = 1
+        allLoaded.value = pages.length <= 1
+    } else {
+        incomingPage.value = []
+        page.value = 0
+        allLoaded.value = true
+    }
+
     loadingMore.value = false
-    holidays.value = []
 }
 
 /** loadMore uses cachedPages (tab-aware) */
@@ -243,6 +268,49 @@ async function loadMoreHolidays() {
     loadingMore.value = false
 }
 
+function handleBeforeLeave(el) {
+    // measure element height to reserve, avoid layout jump
+    try {
+        const wrapper = el.parentElement || el.parentNode
+        if (wrapper) wrapper.style.minHeight = el.offsetHeight + 'px'
+        // force reflow
+        wrapper && wrapper.offsetHeight
+    } catch (e) {
+        // swallow measurement errors but log to console
+        console.warn('handleBeforeLeave measurement failed', e)
+    }
+
+    isLeaving.value = true
+    waitingForIncoming.value = true
+}
+
+function handleAfterLeave(el) {
+    // cleanup reserved height
+    try {
+        const wrapper = (el && (el.parentElement || el.parentNode)) || document.querySelector('.holidays-container')
+        if (wrapper) wrapper.style.minHeight = ''
+    } catch (e) {
+        console.warn('handleAfterLeave cleanup failed', e)
+    }
+
+    // leave finished
+    isLeaving.value = false
+
+    // If we already have incoming page prepared, mount it now
+    if (incomingPage.value !== null) {
+        waitingForIncoming.value = false
+        holidays.value = Array.isArray(incomingPage.value) ? incomingPage.value.slice() : []
+        incomingPage.value = null
+        displayedTab.value = selectedTab.value
+        listKey.value = displayedTab.value + '-' + Date.now()
+        showDisplayed.value = true
+        return
+    }
+
+    // No incoming yet — keep waiting; the watcher that prepared incomingPage will eventually set it
+    waitingForIncoming.value = true
+}
+
 /* IntersectionObserver for infinite scroll */
 function observeScrollEnd() {
     // disconnect previous if present
@@ -267,17 +335,164 @@ function observeScrollEnd() {
     tryObserve()
 }
 
-/* Switch tab */
 function switchTab(tab) {
     if (selectedTab.value === tab) return
     selectedTab.value = tab
 }
 
-/* react to tab changes: prepare cache and load first page */
-watch(selectedTab, async (newTab) => {
+watch(selectedTab, (newTab, oldTab) => {
+    if (newTab === oldTab) return
+
+    // If we already have displayed holidays for that tab, avoid unnecessary animation
+    if (Array.isArray(holidays.value) && holidays.value.length > 0 && displayedTab.value === newTab) {
+        displayedTab.value = newTab
+        return
+    }
+
+    // Hide current list (start leave animation) — after-leave will mount incomingPage
+    showDisplayed.value = false
+
+    // Synchronously prepare cached pages and stage first page into incomingPage
     preparePagedCacheForTab(newTab)
-    // load first page for the new tab
-    await loadMoreHolidays()
+})
+
+watch(incomingPage, (val) => {
+    if (!val) return
+    if (!isLeaving.value && !showDisplayed.value) {
+        // If list not leaving and not mounted, mount immediately
+        holidays.value = Array.isArray(val) ? val.slice() : []
+        incomingPage.value = null
+        displayedTab.value = selectedTab.value
+        listKey.value = displayedTab.value + '-' + Date.now()
+        showDisplayed.value = true
+    }
+})
+
+onDeactivated(() => {
+    showDisplayed.value = false
+})
+
+onActivated(async () => {
+    // Ensure persisted cache is available (keep-alive flows)
+    try { restorePersistedFirstPage() } catch (e) { /* ignore */ }
+
+    const tab = selectedTab.value || 'active'
+    const key = cacheKey(tab, 0)
+
+    // FAST PATH: if we already have displayed bets for this tab, nothing to do
+    if (Array.isArray(holidays.value) && holidays.value.length > 0 && displayedTab.value === tab) {
+        return
+    }
+
+    // Prevent the empty message while we decide
+    loadingInitial.value = true
+    showDisplayed.value = false
+
+    try {
+        // Check in-memory cache first
+        const cachedEntry = betsCache.get(key)
+        const now = Date.now()
+        const isFresh = cachedEntry && ((now - (cachedEntry.ts || 0)) < CACHE_TTL)
+
+        if (cachedEntry && Array.isArray(cachedEntry.data) && cachedEntry.data.length > 0) {
+            // Show cached immediately (instant UX)
+            holidays.value = cachedEntry.data.slice()
+            incomingBets.value = null
+            showDisplayed.value = true
+            displayedTab.value = tab
+
+            pagesByTab.value[tab] = pagesByTab.value[tab] || 1
+            allLoadedByTab.value[tab] = allLoadedByTab.value[tab] || (cachedEntry.data.length < pageSize)
+            const last = cachedEntry.data[cachedEntry.data.length - 1]
+            if (last) cursorsByTab.value[tab] = { last_total_volume: last.total_volume ?? 0, last_id: Number(last.id) }
+
+            // Attach user bets in background (don't await)
+            fetchAndAttachUserBets(holidays.value).catch(err => console.warn('attach user bets bg failed', err))
+
+            // If cache is fresh -> background refresh is optional (stale-while-revalidate)
+            // If cache is stale -> force a fresh fetch and update UI immediately once it returns
+            if (!isFresh) {
+                // Force a fresh fetch and update UI as soon as it resolves
+                (async () => {
+                    try {
+                        const fresh = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
+                        if (Array.isArray(fresh) && fresh.length > 0) {
+                            // Replace UI immediately (do NOT wait for transitions)
+                            holidays.value = fresh.slice()
+                            incomingBets.value = null
+                            listKey.value = tab + '-refreshed-' + Date.now()
+                            pagesByTab.value[tab] = 1
+                            allLoadedByTab.value[tab] = fresh.length < pageSize
+                            const last2 = fresh[fresh.length - 1]
+                            if (last2) cursorsByTab.value[tab] = { last_total_volume: last2.total_volume ?? 0, last_id: Number(last2.id) }
+                            // attach user bets for the fresh items as well
+                            fetchAndAttachUserBets(holidays.value).catch(() => { })
+                        }
+                    } catch (e) {
+                        console.warn('forced refresh after showing stale cache failed', e)
+                    }
+                })()
+            } else {
+                // Kick off normal background refresh (non-blocking)
+                getCachedBetsPage(tab, 0, { force: false, backgroundRefresh: true }).catch(() => { })
+            }
+            return
+        }
+
+        // If no in-memory cache, check sessionStorage persisted first page (defensive)
+        const raw = sessionStorage.getItem(PERSIST_FIRST_PAGE_KEY)
+        if (raw) {
+            try {
+                const obj = JSON.parse(raw)
+                if (obj && obj[tab] && Array.isArray(obj[tab].data) && ((Date.now() - (obj[tab].ts || 0)) < CACHE_TTL)) {
+                    holidays.value = obj[tab].data.slice()
+                    showDisplayed.value = true
+                    incomingBets.value = null
+                    betsCache.set(key, { data: holidays.value.slice(), ts: obj[tab].ts || Date.now() })
+                    fetchAndAttachUserBets(holidays.value).catch(() => { })
+                        // trigger background forced refresh (replace when fresh)
+                        (async () => {
+                            try {
+                                const fresh = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
+                                if (Array.isArray(fresh) && fresh.length > 0) {
+                                    holidays.value = fresh.slice()
+                                    incomingBets.value = null
+                                    listKey.value = tab + '-refreshed-' + Date.now()
+                                    pagesByTab.value[tab] = 1
+                                    allLoadedByTab.value[tab] = fresh.length < pageSize
+                                    const last2 = fresh[fresh.length - 1]
+                                    if (last2) cursorsByTab.value[tab] = { last_total_volume: last2.total_volume ?? 0, last_id: Number(last2.id) }
+                                    fetchAndAttachUserBets(holidays.value).catch(() => { })
+                                }
+                            } catch (e) { /* ignore forced refresh failures */ }
+                        })()
+                    return
+                }
+            } catch (e) { /* ignore parse errors */ }
+        }
+
+        // still empty fallback: try forced fetch (rare)
+        if ((!holidays.value || holidays.value.length === 0) && !loadingInitial.value) {
+            try {
+                const forced = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
+                if (Array.isArray(forced) && forced.length > 0) {
+                    holidays.value = forced.slice()
+                    incomingBets.value = null
+                    showDisplayed.value = true
+                    pagesByTab.value[tab] = 1
+                    allLoadedByTab.value[tab] = forced.length < pageSize
+                    const last = forced[forced.length - 1]
+                    if (last) cursorsByTab.value[tab] = { last_total_volume: last.total_volume ?? 0, last_id: Number(last.id) }
+                }
+            } catch (e) {
+                console.warn('Forced fetch on activation failed', e)
+            }
+        }
+    } catch (e) {
+        console.warn('onActivated handling failed', e)
+    } finally {
+        loadingInitial.value = false
+    }
 })
 
 /* lifecycle */

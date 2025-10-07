@@ -60,10 +60,10 @@
                         <span class="limit-description-item-one">{{ $t('tx-limit') }}:</span>
                         <span class="limit-description-item-two">2000 TON</span>
                     </div>
-                    <div class="limit-line">
-                        <span class="limit-description-item-one">{{ $t('withdrawals-per-day') }}:</span>
-                        <span class="limit-description-item-two">1</span>
-                    </div>
+                    <!-- <div class="limit-line">
+                            <span class="limit-description-item-one">{{ $t('withdrawals-per-day') }}:</span>
+                            <span class="limit-description-item-two">1</span>
+                        </div> -->
                 </div>
                 <button class="action-btn" :disabled="!validAmount" @click="onWithdraw">{{ $t('withdraw') }}</button>
             </footer>

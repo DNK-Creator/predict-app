@@ -13,7 +13,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-calendar-days icon" :aria-hidden="true"></i>
-                <span class="menu-label">{{ $t('holidays') }}</span>
+                <span class="menu-label">{{ $t('events') }}</span>
             </div>
         </RouterLink>
 
@@ -37,7 +37,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-clock-rotate-left icon" :aria-hidden="true"></i>
-                <span class="menu-label">{{ $t('history') }}</span>
+                <span class="menu-label">{{ $t('activity') }}</span>
             </div>
         </RouterLink>
     </div>
@@ -139,10 +139,6 @@ onUpdated(() => {
     border-radius: 12px;
     border: none;
     background: transparent;
-    /* <-- explicit: no background */
-    transition: transform 220ms cubic-bezier(.2, .9, .3, 1),
-        box-shadow 220ms ease;
-    /* removed background-color transition */
     will-change: transform;
     -webkit-tap-highlight-color: transparent;
     user-select: none;
@@ -166,7 +162,6 @@ onUpdated(() => {
     transform: translateY(-2px) scale(1.04);
     background: transparent;
     /* ensure absolutely no background */
-    box-shadow: 0 8px 22px rgba(12, 20, 30, 0.45);
 }
 
 /* ---------- icon & label ---------- */
@@ -215,7 +210,6 @@ onUpdated(() => {
 }
 
 .menu-item:focus-visible {
-    box-shadow: 0 0 0 3px rgba(30, 130, 230, 0.12);
     border-radius: 12px;
 }
 

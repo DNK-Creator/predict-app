@@ -260,13 +260,11 @@ import { useRoute } from 'vue-router'
 import { updateLayoutVars, setKeyboardHeight } from '@/services/useLayoutChanges.js'
 import {
     getBetById,
-    getHistory,
     postNewComment,
     getComments,
     deleteComment,
     getUserBetAmount,
     availableComments,
-    computeBetStatus,
     getUserLastCommentTime,
     getBetsHolders
 } from '@/services/bets-requests.js'
@@ -276,13 +274,13 @@ import HolderItem from '@/components/bet-details/HolderItem.vue'
 import ShowBetModal from '@/components/bet-details/ShowBetModal.vue'
 import GiveawayModal from './GiveawayModal.vue'
 import LoaderPepe from '../LoaderPepe.vue'
-import { parseISO } from 'date-fns'
 import { useTelegram } from '@/services/telegram'
 import confetti from 'canvas-confetti'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 import { v4 as uuidv4 } from 'uuid'
 import tonIcon from '@/assets/icons/TON_Icon.png'
+import { parseISO, differenceInMilliseconds } from 'date-fns'
 
 // accept id as optional prop (router can pass params as props when configured)
 const props = defineProps({
@@ -313,7 +311,7 @@ function setActiveTab(t) {
 
 const holders = ref([])   // fetched from bets_holders table
 
-// derive holders list from explicit DB table (preferred) or fall back to history/comments
+// derive holders list from explicit DB table (preferred)
 const holdersList = computed(() => {
     if (holders.value <= 0) {
         return []
@@ -322,15 +320,6 @@ const holdersList = computed(() => {
     try {
         // prefer explicit table results if available
         if (holders.value && holders.value.length) {
-            console.log(holders.value.map(h => ({
-                id: h.id,
-                username: h.username ?? 'Anonymous',
-                photo_url: h.photo_url ?? null,
-                // numeric stake is stored in 'stake' column
-                amount: Number(h.stake ?? 0) || 0,
-                // normalize side to 'yes' | 'no'
-                side: (String(h.side ?? '')).trim().toLowerCase() === 'yes' ? 'yes' : 'no'
-            })))
             return holders.value.map(h => ({
                 id: h.id,
                 username: h.username ?? 'Anonymous',
@@ -339,24 +328,6 @@ const holdersList = computed(() => {
                 amount: Number(h.stake ?? 0) || 0,
                 // normalize side to 'yes' | 'no'
                 side: (String(h.side ?? '')).trim().toLowerCase() === 'yes' ? 'yes' : 'no'
-            }))
-        }
-
-        // fallback: derive from history (existing logic)
-        if (history.value && history.value.length) {
-            console.log(history.value.map(h => ({
-                id: h.id ?? `${h.user_id || h.username}-${h.side || h.result}-${h.amount || h.stake}`,
-                username: h.username ?? h.user_name ?? h.user ?? 'Anonymous',
-                photo_url: h.photo_url ?? null,
-                amount: Number(h.amount ?? h.stake ?? (h.users_stake?.amount) ?? 0) || 0,
-                side: (String(h.side ?? h.result ?? (h.users_stake?.side) ?? '')).toLowerCase() === 'yes' ? 'yes' : 'no'
-            })))
-            return history.value.map(h => ({
-                id: h.id ?? `${h.user_id || h.username}-${h.side || h.result}-${h.amount || h.stake}`,
-                username: h.username ?? h.user_name ?? h.user ?? 'Anonymous',
-                photo_url: h.photo_url ?? null,
-                amount: Number(h.amount ?? h.stake ?? (h.users_stake?.amount) ?? 0) || 0,
-                side: (String(h.side ?? h.result ?? (h.users_stake?.side) ?? '')).toLowerCase() === 'yes' ? 'yes' : 'no'
             }))
         }
 
@@ -380,7 +351,7 @@ const holdersList = computed(() => {
                 existing.amount = (existing.amount || 0) + amount
             }
         }
-        console.log(Array.from(map.values()))
+
         return Array.from(map.values())
     } catch (e) {
         return []
@@ -537,7 +508,19 @@ const betStatus = computed(() => {
     return computeBetStatus(bet.value.close_time)
 })
 
-const history = ref([])
+function computeBetStatus(closeTimeIso) {
+    if (!closeTimeIso) return '111'
+    const now = new Date()
+    const close = parseISO(closeTimeIso)
+    const diffMs = differenceInMilliseconds(close, now)
+
+    if (diffMs <= 0) {
+        return '000'
+    }
+
+    return '111'
+}
+
 const comments = ref([])
 const newComment = ref('')
 const scrollArea = ref(null)
@@ -977,13 +960,11 @@ async function loadData(idToLoad) {
     volume.value = 0
     userBetAmount.value = { stake: 0, result: '0' }
     canComment.value = false
-    history.value = []
 
     try {
         bet.value = await getBetById(id)
         volume.value = bet.value.volume
         currentOdds.value = bet.value.current_odds
-        history.value = await getHistory(id)
         userBetAmount.value = await getUserBetAmount(id)
         comments.value = await getComments(id, commentsPage)
         canComment.value = await availableComments(id)
