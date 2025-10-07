@@ -188,8 +188,6 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
         messages
     });
 
-    console.log('The create transfer awaited result is : ' + transfer)
-
     // zero secretKey in memory (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
