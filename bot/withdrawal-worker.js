@@ -1,16 +1,17 @@
+import TonWeb from 'tonweb';
+import TonWebMnemonic from 'tonweb-mnemonic';
 import { createClient } from '@supabase/supabase-js';
-import { WalletContractV4, TonClient } from '@ton/ton';
-import { internal, toNano, Cell } from '@ton/core';
-import { mnemonicToPrivateKey } from '@ton/crypto';
-import { Buffer } from 'buffer';
+
+const { HighloadWallets } = TonWeb; // contains HighloadWalletContractV3, HighloadQueryId
+const { HighloadWalletContractV3, HighloadQueryId } = HighloadWallets;
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // server-only
-const POLL_INTERVAL_MS = Number(30000);
-const walletKey = process.env.VITE_WALLET_KEY;
-const WORKER_ID = process.env.VITE_WORKER_ID;
-
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY;
+const POLL_INTERVAL_MS = Number(30_000);
+const walletKey = process.env.VITE_WALLET_KEY; // legacy text fallback
+const WORKER_ID = process.env.VITE_WORKER_ID || 'worker-unknown';
 const TON_API_KEY = process.env.VITE_TONCENTER_API_KEY || '';
+const IS_MAINNET = 'mainnet';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error('Missing SUPABASE_URL or SUPABASE_SERVICE_KEY');
@@ -22,304 +23,85 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     global: { headers: { 'x-worker-id': WORKER_ID } }
 });
 
-// create client (use json-rpc endpoint)
-const tonClient = new TonClient({
-    endpoint: 'https://toncenter.com/api/v2/jsonRPC',
-});
+// tonweb provider
+const tonweb = IS_MAINNET
+    ? new TonWeb(new TonWeb.HttpProvider('https://toncenter.com/api/v2/jsonRPC', { apiKey: TON_API_KEY }))
+    : new TonWeb(new TonWeb.HttpProvider('https://testnet.toncenter.com/api/v2/jsonRPC', { apiKey: TON_API_KEY }));
 
-function sleep(ms) {
-    return new Promise((res) => setTimeout(res, ms));
-}
-
-// parse Retry-After header: may be seconds or HTTP date
-function parseRetryAfter(retryAfterHeader) {
-    if (!retryAfterHeader) return null;
-    const s = retryAfterHeader.trim();
-    // numeric seconds
-    if (/^\d+$/.test(s)) return Number(s) * 1000;
-    // http-date
-    const t = Date.parse(s);
-    if (!Number.isNaN(t)) return Math.max(0, t - Date.now());
-    return null;
-}
-
-// jitter helper: base ms * (2^attempt) + random jitter
-function backoffMs(attempt, base = 1000, max = 60000) {
+// small helpers
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+function backoffMs(attempt, base = 500, max = 30000) {
     const expo = Math.min(max, base * Math.pow(2, attempt));
-    // jitter +- 30%
     const jitter = Math.floor((Math.random() * 0.6 - 0.3) * expo);
     return Math.max(0, expo + jitter);
 }
 
 async function claimOne() {
     try {
-        // supabase.rpc often returns { data, error } with v2 client
         const rpcResp = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
-        // support both shapes: { data, error } or direct array/object
         const data = rpcResp?.data ?? rpcResp;
-
-        // No data or nothing claimed
-        if (!data || (Array.isArray(data) && data.length === 0)) {
-            return null;
-        }
-
-        // If data is an array, pick the first row
+        if (!data || (Array.isArray(data) && data.length === 0)) return null;
         const row = Array.isArray(data) ? data[0] : data;
-
-        // If row is empty object or has no uuid, log and return null
         if (!row || (!row.uuid && !row.wallet_id && !row.amount && !row.withdrawal_address)) {
-            console.warn('[claimOne] unexpected RPC row shape, skipping', { raw: row });
+            console.warn('[claimOne] unexpected RPC row shape', { raw: row });
             return null;
         }
-
-        // Good row — return it
         return row;
     } catch (err) {
-        // If RPC error object (supabase returns { error } or throws)
         console.error('[claimOne] rpc error', err?.message ?? err);
         return null;
     }
 }
 
 async function reserveSeq(wallet_id) {
-    if (!wallet_id) {
-        throw new Error('reserveSeq: wallet_id is falsy');
+    if (!wallet_id) throw new Error('reserveSeq: wallet_id falsy');
+    const { data, error } = await supabase.rpc('reserve_wallet_seq', { p_wallet_id: wallet_id });
+    if (error) {
+        console.error('[reserveSeq] rpc error', JSON.stringify(error));
+        throw error;
     }
-
-    try {
-        // Use the supabase-js destructuring pattern so we get { data, error }
-        const { data, error } = await supabase.rpc('reserve_wallet_seq', { p_wallet_id: wallet_id });
-
-        if (error) {
-            // log full error body to help debugging
-            console.error('[reserveSeq] rpc error', JSON.stringify(error, null, 2));
-            throw error;
-        }
-
-        if (!data) {
-            console.error('[reserveSeq] rpc returned no data', { wallet_id });
-            throw new Error('reserve_wallet_seq returned no data');
-        }
-
-        const row = Array.isArray(data) ? data[0] : data;
-        // the function returns column new_seq
-        const val = row?.new_seq ?? Object.values(row || {})[0];
-
-        if (val === undefined || val === null) {
-            console.error('[reserveSeq] no sequence value in rpc row', { row });
-            throw new Error('reserve_wallet_seq returned empty new_seq');
-        }
-
-        return Number(val);
-    } catch (err) {
-        console.error('[reserveSeq] error thrown', err?.message ?? err);
-        throw err; // let caller handle revert
-    }
+    if (!data) throw new Error('reserve_wallet_seq returned no data');
+    const row = Array.isArray(data) ? data[0] : data;
+    const val = row?.new_seq ?? Object.values(row || {})[0];
+    if (val === undefined || val === null) throw new Error('reserve_wallet_seq returned empty new_seq');
+    return Number(val);
 }
 
 async function fetchSeedFromVault(wallet_id) {
+    // prefer uuid-based rpc, fall back to text key
     try {
-        // 1) prefer calling the UUID-based RPC if we have a wallet_id
         if (wallet_id) {
             try {
                 const rpcResp = await supabase.rpc('get_wallet_seed_for_signer', { p_wallet_id: wallet_id });
                 const data = rpcResp?.data ?? rpcResp;
-                if (!data) throw new Error('no data returned from get_wallet_seed_for_signer');
+                if (!data) throw new Error('no data from get_wallet_seed_for_signer');
                 const row = Array.isArray(data) ? data[0] : data;
                 if (typeof row === 'string') return row;
-                // If supabase wraps result in object field, pick its first value
                 const keys = Object.keys(row || {});
                 if (keys.length === 1) return row[keys[0]];
-                // if row has direct column named get_wallet_seed_for_signer, return that
                 if (row.get_wallet_seed_for_signer) return row.get_wallet_seed_for_signer;
-            } catch (err) {
-                console.warn('[fetchSeedFromVault] uuid-based rpc failed, trying text-based rpc or env fallback', err?.message ?? err);
-                // fallthrough to text-based or env
+            } catch (e) {
+                console.warn('[fetchSeedFromVault] uuid rpc failed, fallback', e?.message ?? e);
             }
         }
-
-        // 2) try text-based RPC using worker env key if available (legacy)
         if (typeof walletKey !== 'undefined' && walletKey !== null) {
             try {
                 const rpcResp2 = await supabase.rpc('get_wallet_seed_for_signer_text', { p_wallet_key: walletKey });
                 const data2 = rpcResp2?.data ?? rpcResp2;
-                if (!data2) throw new Error('no data returned from get_wallet_seed_for_signer_text');
+                if (!data2) throw new Error('no data from get_wallet_seed_for_signer_text');
                 const row2 = Array.isArray(data2) ? data2[0] : data2;
                 if (typeof row2 === 'string') return row2;
                 const keys2 = Object.keys(row2 || {});
                 if (keys2.length === 1) return row2[keys2[0]];
                 if (row2.get_wallet_seed_for_signer_text) return row2.get_wallet_seed_for_signer_text;
-            } catch (err) {
-                console.warn('[fetchSeedFromVault] text-based rpc failed', err?.message ?? err);
+            } catch (e) {
+                console.warn('[fetchSeedFromVault] text-based rpc failed', e?.message ?? e);
             }
         }
-
         throw new Error('no seed available for wallet_id and no fallback');
     } catch (err) {
         console.error('[fetchSeedFromVault] error', err?.message ?? err);
         throw err;
-    }
-}
-
-// Try to send via SDK contract.send with retries on 429
-async function sendTransferWithRetry(contract, transferCell, attempts = 5) {
-    for (let i = 0; i < attempts; ++i) {
-        try {
-            // some SDKs accept contract.send(transferCell). Others require a provider.
-            await contract.send(transferCell);
-            return { ok: true, method: 'sdk_send' };
-        } catch (err) {
-            // If provider returned HTTP info, try to detect 429
-            const status = err?.response?.status ?? err?.status ?? null;
-            const retryAfterHeader = err?.response?.headers?.['retry-after'] ?? err?.response?.headers?.['Retry-After'] ?? null;
-            if (status === 429) {
-                const waitMs = parseRetryAfter(retryAfterHeader) ?? backoffMs(i, 1000, 30000);
-                console.warn(`[sendTransferWithRetry] SDK send rate-limited (429). attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
-                await sleep(waitMs);
-                continue; // retry
-            }
-            // non-429: either transient server error (5xx) or fatal — retry a few times for 5xx
-            if (status && status >= 500 && status < 600 && i < attempts - 1) {
-                const waitMs = backoffMs(i, 500, 20000);
-                console.warn(`[sendTransferWithRetry] SDK send server error ${status}. attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
-                await sleep(waitMs);
-                continue;
-            }
-            // fatal or last attempt
-            throw err;
-        }
-    }
-    throw new Error('sendTransferWithRetry: exceeded attempts');
-}
-
-// HTTP sendBoc with retries that honors Retry-After
-async function sendBocWithRetry(bocBase64, attempts = 6) {
-    const url = 'https://toncenter.com/api/v2/sendBoc';
-    for (let i = 0; i < attempts; ++i) {
-        try {
-            const resp = await fetch(url, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
-                },
-                body: JSON.stringify({ boc: bocBase64 })
-            });
-            // Read headers for Retry-After
-            if (resp.status === 429) {
-                const header = resp.headers.get('retry-after');
-                const waitMs = parseRetryAfter(header) ?? backoffMs(i, 1000, 30000);
-                console.warn(`[sendBocWithRetry] sendBoc rate-limited (429). attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
-                await sleep(waitMs);
-                continue;
-            }
-            const json = await resp.json().catch(() => ({ ok: false, error: 'invalid-json-response', status: resp.status }));
-            // If success according to toncenter protocol
-            if (resp.ok && (json?.ok === true || resp.status >= 200 && resp.status < 300)) {
-                return json;
-            }
-            // For 5xx, retry a few times
-            if (resp.status >= 500 && i < attempts - 1) {
-                const waitMs = backoffMs(i, 1000, 30000);
-                console.warn(`[sendBocWithRetry] sendBoc server error ${resp.status}. attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`);
-                await sleep(waitMs);
-                continue;
-            }
-            // Other errors - return json so caller can log them
-            return json;
-        } catch (e) {
-            // network or fetch-level error - retry a few times
-            if (i < attempts - 1) {
-                const waitMs = backoffMs(i, 500, 20000);
-                console.warn(`[sendBocWithRetry] network error, attempt ${i + 1}/${attempts}. waiting ${waitMs}ms`, e?.message ?? e);
-                await sleep(waitMs);
-                continue;
-            }
-            throw e;
-        }
-    }
-    throw new Error('sendBocWithRetry: exceeded attempts');
-}
-
-
-async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
-    if (!seedPhrase) throw new Error('seedPhrase required');
-    if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
-        throw new Error('unsignedTransaction must include messages array');
-    }
-
-    const words = seedPhrase.trim().split(/\s+/);
-    const keyPair = await mnemonicToPrivateKey(words);
-    if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
-
-    // build wallet + opened contract (bound to tonClient)
-    const workchain = 0;
-    const wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
-    const contract = tonClient.open(wallet); // opened contract (has provider bound in most ton setups)
-
-    // derive address string for logs
-    const addressStr = (contract?.address && typeof contract.address.toString === 'function')
-        ? contract.address.toString()
-        : '<unknown>';
-    console.log('[debug] wallet address:', addressStr);
-
-    // read useful state
-    try {
-        const balance = await contract.getBalance();
-        console.log('[debug] the balance of hot wallet is', balance);
-    } catch (e) {
-        console.warn('[debug] contract.getBalance failed (will continue)', e?.message ?? e);
-    }
-    const seqno = await contract.getSeqno();
-    console.log('The seqno of the contract is:', seqno);
-
-    // build messages (value as bigint)
-    const messages = unsignedTransaction.messages.map((m) => {
-        let value;
-        if (typeof m.amount === 'string' && /^\d+$/.test(m.amount)) {
-            value = BigInt(m.amount);
-        } else {
-            value = toNano(String(m.amount)); // toNano returns bigint
-        }
-        return internal({
-            to: String(m.address),
-            value,
-            body: m.payload || 'Gifts Predict'
-        });
-    });
-
-    // create signed transfer (Cell)
-    const transferCell = await contract.createTransfer({
-        seqno,
-        secretKey: keyPair.secretKey,
-        messages
-    });
-
-    // zero secretKey buffer best-effort
-    try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
-
-    // convert to base64 BOC for DB storage or fallback RPC usage
-    const bocBuffer = transferCell.toBoc(); // Buffer
-    const bocBase64 = Buffer.from(bocBuffer).toString('base64');
-
-    // PREFERRED: try to send via SDK with retries
-    try {
-        const sdkResp = await sendTransferWithRetry(contract, transferCell, 5);
-        console.log('[withdrawals] sent via SDK (contract.send)', JSON.stringify(sdkResp));
-        return { bocBase64, signedResponse: sdkResp, address: addressStr };
-    } catch (sdkErr) {
-        // If SDK failed with rate-limit or other, we fall back to HTTP sendBoc
-        console.warn('[withdrawals] contract.send failed or exhausted retries, will fallback to sendBocWithRetry:', sdkErr?.message ?? sdkErr);
-    }
-
-    // fallback HTTP sendBoc with retries
-    try {
-        const json = await sendBocWithRetry(bocBase64, 6);
-        console.log('[withdrawals] fallback sendBoc response:', JSON.stringify(json));
-        return { bocBase64, signedResponse: json, address: addressStr };
-    } catch (httpErr) {
-        console.error('[withdrawals] sendBoc fallback failed after retries:', httpErr?.message ?? httpErr);
-        throw httpErr; // let caller handle revertToPending
     }
 }
 
@@ -343,7 +125,7 @@ async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
 async function revertToPending(uuid, reason) {
     try {
         if (!uuid) {
-            console.warn('[revertToPending] called without uuid, ignoring', { reason });
+            console.warn('[revertToPending] called without uuid', { reason });
             return;
         }
         await supabase.from('transactions').update({ status: 'Pending', worker_id: null }).eq('uuid', uuid);
@@ -353,6 +135,38 @@ async function revertToPending(uuid, reason) {
     }
 }
 
+// retry wrapper for transfer.send() (Highload transfer)
+async function sendHighloadTransferWithRetry(transferObj, attempts = 5) {
+    for (let i = 0; i < attempts; ++i) {
+        try {
+            // transferObj is the object returned by highloadWallet.methods.transfer(...)
+            // .send() performs the provider call
+            const resp = await transferObj.send();
+            return { ok: true, resp };
+        } catch (err) {
+            // Basic detection for rate-limit or server errors
+            const status = err?.response?.status ?? err?.status ?? null;
+            if (status === 429) {
+                const waitMs = backoffMs(i, 1000, 30000);
+                console.warn(`[sendHighloadTransferWithRetry] rate-limited (429), attempt ${i + 1}/${attempts}, waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue;
+            }
+            if (status && status >= 500 && i < attempts - 1) {
+                const waitMs = backoffMs(i, 500, 20000);
+                console.warn(`[sendHighloadTransferWithRetry] server error ${status}, attempt ${i + 1}/${attempts}, waiting ${waitMs}ms`);
+                await sleep(waitMs);
+                continue;
+            }
+            // non-retriable or last attempt - throw
+            throw err;
+        }
+    }
+    throw new Error('sendHighloadTransferWithRetry: exceeded attempts');
+}
+
+const HIGHLOAD_WALLET_TIMEOUT = 60 * 60; // 1 hour as example
+
 async function processClaim(claim) {
     if (!claim) return;
     const uuid = claim.uuid;
@@ -361,73 +175,270 @@ async function processClaim(claim) {
     const wallet_id = claim.wallet_id;
 
     if (!wallet_id || !uuid) {
-        console.warn('[worker] skipping invalid claim (missing uuid or wallet_id)', { rawClaim: claim });
-
+        console.warn('[worker] skipping invalid claim', { rawClaim: claim });
         return;
     }
 
-    console.log('[withdrawals] Processing claim for withdrawal address - ' + withdrawal_address)
+    console.log('[withdrawals] Processing claim for withdrawal address -', withdrawal_address);
 
-    // Build unsignedTransaction using nanotons as amount values (string)
-    const unsignedTransaction = {
-        validUntil: Math.floor(Date.now() / 1000) + 360,
-        messages: [
-            {
-                address: withdrawal_address,
-                amount: String(toNano(String(amount))),
-                // no payload
-            }
-        ],
-        meta: { source_uuid: uuid }
-    };
-
-    // fetch seed
-    let seed;
+    // Build unsignedTransaction metadata (we'll convert using tonweb)
+    // Reserve a query/seq for this wallet using your DB rpc
+    let seq;
     try {
-        seed = await fetchSeedFromVault(wallet_id);
-        if (!seed) throw new Error('no seed retrieved');
+        seq = await reserveSeq(wallet_id); // integer
+    } catch (err) {
+        console.error('[worker] reserveSeq failed', err?.message ?? err);
+        await revertToPending(uuid, 'reserve_seq_failed');
+        return;
+    }
+
+    // fetch seed (mnemonic)
+    let seedPhrase;
+    try {
+        seedPhrase = await fetchSeedFromVault(wallet_id);
+        if (!seedPhrase) throw new Error('no seed retrieved');
     } catch (err) {
         console.error('[worker] fetchSeedFromVault failed', err?.message ?? err);
         await revertToPending(uuid, 'fetch_seed_failed');
         return;
     }
 
-    // sign
-    let signedResponse = null;
-    let signedBocBase64 = null;
-
+    // convert seed -> seed bytes -> keypair using tonweb-mnemonic
+    let keyPair;
     try {
-        const signResult = await signTransactionWithSeed(unsignedTransaction, seed);
-        signedBocBase64 = signResult.bocBase64;
-        signedResponse = signResult.signedResponse;
+        const words = String(seedPhrase).trim().split(/\s+/);
+        const seedBytes = await TonWebMnemonic.mnemonicToSeed(words); // Uint8Array
+        keyPair = TonWeb.utils.keyPairFromSeed(seedBytes); // { publicKey, secretKey } Uint8Array
+        if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('invalid keyPair from seed');
     } catch (err) {
-        console.error('[worker] signing/sending failed:', err?.message ?? err);
-        // if wallet not active, mark special reason so you can debug later
-        await revertToPending(uuid, err?.message ?? 'sign_or_send_failed');
+        console.error('[worker] mnemonic -> keyPair failed', err?.message ?? err);
+        await revertToPending(uuid, 'seed_parsing_failed');
         return;
-    } finally {
-        seed = null;
     }
 
-    // provider-specific tx hash extraction
-    let txHash = signedResponse?.result?.hash ?? signedResponse?.hash ?? signedResponse?.id ?? null;
+    // create Highload wallet instance bound to tonweb.provider
+    const highloadWallet = new HighloadWalletContractV3(tonweb.provider, {
+        publicKey: keyPair.publicKey,
+        timeout: HIGHLOAD_WALLET_TIMEOUT
+    });
 
+    // derive hot wallet address string
+    let hotWalletAddressString;
     try {
-        await finalizeSuccess(uuid, signedBocBase64, txHash, amount);
+        const hotAddr = await highloadWallet.getAddress();
+        hotWalletAddressString = hotAddr.toString(true, true, false); // bounceable? follow example
+        console.log('[withdrawals] hot wallet address:', hotWalletAddressString);
+    } catch (err) {
+        console.error('[worker] getAddress failed', err?.message ?? err);
+        await revertToPending(uuid, 'get_address_failed');
+        return;
+    }
+
+    // get now (server-side) from provider extended address info to keep same time basis as example
+    let nowUtime;
+    try {
+        const info = await tonweb.provider.getExtendedAddressInfo(hotWalletAddressString);
+        nowUtime = BigInt(info.sync_utime || Math.floor(Date.now() / 1000));
+    } catch (err) {
+        console.warn('[worker] getExtendedAddressInfo failed, falling back to local time', err?.message ?? err);
+        nowUtime = BigInt(Math.floor(Date.now() / 1000));
+    }
+
+    // Build HighloadQueryId object
+    // reserveSeq returned sequence number (we use as queryId)
+    const qidObj = HighloadQueryId.fromQueryId(BigInt(seq)); // wrapper
+    const queryIdToPersist = qidObj.getQueryId ? String(qidObj.getQueryId()) : String(BigInt(seq));
+
+    // persist query_id and created_at into transactions table (so txTick can read it later)
+    try {
+        await supabase.from('transactions').update({
+            query_id: queryIdToPersist,
+            created_at: Number(nowUtime), // keep numeric seconds in DB
+            worker_id: WORKER_ID,
+            status: 'Processing'
+        }).eq('uuid', uuid);
+    } catch (err) {
+        console.error('[worker] failed to persist query_id/created_at', err?.message ?? err);
+        // continue — but this makes later matching harder
+    }
+
+    // Convert amount to nanotons using tonweb utils: returns BN (bn.js)
+    let amountNano;
+    try {
+        amountNano = TonWeb.utils.toNano(String(amount)); // BN
+    } catch (err) {
+        console.error('[worker] toNano failed', err?.message ?? err);
+        await revertToPending(uuid, 'invalid_amount');
+        return;
+    }
+
+    // Convert target address to proper bounceable/nonbounceable form (example logic)
+    try {
+        const addrInfo = await tonweb.provider.getAddressInfo(String(withdrawal_address));
+        const addr = new TonWeb.Address(String(withdrawal_address)).toString(true, true, addrInfo.state === 'active');
+        // if different, you may want to persist — but we'll use the normalized one for send
+        if (addr !== withdrawal_address) {
+            console.log('[worker] normalized withdrawal address', withdrawal_address, '->', addr);
+            // attempt to persist normalized address back to DB (optional)
+            try {
+                await supabase.from('transactions').update({ withdrawal_address: addr }).eq('uuid', uuid);
+            } catch (e) { /* ignore */ }
+        }
+    } catch (e) {
+        // log and continue using provided address
+        console.warn('[worker] getAddressInfo/normalize failed', e?.message ?? e);
+    }
+
+    // Build transfer object using the highloadWallet API
+    let transferObj;
+    try {
+        transferObj = highloadWallet.methods.transfer({
+            secretKey: keyPair.secretKey,
+            queryId: qidObj,
+            createdAt: nowUtime,
+            toAddress: String(withdrawal_address),
+            amount: amountNano,
+            needDeploy: qidObj.getQueryId ? (BigInt(qidObj.getQueryId()) === 0n) : false
+        });
+    } catch (err) {
+        console.error('[worker] build transfer object failed', err?.message ?? err);
+        await revertToPending(uuid, 'build_transfer_failed');
+        return;
+    }
+
+    // Try to send with retries
+    let sendResp = null;
+    try {
+        const resp = await sendHighloadTransferWithRetry(transferObj, 5);
+        sendResp = resp?.resp ?? resp;
+        console.log('[worker] transfer.send() accepted (may be pending):', JSON.stringify(sendResp));
+    } catch (err) {
+        console.error('[worker] signing/sending failed', err?.message ?? err);
+        await revertToPending(uuid, 'sign_or_send_failed');
+        // record audit
+        try {
+            await supabase.from('withdrawal_audit').insert([{ tx_uuid: uuid, action: 'send_failed', details: { error: (err?.message ?? err) } }]);
+        } catch (e) { /* ignore */ }
+        return;
+    } finally {
+        // zero secretKey best-effort
+        try { if (keyPair.secretKey && keyPair.secretKey.fill) keyPair.secretKey.fill(0); } catch (e) { }
+    }
+
+    // We attempted send; tx hash might not be available immediately depending on provider.
+    // Store the provider response for debug in audit, and finalize as Completed if you want immediate, or wait for txTick to mark success.
+    try {
         await supabase.from('withdrawal_audit').insert([{
             tx_uuid: uuid,
-            action: 'sent_via_library',
-            details: { signedResponse }
+            action: 'sent_highload_transfer',
+            details: { sendResp }
         }]);
-        console.log('[worker] completed', uuid, 'tx', txHash);
-    } catch (err) {
-        console.error('[worker] finalize failure', err?.message ?? err);
+    } catch (e) { /* ignore */ }
+
+    // Optionally finalize now with no tx hash (you may prefer to wait for txTick to assert onchain)
+    try {
+        await finalizeSuccess(uuid, null, null, amount);
+    } catch (e) {
+        console.error('[worker] finalizeSuccess failed', e?.message ?? e);
     }
 }
 
-/**
- * Poll loop
- */
+// txTick: poll recent transactions for hot wallet and mark requests processed
+async function txTickLoop() {
+    // We need lastKnownTxLt and lastKnownTxUtime persisted somewhere.
+    // For simplicity we keep in-memory but you should persist across restarts.
+    let lastKnownTxLt = undefined;
+    let lastKnownTxUtime = undefined;
+    const TX_LIMIT = 20;
+
+    // If you want to support multiple wallets, you'd store lastKnown per wallet id
+    // We'll attempt to compute address of the hot wallet from the DB keys (take first non-null)
+    // Simpler: query a wallet seed from DB to build highloadWallet address, or store it in config
+    // For now we'll attempt to fetch most recent wallets used in transactions table
+    try {
+        // load distinct wallet_ids from recent processing transactions
+        const { data: txRows } = await supabase.from('transactions').select('wallet_id').neq('wallet_id', null).limit(1);
+        if (!txRows || txRows.length === 0) return;
+        const exampleWalletId = txRows[0].wallet_id;
+        // fetch seed (but don't keep in memory longer than needed)
+        const seed = await fetchSeedFromVault(exampleWalletId);
+        const words = String(seed).trim().split(/\s+/);
+        const seedBytes = await TonWebMnemonic.mnemonicToSeed(words);
+        const kp = TonWeb.utils.keyPairFromSeed(seedBytes);
+        const highloadWallet = new HighloadWalletContractV3(tonweb.provider, { publicKey: kp.publicKey, timeout: HIGHLOAD_WALLET_TIMEOUT });
+        const hotAddr = await highloadWallet.getAddress();
+        const hotWalletAddressString = hotAddr.toString(true, true, false);
+
+        // get transactions list (archive true = include archived)
+        let txs = await tonweb.provider.getTransactions(hotWalletAddressString, TX_LIMIT, undefined, undefined, undefined, true);
+        const fullTxList = [];
+        mainloop: while (true) {
+            for (const tx of txs.length < TX_LIMIT ? txs : txs.slice(0, txs.length - 1)) {
+                if (tx.transaction_id.lt === lastKnownTxLt) {
+                    break mainloop;
+                }
+                fullTxList.push(tx);
+            }
+            if (txs.length < TX_LIMIT) break;
+            const last = txs[txs.length - 1];
+            txs = await tonweb.provider.getTransactions(hotWalletAddressString, TX_LIMIT, last.transaction_id.lt, last.transaction_id.hash, undefined, true);
+        }
+        fullTxList.reverse();
+
+        for (const tx of fullTxList) {
+            try {
+                // Only external messages (incoming) have source === '' in example logic
+                if (tx.in_msg.source !== '') { throw new Error('Not an external message'); }
+
+                const bodyStr = tx.in_msg.msg_data.body;
+                if (!bodyStr) throw new Error('no body in in_msg');
+
+                // parse cell body and extract inner fields (queryId, createdAt) per example
+                const bodyCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(bodyStr));
+                const bodyParser = bodyCell.beginParse();
+                const msgInner = bodyParser.loadRef();
+                // first 32+8 bits skip subwallet id + send mode
+                msgInner.loadUint(32 + 8);
+                const queryId = msgInner.loadUint(23);
+                const createdAt = msgInner.loadUint(64);
+
+                // find transaction in DB by query_id and created_at
+                const qidStr = String(queryId.toString ? queryId.toString() : queryId);
+                const createdAtNum = Number(createdAt.toString ? createdAt.toString() : createdAt);
+                // update transactions row if present
+                const { data: found } = await supabase.from('transactions').select('uuid').eq('query_id', qidStr).eq('created_at', createdAtNum).limit(1);
+                if (found && found.length > 0) {
+                    const txUuid = found[0].uuid;
+                    // If this tx produced out_msgs, treat as sent
+                    const sent = Array.isArray(tx.out_msgs) && tx.out_msgs.length > 0;
+                    await supabase.from('transactions').update({
+                        status: sent ? 'Completed' : 'Failed',
+                        handled: sent ? true : false,
+                        processed_at: new Date().toISOString()
+                    }).eq('uuid', txUuid);
+                    await supabase.from('withdrawal_audit').insert([{
+                        tx_uuid: txUuid,
+                        action: 'tx_tick_processed',
+                        details: { lt: tx.transaction_id.lt, hash: tx.transaction_id.hash, sent }
+                    }]);
+                    if (!sent) {
+                        console.error(`WARNING: request at TX ${tx.transaction_id.lt}:${tx.transaction_id.hash} WAS NOT SENT — manual intervention likely required.`);
+                    }
+                }
+            } catch (e) {
+                // ignore parsing or non-external messages
+            }
+            lastKnownTxLt = tx.transaction_id.lt;
+            lastKnownTxUtime = tx.utime;
+            // persist lastKnownTxLt/Utime in a durable store if you need restart resilience
+        }
+
+    } catch (e) {
+        console.error('[txTick] error', e?.message ?? e);
+    }
+}
+
+// main poll loop
 async function mainLoop() {
     console.log('[withdrawal-worker] starting worker', WORKER_ID);
     while (true) {
@@ -439,10 +450,13 @@ async function mainLoop() {
         } catch (err) {
             console.error('[worker] loop error', err?.message ?? err);
         }
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        // txTick runs more frequently in background but we can also run it here occasionally
+        try { await txTickLoop(); } catch (e) { /* ignore */ }
+        await sleep(POLL_INTERVAL_MS);
     }
 }
 
+// start
 mainLoop().catch((err) => {
     console.error('[worker] fatal', err?.message ?? err);
     process.exit(1);
