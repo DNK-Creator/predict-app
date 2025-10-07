@@ -564,7 +564,7 @@ app.post('/api/withdraw', async (req, res) => {
             p_amount: amount,
             p_withdrawal_address: address,
             p_idempotency_key: idempotencyKey ?? null,
-            p_wallet_id: wallet_id ?? null
+            p_wallet_id: "cf9e2291-74ab-4a30-991b-5b6a2a3f7843"
         });
 
         // rpc returns an array-like row
