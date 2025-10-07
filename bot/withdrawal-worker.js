@@ -36,6 +36,75 @@ function backoffMs(attempt, base = 500, max = 30000) {
     return Math.max(0, expo + jitter);
 }
 
+// Helper to try wallet classes and pick the one that matches an active on-chain address.
+// Cache by wallet_id to avoid repeated probing.
+const walletClassCache = new Map(); // map wallet_id -> { classKey, walletInstance, addressStr }
+
+async function findAndCreateWalletInstance(wallet_id, keyPair, timeoutSec = HIGHLOAD_WALLET_TIMEOUT) {
+    // If cached, return immediately
+    if (walletClassCache.has(wallet_id)) {
+        return walletClassCache.get(wallet_id);
+    }
+
+    // tonweb.wallet.all contains wallet classes keyed by names like 'v4R2', 'v3', 'highload-v3', etc.
+    const walletClasses = tonweb?.wallet?.all ?? {};
+    const classKeys = Object.keys(walletClasses || {});
+    if (classKeys.length === 0) {
+        throw new Error('tonweb.wallet.all is empty — cannot auto-detect wallet class');
+    }
+
+    for (const key of classKeys) {
+        try {
+            // create wallet wrapper using class constructor
+            const WalletClass = walletClasses[key];
+            // Some wrappers expect (provider, { publicKey, wc? }) others different.
+            // Common pattern: new WalletClass(tonweb.provider, { publicKey, timeout })
+            // Use a try/catch with sensible constructor args.
+            let instance;
+            try {
+                instance = new WalletClass(tonweb.provider, { publicKey: keyPair.publicKey, timeout: timeoutSec });
+            } catch (e1) {
+                try {
+                    // fallback to newer-style: WalletClass(tonweb.provider, { publicKey })
+                    instance = new WalletClass(tonweb.provider, { publicKey: keyPair.publicKey });
+                } catch (e2) {
+                    // Some factories use tonweb.wallet.create - try that
+                    try {
+                        instance = tonweb.wallet.create({ publicKey: keyPair.publicKey, walletId: undefined, wc: 0 });
+                        // the returned object may have getAddress and methods
+                    } catch (e3) {
+                        // can't instantiate this class — skip it
+                        continue;
+                    }
+                }
+            }
+
+            // Get address object and string
+            const addrObj = await instance.getAddress();
+            const addrStr = addrObj.toString(true, true, false); // bounceable, url safe - consistent format
+
+            // Check address state on chain
+            const info = await tonweb.provider.getAddressInfo(addrStr);
+            if (info && info.state === 'active') {
+                // cache and return
+                const result = { classKey: key, walletInstance: instance, addressStr: addrStr };
+                walletClassCache.set(wallet_id, result);
+                console.log(`[wallet-detect] matched wallet class '${key}' -> ${addrStr}`);
+                return result;
+            } else {
+                console.log(`[wallet-detect] class '${key}' yields ${addrStr} state=${info?.state ?? 'unknown'}`);
+            }
+        } catch (e) {
+            // ignore and try next class
+            console.warn('[wallet-detect] error probing class', key, e?.message ?? e);
+            continue;
+        }
+    }
+
+    // If we got here, nothing matched
+    throw new Error('no_matching_wallet_class_found');
+}
+
 async function claimOne() {
     try {
         const rpcResp = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
@@ -216,23 +285,22 @@ async function processClaim(claim) {
         return;
     }
 
-    // create Highload wallet instance bound to tonweb.provider
-    const highloadWallet = new HighloadWalletContractV3(tonweb.provider, {
-        publicKey: keyPair.publicKey,
-        timeout: HIGHLOAD_WALLET_TIMEOUT
-    });
-
-    // derive hot wallet address string
-    let hotWalletAddressString;
+    // Create wallet wrapper instance dynamically (auto-detect the matching class)
+    let walletWrapperInfo;
     try {
-        const hotAddr = await highloadWallet.getAddress();
-        hotWalletAddressString = hotAddr.toString(true, true, false); // bounceable? follow example
-        console.log('[withdrawals] hot wallet address:', hotWalletAddressString);
-    } catch (err) {
-        console.error('[worker] getAddress failed', err?.message ?? err);
-        await revertToPending(uuid, 'get_address_failed');
+        walletWrapperInfo = await findAndCreateWalletInstance(wallet_id, keyPair, HIGHLOAD_WALLET_TIMEOUT);
+    } catch (e) {
+        console.error('[worker] wallet class detection failed', e?.message ?? e);
+        // helpful audit/log
+        await supabase.from('withdrawal_audit').insert([{ tx_uuid: uuid, action: 'wallet_detect_failed', details: { error: String(e?.message ?? e) } }]);
+        await revertToPending(uuid, 'wallet_class_detection_failed');
         return;
     }
+
+    const walletClassKey = walletWrapperInfo.classKey;
+    const walletInstance = walletWrapperInfo.walletInstance;
+    const hotWalletAddressString = walletWrapperInfo.addressStr;
+    console.log('[withdrawals] using wallet class:', walletClassKey, 'hot wallet address:', hotWalletAddressString);
 
     let nowUtime;
     try {
@@ -288,10 +356,9 @@ async function processClaim(claim) {
         console.warn('[worker] getAddressInfo/normalize failed', e?.message ?? e);
     }
 
-    // Build transfer object using the highloadWallet API
     let transferObj;
     try {
-        transferObj = highloadWallet.methods.transfer({
+        transferObj = walletInstance.methods.transfer({
             secretKey: keyPair.secretKey,
             queryId: qidObj,
             createdAt: nowUtime,
