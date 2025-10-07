@@ -147,36 +147,34 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     const keyPair = await mnemonicToPrivateKey(words);
     if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
-    // Create wallet contract object and bound contract
+    // build wallet + opened contract (bound to tonClient)
     const workchain = 0;
     const wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
-    const contract = tonClient.open(wallet);
+    const contract = tonClient.open(wallet); // opened contract (has provider bound in most ton setups)
 
-    // Derive address string for checks / logging
+    // derive address string for logs
     const addressStr = (contract?.address && typeof contract.address.toString === 'function')
         ? contract.address.toString()
-        : null;
+        : '<unknown>';
+    console.log('[debug] wallet address:', addressStr);
 
-    console.log('[debug] wallet address:', addressStr ?? '<unknown>');
-
-    // Get balance & seqno using SDK provider (contract methods expect provider arg)
+    // read useful state
     try {
         const balance = await contract.getBalance();
         console.log('[debug] the balance of hot wallet is', balance);
     } catch (e) {
-        console.warn('[debug] failed to read balance via contract.getBalance()', e?.message ?? e);
+        console.warn('[debug] contract.getBalance failed (will continue)', e?.message ?? e);
     }
-
     const seqno = await contract.getSeqno();
     console.log('The seqno of the contract is:', seqno);
 
-    // Build internal messages (use nanotons as bigint)
+    // build messages (value as bigint)
     const messages = unsignedTransaction.messages.map((m) => {
         let value;
         if (typeof m.amount === 'string' && /^\d+$/.test(m.amount)) {
             value = BigInt(m.amount);
         } else {
-            value = toNano(String(m.amount)); // returns bigint
+            value = toNano(String(m.amount)); // toNano returns bigint
         }
         return internal({
             to: String(m.address),
@@ -185,22 +183,36 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
         });
     });
 
-    // Create signed transfer (Cell)
+    // create signed transfer (Cell)
     const transferCell = await contract.createTransfer({
         seqno,
         secretKey: keyPair.secretKey,
         messages
     });
 
-    // wipe secret key buffer (best-effort)
+    // zero secretKey buffer best-effort
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
-    // Convert transfer Cell to BOC base64 for storage / RPC broadcast
-    const bocBuffer = transferCell.toBoc();               // returns Buffer
+    // convert to base64 BOC for DB storage or fallback RPC usage
+    const bocBuffer = transferCell.toBoc(); // Buffer
     const bocBase64 = Buffer.from(bocBuffer).toString('base64');
 
-    // Broadcast via TON Center sendBoc
-    let signedResponse = null;
+    // --- PREFERRED: send via SDK (this will wrap to external message correctly) ---
+    try {
+        // contract.send is available on opened contract; it will call provider.external(...) under the hood
+        await contract.send(transferCell);
+        // Mark success — some SDKs don't return tx id here.
+        const signedResponse = { ok: true, method: 'sdk_send' };
+        console.log('[withdrawals] sent via SDK (contract.send) for', addressStr);
+        return { bocBase64, signedResponse };
+    } catch (sdkErr) {
+        console.warn('[withdrawals] contract.send failed, falling back to HTTP sendBoc:', sdkErr?.message ?? sdkErr);
+        // fallback to HTTP /sendBoc — note TON Center expects a FULL external message BOC.
+        // Passing the transferCell BOC directly *may* still fail depending on how createTransfer produced it.
+        // But keep fallback for providers that accept signed transfer BOCs.
+    }
+
+    // --- fallback HTTP sendBoc via TON Center (kept for robustness) ---
     try {
         const resp = await fetch('https://toncenter.com/api/v2/sendBoc', {
             method: 'POST',
@@ -210,16 +222,14 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
             },
             body: JSON.stringify({ boc: bocBase64 })
         });
-        signedResponse = await resp.json();
-        console.log('[withdrawals] response from toncenter sendBoc:', JSON.stringify(signedResponse));
-    } catch (e) {
-        console.error('[withdrawals] sendBoc failed', e?.message ?? e);
-        // bubble up so caller can revert to pending
-        throw new Error('sendBoc_failed: ' + (e?.message ?? e));
+        const json = await resp.json();
+        console.log('[withdrawals] response from toncenter sendBoc:', JSON.stringify(json));
+        return { bocBase64, signedResponse: json };
+    } catch (httpErr) {
+        console.error('[withdrawals] sendBoc HTTP fallback failed', httpErr?.message ?? httpErr);
+        // bubble up so processClaim can revert or act accordingly
+        throw new Error('broadcast_failed: ' + (httpErr?.message ?? httpErr));
     }
-
-    // Return signedBoc and provider response for DB storage
-    return { bocBase64, signedResponse, address: addressStr };
 }
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
