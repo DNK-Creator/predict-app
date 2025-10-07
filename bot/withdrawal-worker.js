@@ -356,16 +356,75 @@ async function processClaim(claim) {
         console.warn('[worker] getAddressInfo/normalize failed', e?.message ?? e);
     }
 
+    // Build & send transfer according to detected wallet class
     let transferObj;
     try {
-        transferObj = walletInstance.methods.transfer({
-            secretKey: keyPair.secretKey,
-            queryId: qidObj,
-            createdAt: nowUtime,
-            toAddress: String(withdrawal_address),
-            amount: amountNano,
-            needDeploy: qidObj.getQueryId ? (BigInt(qidObj.getQueryId()) === 0n) : false
-        });
+        const keyLower = String(walletClassKey || '').toLowerCase();
+
+        if (keyLower.includes('highload')) {
+            // Highload wallet uses queryId + createdAt (existing logic)
+            transferObj = walletInstance.methods.transfer({
+                secretKey: keyPair.secretKey,
+                queryId: qidObj,
+                createdAt: nowUtime,   // plain Number
+                toAddress: String(withdrawal_address),
+                amount: amountNano,
+                needDeploy: qidObj.getQueryId ? (BigInt(qidObj.getQueryId()) === 0n) : false
+            });
+        } else {
+            // Non-highload (v4, simple, v3, etc.) wallets expect numeric seqno
+            // Try to get seqno from walletInstance API, fallback to provider `getAddressInfo`
+            let seqnoCandidate = null;
+
+            // Some wrappers implement getSeqno()
+            if (typeof walletInstance.getSeqno === 'function') {
+                try { seqnoCandidate = await walletInstance.getSeqno(); } catch (e) { /* ignore */ }
+            }
+
+            // Some wrappers expose methods.seqno().call() style (less common)
+            if ((seqnoCandidate === null || seqnoCandidate === undefined) && walletInstance.methods && typeof walletInstance.methods.seqno === 'function') {
+                try {
+                    // attempt common patterns
+                    const maybe = walletInstance.methods.seqno();
+                    // if it's a call-returning object like { call: fn } use call()
+                    if (maybe && typeof maybe.call === 'function') {
+                        seqnoCandidate = await maybe.call();
+                    } else {
+                        // direct promise/number
+                        seqnoCandidate = await maybe;
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            // fallback to provider address info (tonweb.provider.getAddressInfo)
+            if (seqnoCandidate === null || seqnoCandidate === undefined) {
+                try {
+                    const info = await tonweb.provider.getAddressInfo(hotWalletAddressString);
+                    // toncenter uses `seqno` field for wallet seq
+                    seqnoCandidate = info?.seqno ?? info?.unconfirmed_seqno ?? 0;
+                } catch (e) {
+                    seqnoCandidate = 0;
+                }
+            }
+
+            // normalize seqnoCandidate to Number
+            const seqnoNum = Number(seqnoCandidate);
+            if (!Number.isFinite(seqnoNum) || seqnoNum < 0) {
+                throw new Error('invalid_seqno_fetched: ' + String(seqnoCandidate));
+            }
+
+            console.log('[worker] using seqno', seqnoNum, 'for wallet class', walletClassKey);
+
+            // Build transfer for v4/simple style wallets
+            transferObj = walletInstance.methods.transfer({
+                secretKey: keyPair.secretKey,
+                seqno: seqnoNum,
+                toAddress: String(withdrawal_address),
+                amount: amountNano,
+                // some wrappers accept sendMode / bounce; include sendMode 3 to pay fees from sender and allow external messages
+                sendMode: 3
+            });
+        }
     } catch (err) {
         console.error('[worker] build transfer object failed', err?.message ?? err);
         await revertToPending(uuid, 'build_transfer_failed');
@@ -374,6 +433,7 @@ async function processClaim(claim) {
 
     // Try to send with retries
     let sendResp = null;
+    // Try to send with retries (existing helper)
     try {
         const resp = await sendHighloadTransferWithRetry(transferObj, 5);
         sendResp = resp?.resp ?? resp;
@@ -381,13 +441,11 @@ async function processClaim(claim) {
     } catch (err) {
         console.error('[worker] signing/sending failed', err?.message ?? err);
         await revertToPending(uuid, 'sign_or_send_failed');
-        // record audit
         try {
             await supabase.from('withdrawal_audit').insert([{ tx_uuid: uuid, action: 'send_failed', details: { error: (err?.message ?? err) } }]);
         } catch (e) { /* ignore */ }
         return;
     } finally {
-        // zero secretKey best-effort
         try { if (keyPair.secretKey && keyPair.secretKey.fill) keyPair.secretKey.fill(0); } catch (e) { }
     }
 
