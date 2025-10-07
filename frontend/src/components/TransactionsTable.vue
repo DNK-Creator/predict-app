@@ -71,6 +71,12 @@ function translateStatus(status) {
         return app.language === 'ru' ? 'Отменённое пополнение' : 'Canceled Deposit'
     } else if (status === 'Отмененный вывод' || status === 'Вывод отменён' || status === 'Отменённый вывод') {
         return app.language === 'ru' ? 'Отменённый вывод' : 'Canceled Withdrawal'
+    } else if (status === 'Pending') {
+        return app.language === 'ru' ? 'Ожидание вывода' : 'Withdrawal pending'
+    } else if (status === 'Processing') {
+        return app.language === 'ru' ? 'Обработка вывода' : 'Withdrawal processing'
+    } else if (status === 'Completed') {
+        return app.language === 'ru' ? 'Успешный вывод' : 'Successful Withdrawal'
     }
 }
 

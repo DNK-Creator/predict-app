@@ -258,7 +258,8 @@ async function handleWithdraw(amount, amount_cut) {
 
 async function onWithdraw(amount, amount_cut) {
     if (appStoreObj.points < amount) {
-        toast.error('Недостаточно средств');
+        let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+        toast.error(errorText);
         return;
     }
 
@@ -276,14 +277,16 @@ async function onWithdraw(amount, amount_cut) {
             idempotencyKey
         })
     });
+
     const data = await resp.json();
     if (!resp.ok) {
-        toast.error('Withdrawal failed: ' + (data?.error || 'unknown'));
+        let errorTextTwo = appStoreObj.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: '
+        toast.error(errorTextTwo + (data?.error || 'unknown'));
         return;
     }
 
     // optimistic update or fetch fresh user points from server
-    appStoreObj.points -= amount;
+    appStoreObj.points = Number((appStoreObj.points - amount).toFixed(2));
     let successText = appStoreObj.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
     toast.success(successText);
 
@@ -523,7 +526,7 @@ async function onDepositStars(amount) {
                     // Optionally refresh user points in store
                     try {
                         // If you have a store method to fetch points, call it:
-                        await app.fetchPoints()
+                        await appStoreObj.fetchPoints()
                     } catch (e) { /* ignore */ }
                 } else {
                     // other statuses: 'cancelled' etc., do nothing

@@ -178,7 +178,8 @@ async function handleWithdraw(amount, amount_cut) {
 
 async function onWithdraw(amount, amount_cut) {
     if (app.points < amount) {
-        toast.error('Недостаточно средств');
+        let errorText = app.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+        toast.error(errorText);
         return;
     }
 
@@ -196,14 +197,16 @@ async function onWithdraw(amount, amount_cut) {
             idempotencyKey
         })
     });
+
     const data = await resp.json();
     if (!resp.ok) {
-        toast.error('Withdrawal failed: ' + (data?.error || 'unknown'));
+        let errorTextTwo = app.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: '
+        toast.error(errorTextTwo + (data?.error || 'unknown'));
         return;
     }
 
     // optimistic update or fetch fresh user points from server
-    app.points -= amount;
+    app.points = Number((app.points - amount).toFixed(2));
     let successText = app.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
     toast.success(successText);
 
