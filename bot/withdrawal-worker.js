@@ -156,8 +156,6 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     const balance = await contract.getBalance();
     console.log('[debug] the balance of hot wallet is ' + balance)
 
-    console.log(withdrawal_address)
-
     let seqno = await contract.getSeqno();
 
     console.log('The seqno of the contract is: ' + seqno)
@@ -246,6 +244,8 @@ async function processClaim(claim) {
         return;
     }
 
+    console.log('[withdrawals] Processing claim for withdrawal address - ' + withdrawal_address )
+
     // Build unsignedTransaction using nanotons as amount values (string)
     const unsignedTransaction = {
         validUntil: Math.floor(Date.now() / 1000) + 360,
@@ -319,7 +319,7 @@ async function processClaim(claim) {
     }
 
     // Inspect sendResp for tx hash (provider-dependent)
-    
+
     let txHash = signedResponse?.result?.hash ?? signedResponse?.hash ?? signedResponse?.id ?? null;
 
     try {
