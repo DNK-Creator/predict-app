@@ -57,15 +57,38 @@ async function claimOne() {
 }
 
 async function reserveSeq(wallet_id) {
+    if (!wallet_id) {
+        throw new Error('reserveSeq: wallet_id is falsy');
+    }
+
     try {
-        const res = await supabase.rpc('reserve_wallet_seq', { p_wallet_id: wallet_id });
-        const row = Array.isArray(res) ? res[0] : res;
-        // Expect field new_seq (depends on your SQL)
-        const val = row?.new_seq ?? row?.reserve_wallet_seq ?? Object.values(row || {})[0];
-        return val !== undefined && val !== null ? Number(val) : null;
+        // Use the supabase-js destructuring pattern so we get { data, error }
+        const { data, error } = await supabase.rpc('reserve_wallet_seq', { p_wallet_id: wallet_id });
+
+        if (error) {
+            // log full error body to help debugging
+            console.error('[reserveSeq] rpc error', JSON.stringify(error, null, 2));
+            throw error;
+        }
+
+        if (!data) {
+            console.error('[reserveSeq] rpc returned no data', { wallet_id });
+            throw new Error('reserve_wallet_seq returned no data');
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+        // the function returns column new_seq
+        const val = row?.new_seq ?? Object.values(row || {})[0];
+
+        if (val === undefined || val === null) {
+            console.error('[reserveSeq] no sequence value in rpc row', { row });
+            throw new Error('reserve_wallet_seq returned empty new_seq');
+        }
+
+        return Number(val);
     } catch (err) {
-        console.error('[reserveSeq] error', err?.message ?? err);
-        throw err;
+        console.error('[reserveSeq] error thrown', err?.message ?? err);
+        throw err; // let caller handle revert
     }
 }
 
