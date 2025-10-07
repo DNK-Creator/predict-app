@@ -9,6 +9,7 @@ const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // server-only
 const POLL_INTERVAL_MS = Number(15000);
 const walletKey = process.env.VITE_WALLET_KEY;
+const WORKER_ID = process.env.VITE_WORKER_ID;
 
 // TON broadcast / provider configuration.
 // Replace this with your provider's recommended endpoint & auth method.
