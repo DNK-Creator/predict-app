@@ -169,44 +169,50 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAd
         });
     });
 
-    // Use the library to send the transfer — it wraps & broadcasts correctly.
-    // The returned 'sendResult' shape depends on @ton/ton + provider; log it to inspect.
-    const sendResult = await wallet.sendTransfer({
-        messages,
-        secretKey: keyPair.secretKey,
-        seqno: Number(seqno),
-        timeout: 120_000 // ms; wait long enough for the provider to accept
-    });
-
-    // Optionally inspect sendResult. Providers differ — log it for debugging.
-    console.log('[sign] wallet.sendTransfer result', JSON.stringify(sendResult).slice(0, 2000));
-
-    // Clean secretKey out of memory (best-effort)
+    // Also create the signed transfer Cell (we can use for audit)
+    let signedCell;
     try {
-        if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0);
-    } catch (e) { /* ignore */ }
-
-    // Return the provider response so the caller can extract tx hash etc.
-    // Do NOT attempt to broadcast the BOC again when you use wallet.sendTransfer.
-    return { sendResult };
-}
-
-async function broadcastBocBase64(bocBase64) {
-    try {
-        // Example: call provider's sendBoc endpoint
-        // TonCenter / QuickNode may accept JSON body { boc: "<base64>" }
-        const headers = {};
-        const params = {};
-        if (TON_API_KEY) {
-            // TonCenter style API key as param
-            params.api_key = TON_API_KEY;
-        }
-        const resp = await axios.post(TON_BROADCAST_URL, { boc: bocBase64 }, { params, headers, timeout: 30_000 });
-        return resp.data;
+        signedCell = wallet.createTransfer({
+            messages,
+            secretKey: keyPair.secretKey,
+            seqno: Number(seqno)
+        });
     } catch (err) {
-        console.error('[broadcastBocBase64] error', err?.response?.data ?? err?.message ?? err);
+        // log and rethrow with context
+        console.error('[sign] createTransfer failed', err?.message ?? err);
+        // zero out secret
+        try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
         throw err;
     }
+
+    // Serialize signed BOC for audit/storage
+    const bocBytes = signedCell.toBoc(); // Uint8Array
+    const bocBase64 = Buffer.from(bocBytes).toString('base64');
+
+    // Now send via library (this both wraps and broadcasts correctly)
+    let sendResult;
+    try {
+        sendResult = await wallet.sendTransfer({
+            messages,
+            secretKey: keyPair.secretKey,
+            seqno: Number(seqno),
+            timeout: 120_000
+        });
+        console.log('[sign] wallet.sendTransfer OK - result preview:', JSON.stringify(sendResult).slice(0, 2000));
+    } catch (err) {
+        // Provider/network errors often have .response.data (axios style) or nested error info
+        console.error('[sign] wallet.sendTransfer FAILED:', err?.message ?? err);
+        if (err?.response?.data) console.error('[sign] provider response:', JSON.stringify(err.response.data).slice(0, 2000));
+        if (err?.request) console.error('[sign] request sent but no response (request object trimmed)');
+        // zero out secretKey before rethrowing
+        try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
+        throw err;
+    }
+
+    // zero out secretKey in memory
+    try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
+
+    return { sendResult, signed_boc: bocBase64 };
 }
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
@@ -288,42 +294,34 @@ async function processClaim(claim) {
 
     // sign
     let sendResp;
+    let signedBocBase64 = null;
     try {
         const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
         sendResp = signedResponse?.sendResult;
+        signedBocBase64 = signedResponse?.signed_boc ?? null;
         if (!sendResp) throw new Error('no send result from signTransactionWithSeed');
     } catch (err) {
-        console.error('[worker] signing/sending failed', err?.message ?? err);
+        // Log detailed error object to see why provider rejected (500)
+        console.error('[worker] signing/sending failed:', err?.message ?? err);
+        if (err?.response?.data) console.error('[worker] provider response:', JSON.stringify(err.response.data).slice(0, 2000));
         await revertToPending(uuid, 'sign_or_send_failed');
         return;
     } finally {
         try { seed = null; } catch (e) { }
     }
 
-    // broadcast
-    let broadcastResp;
-    try {
-        broadcastResp = await broadcastBocBase64(signed_boc);
-    } catch (err) {
-        console.error('[worker] broadcast failed', err?.message ?? err);
-        await revertToPending(uuid, 'broadcast_failed');
-        return;
-    }
-
     // Inspect sendResp for tx hash (provider-dependent)
     let txHash = null;
     try {
-        // probe several common fields:
         txHash = sendResp?.transactionId ?? sendResp?.id ?? sendResp?.hash ?? sendResp?.result?.hash ?? sendResp?.result?.id ?? null;
         console.log('[worker] sendResp extracted txHash:', txHash);
     } catch (e) {
         console.warn('[worker] failed to extract txHash from sendResp', e?.message ?? e);
     }
-    
-    // finalize: store sendResp as audit payload (do not store secrets)
+
     try {
-        await finalizeSuccess(uuid, null /* signed_boc not needed when using library send */, txHash, amount);
-        // store sendResp in audit table if you want to keep provider response
+        await finalizeSuccess(uuid, signedBocBase64, txHash, amount);
+        // also store provider response in audit table for debugging
         await supabase.from('withdrawal_audit').insert([{
             tx_uuid: uuid,
             action: 'sent_via_library',
