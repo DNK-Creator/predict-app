@@ -28,11 +28,30 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 
 async function claimOne() {
     try {
-        const res = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
-        if (!res || (Array.isArray(res) && res.length === 0)) return null;
-        return Array.isArray(res) ? res[0] : res;
+        // supabase.rpc often returns { data, error } with v2 client
+        const rpcResp = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
+        // support both shapes: { data, error } or direct array/object
+        const data = rpcResp?.data ?? rpcResp;
+
+        // No data or nothing claimed
+        if (!data || (Array.isArray(data) && data.length === 0)) {
+            return null;
+        }
+
+        // If data is an array, pick the first row
+        const row = Array.isArray(data) ? data[0] : data;
+
+        // If row is empty object or has no uuid, log and return null
+        if (!row || (!row.uuid && !row.wallet_id && !row.amount && !row.withdrawal_address)) {
+            console.warn('[claimOne] unexpected RPC row shape, skipping', { raw: row });
+            return null;
+        }
+
+        // Good row — return it
+        return row;
     } catch (err) {
-        console.error('[claimOne] error', err?.message ?? err);
+        // If RPC error object (supabase returns { error } or throws)
+        console.error('[claimOne] rpc error', err?.message ?? err);
         return null;
     }
 }
@@ -52,15 +71,42 @@ async function reserveSeq(wallet_id) {
 
 async function fetchSeedFromVault(wallet_id) {
     try {
-        const res = await supabase.rpc('get_wallet_seed_for_signer_text', { p_wallet_key: walletKey });
-        const row = Array.isArray(res) ? res[0] : res;
-        // function returns plain text; supabase client wraps it — handle shapes
-        if (!row) throw new Error('no seed returned');
-        if (typeof row === 'string') return row;
-        // object with single field
-        const keys = Object.keys(row);
-        if (keys.length === 1) return row[keys[0]];
-        throw new Error('unexpected seed return shape');
+        // 1) prefer calling the UUID-based RPC if we have a wallet_id
+        if (wallet_id) {
+            try {
+                const rpcResp = await supabase.rpc('get_wallet_seed_for_signer', { p_wallet_id: wallet_id });
+                const data = rpcResp?.data ?? rpcResp;
+                if (!data) throw new Error('no data returned from get_wallet_seed_for_signer');
+                const row = Array.isArray(data) ? data[0] : data;
+                if (typeof row === 'string') return row;
+                // If supabase wraps result in object field, pick its first value
+                const keys = Object.keys(row || {});
+                if (keys.length === 1) return row[keys[0]];
+                // if row has direct column named get_wallet_seed_for_signer, return that
+                if (row.get_wallet_seed_for_signer) return row.get_wallet_seed_for_signer;
+            } catch (err) {
+                console.warn('[fetchSeedFromVault] uuid-based rpc failed, trying text-based rpc or env fallback', err?.message ?? err);
+                // fallthrough to text-based or env
+            }
+        }
+
+        // 2) try text-based RPC using worker env key if available (legacy)
+        if (typeof walletKey !== 'undefined' && walletKey !== null) {
+            try {
+                const rpcResp2 = await supabase.rpc('get_wallet_seed_for_signer_text', { p_wallet_key: walletKey });
+                const data2 = rpcResp2?.data ?? rpcResp2;
+                if (!data2) throw new Error('no data returned from get_wallet_seed_for_signer_text');
+                const row2 = Array.isArray(data2) ? data2[0] : data2;
+                if (typeof row2 === 'string') return row2;
+                const keys2 = Object.keys(row2 || {});
+                if (keys2.length === 1) return row2[keys2[0]];
+                if (row2.get_wallet_seed_for_signer_text) return row2.get_wallet_seed_for_signer_text;
+            } catch (err) {
+                console.warn('[fetchSeedFromVault] text-based rpc failed', err?.message ?? err);
+            }
+        }
+
+        throw new Error('no seed available for wallet_id and no fallback');
     } catch (err) {
         console.error('[fetchSeedFromVault] error', err?.message ?? err);
         throw err;
@@ -164,6 +210,10 @@ async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
 
 async function revertToPending(uuid, reason) {
     try {
+        if (!uuid) {
+            console.warn('[revertToPending] called without uuid, ignoring', { reason });
+            return;
+        }
         await supabase.from('transactions').update({ status: 'Pending', worker_id: null }).eq('uuid', uuid);
         await supabase.from('withdrawal_audit').insert([{ tx_uuid: uuid, action: 'reverted_to_pending', details: { reason } }]);
     } catch (err) {
@@ -178,9 +228,9 @@ async function processClaim(claim) {
     const withdrawal_address = claim.withdrawal_address;
     const wallet_id = claim.wallet_id;
 
-    if (!wallet_id) {
-        console.error('[worker] missing wallet_id for', uuid);
-        await revertToPending(uuid, 'missing_wallet_id');
+    if (!wallet_id || !uuid) {
+        console.warn('[worker] skipping invalid claim (missing uuid or wallet_id)', { rawClaim: claim });
+
         return;
     }
 
@@ -260,6 +310,9 @@ async function mainLoop() {
     console.log('[withdrawal-worker] starting worker', WORKER_ID);
     while (true) {
         try {
+            const raw = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
+            console.log('[debug rpc raw claim]', JSON.stringify(raw).slice(0, 1000));
+
             const claim = await claimOne();
             if (claim) {
                 await processClaim(claim);
