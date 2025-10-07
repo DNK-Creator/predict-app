@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { createClient } from '@supabase/supabase-js';
-import { WalletContractV4 } from '@ton/ton';
-import { internal } from '@ton/core';
+import { WalletContractV4, TonClient } from '@ton/ton';
+import { internal, toNano } from '@ton/core';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { Buffer } from 'buffer';
 
@@ -24,6 +24,12 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false },
     global: { headers: { 'x-worker-id': WORKER_ID } }
+});
+
+// create client (use json-rpc endpoint)
+const tonClient = new TonClient({
+    endpoint: 'https://toncenter.com/api/v2/jsonRPC',
+    apiKey: TON_API_KEY // optional depending on provider
 });
 
 async function claimOne() {
@@ -142,58 +148,47 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, walletAd
         throw new Error('unsignedTransaction must include messages array');
     }
 
+    // derive keypair
     const words = seedPhrase.trim().split(/\s+/);
-    if (words.length < 12) {
-        // still allow but warn
-        console.warn('[sign] mnemonic looks short (<12 words) — ensure this is correct for your wallet type');
-    }
     const keyPair = await mnemonicToPrivateKey(words);
-    // keyPair typically contains: { publicKey: Buffer, secretKey: Buffer } (library returns Buffers)
-    if (!keyPair?.publicKey || !keyPair?.secretKey) {
-        throw new Error('mnemonicToPrivateKey returned invalid keypair');
-    }
+    if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
-    const wallet = WalletContractV4.create({
-        publicKey: keyPair.publicKey,
-        workchain: 0
-    });
+    // create wallet instance and open via client
+    const walletContract = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+    const wallet = tonClient.open(walletContract);
 
+    // build messages expected by library (internal() from @ton/core)
     const messages = unsignedTransaction.messages.map((m) => {
-        // value must be string or bigint — convert to BigInt string if needed
         let value = m.amount;
-        if (typeof value === 'number') value = String(Math.round(value)); // assume already nanotons if passed as integer
-        if (typeof value === 'string') {
-            // If caller passed TON instead of nanotons, they should convert before calling signer.
-            // We will assume it's nanotons (as earlier pattern used amount * 1e9)
-        }
-        // optional payload: if provided as base64 BOC or text, embed as body cell
-        const body = m.payload ?? null;
+        if (typeof value === 'number') value = String(Math.round(value));
         return internal({
             to: m.address,
             value: value,
-            body: body ? body : undefined,
+            body: m.payload ? m.payload : undefined,
             bounce: false
         });
     });
 
-    const signedCell = wallet.createTransfer({
+    // Use the library to send the transfer — it wraps & broadcasts correctly.
+    // The returned 'sendResult' shape depends on @ton/ton + provider; log it to inspect.
+    const sendResult = await wallet.sendTransfer({
         messages,
         secretKey: keyPair.secretKey,
         seqno: Number(seqno),
+        timeout: 120_000 // ms; wait long enough for the provider to accept
     });
 
-    const bocBytes = signedCell.toBoc(); // Uint8Array
-    const bocBase64 = Buffer.from(bocBytes).toString('base64');
+    // Optionally inspect sendResult. Providers differ — log it for debugging.
+    console.log('[sign] wallet.sendTransfer result', JSON.stringify(sendResult).slice(0, 2000));
 
+    // Clean secretKey out of memory (best-effort)
     try {
-        if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) {
-            keyPair.secretKey.fill(0);
-        }
-    } catch (e) {
-        // ignore
-    }
+        if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0);
+    } catch (e) { /* ignore */ }
 
-    return bocBase64;
+    // Return the provider response so the caller can extract tx hash etc.
+    // Do NOT attempt to broadcast the BOC again when you use wallet.sendTransfer.
+    return { sendResult };
 }
 
 async function broadcastBocBase64(bocBase64) {
@@ -292,16 +287,16 @@ async function processClaim(claim) {
     }
 
     // sign
-    let signed_boc;
+    let sendResp;
     try {
-        signed_boc = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
-        if (!signed_boc) throw new Error('no signed boc returned');
+        const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address, seqno);
+        sendResp = signedResponse?.sendResult;
+        if (!sendResp) throw new Error('no send result from signTransactionWithSeed');
     } catch (err) {
-        console.error('[worker] signing failed', err?.message ?? err);
-        await revertToPending(uuid, 'sign_failed');
+        console.error('[worker] signing/sending failed', err?.message ?? err);
+        await revertToPending(uuid, 'sign_or_send_failed');
         return;
     } finally {
-        // best-effort zero out seed variable
         try { seed = null; } catch (e) { }
     }
 
@@ -315,11 +310,25 @@ async function processClaim(claim) {
         return;
     }
 
-    // Extract tx hash from provider response — provider dependent.
-    const txHash = broadcastResp?.result ?? broadcastResp?.hash ?? broadcastResp?.tx_hash ?? null;
-
+    // Inspect sendResp for tx hash (provider-dependent)
+    let txHash = null;
     try {
-        await finalizeSuccess(uuid, signed_boc, txHash, amount);
+        // probe several common fields:
+        txHash = sendResp?.transactionId ?? sendResp?.id ?? sendResp?.hash ?? sendResp?.result?.hash ?? sendResp?.result?.id ?? null;
+        console.log('[worker] sendResp extracted txHash:', txHash);
+    } catch (e) {
+        console.warn('[worker] failed to extract txHash from sendResp', e?.message ?? e);
+    }
+    
+    // finalize: store sendResp as audit payload (do not store secrets)
+    try {
+        await finalizeSuccess(uuid, null /* signed_boc not needed when using library send */, txHash, amount);
+        // store sendResp in audit table if you want to keep provider response
+        await supabase.from('withdrawal_audit').insert([{
+            tx_uuid: uuid,
+            action: 'sent_via_library',
+            details: { sendResp }
+        }]);
         console.log('[worker] completed', uuid, 'tx', txHash);
     } catch (err) {
         console.error('[worker] finalize failure', err?.message ?? err);
