@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { WalletContractV4, TonClient } from '@ton/ton';
-import { internal, toNano, Cell, loadTransaction } from '@ton/core';
+import { internal, toNano, Cell } from '@ton/core';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import { Buffer } from 'buffer';
 
@@ -137,7 +137,7 @@ async function fetchSeedFromVault(wallet_id) {
     }
 }
 
-async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdrawal_address) {
+async function signTransactionWithSeed(unsignedTransaction, seedPhrase) {
     if (!seedPhrase) throw new Error('seedPhrase required');
     if (!unsignedTransaction?.messages || !Array.isArray(unsignedTransaction.messages) || unsignedTransaction.messages.length === 0) {
         throw new Error('unsignedTransaction must include messages array');
@@ -148,12 +148,12 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
     if (!keyPair?.publicKey || !keyPair?.secretKey) throw new Error('mnemonicToPrivateKey returned invalid keypair');
 
     // Create wallet contract
-    let workchain = 0; // Usually you need a workchain 0
-    let wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
-    let contract = tonClient.open(wallet);
+    const workchain = 0;
+    const wallet = WalletContractV4.create({ workchain, publicKey: keyPair.publicKey });
+    const contract = tonClient.open(wallet); // client-bound contract object
 
     // Get balance
-    let balance = await contract.getBalance();
+    const balance = await contract.getBalance();
     console.log('[debug] the balance of hot wallet is ' + balance)
 
     console.log(withdrawal_address)
@@ -162,14 +162,32 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
 
     console.log('The seqno of the contract is: ' + seqno)
 
-    let transfer = await contract.createTransfer({
+    // Build messages for createTransfer using unsignedTransaction.messages
+    const messages = unsignedTransaction.messages.map((m) => {
+        // m.amount might be a nanotons string or a TON decimal; normalize:
+        // If your processClaim sets amount as nanotons string (like "1500000000"), pass BigInt.
+        // If it's a decimal (0.1), use toNano('0.1').
+        let value;
+        if (typeof m.amount === 'string' && /^\d+$/.test(m.amount)) {
+            // already nanotons digits
+            value = BigInt(m.amount);
+        } else {
+            // attempt to convert decimal TON string/number to nanotons
+            value = toNano(String(m.amount)); // returns bigint
+        }
+
+        return internal({
+            to: String(m.address),
+            value, // internal accepts string | bigint
+            body: m.payload || 'Gifts Predict' // optional body
+        });
+    });
+
+    // Create signed transfer (Cell)
+    const transferCell = await contract.createTransfer({
         seqno,
         secretKey: keyPair.secretKey,
-        messages: [internal({
-            value: '0.1',
-            to: String(withdrawal_address),
-            body: 'Gifts Predict'
-        })]
+        messages
     });
 
     console.log('The create transfer awaited result is : ' + transfer)
@@ -177,7 +195,12 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
     // zero secretKey in memory (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
 
-    return transfer;
+    // Convert transfer Cell to BOC base64 for storage / RPC broadcast
+    const bocBuffer = transferCell.toBoc();               // returns Buffer
+    const bocBase64 = Buffer.from(bocBuffer).toString('base64');
+
+    // return both cell and base64 so caller may broadcast
+    return { transferCell, bocBase64 };
 }
 
 async function finalizeSuccess(uuid, signed_boc, tx_hash, onchain_amount) {
@@ -229,7 +252,7 @@ async function processClaim(claim) {
         messages: [
             {
                 address: withdrawal_address,
-                amount: String(Math.round(amount * 1e9)),
+                amount: String(toNano(String(amount))),
                 // no payload
             }
         ],
@@ -248,33 +271,59 @@ async function processClaim(claim) {
     }
 
     // sign
-    let sendResp;
+    let signedResponse = null;
     let signedBocBase64 = null;
-    console.log('[debug] unsignedTransaction.validUntil', unsignedTransaction.validUntil, 'nowSec', Math.floor(Date.now() / 1000));
+
     try {
-        const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address);
+        const signResult = await signTransactionWithSeed(unsignedTransaction, seed);
+        signedBocBase64 = signResult.bocBase64;
+        const transferCell = signResult.transferCell;
+
+        // Option A — use library helper if available (sign+send in one call):
+        // many lib versions expose sendTransfer or contract.send(transferCell)
+        try {
+            // try sendTransfer helper first (some versions accept no explicit provider)
+            if (typeof contract?.sendTransfer === 'function') {
+                // NOTE: if sendTransfer needs provider as first arg, add tonClient.provider
+                console.log('[withdrawals] trying contract sendTransfer function')
+                await contract.sendTransfer({ seqno: await contract.getSeqno(), secretKey: null, messages: [] });
+            } else if (typeof contract?.send === 'function') {
+                // contract.send(provider?, transferCell) - some bindings accept no provider
+                console.log('[withdrawals] trying contract send function')
+                await contract.send(transferCell); // try to send with bound client
+            }
+        } catch (libSendErr) {
+            // Library helper didn't work or is not available — fallback to raw RPC broadcast
+            console.log('[worker] library send failed, falling back to sendBoc RPC', libSendErr?.message ?? libSendErr);
+            // Use TonCenter/QuickNode / your RPC sendBoc method
+            // Example with TON Center JSON-RPC /sendBoc endpoint (adjust headers if your provider needs an API key)
+            const resp = await fetch('https://toncenter.com/api/v2/sendBoc', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(TON_API_KEY ? { 'x-api-key': TON_API_KEY } : {})
+                },
+                body: JSON.stringify({ boc: signedBocBase64 })
+            });
+            const json = await resp.json();
+            signedResponse = json;
+            console.log('[withdrawals] response from toncenter fetch json: ' + signedResponse)
+        }
+
     } catch (err) {
-        // Log detailed error object to see why provider rejected (500)
         console.error('[worker] signing/sending failed:', err?.message ?? err);
-        if (err?.response?.data) console.error('[worker] provider response:', JSON.stringify(err.response.data).slice(0, 2000));
         await revertToPending(uuid, 'sign_or_send_failed');
         return;
     } finally {
-        try { seed = null; } catch (e) { }
+        seed = null;
     }
 
     // Inspect sendResp for tx hash (provider-dependent)
-    let txHash = null;
-    // try {
-    //     txHash = sendResp?.transactionId ?? sendResp?.id ?? sendResp?.hash ?? sendResp?.result?.hash ?? sendResp?.result?.id ?? null;
-    //     console.log('[worker] sendResp extracted txHash:', txHash);
-    // } catch (e) {
-    //     console.warn('[worker] failed to extract txHash from sendResp', e?.message ?? e);
-    // }
+    
+    let txHash = signedResponse?.result?.hash ?? signedResponse?.hash ?? signedResponse?.id ?? null;
 
     try {
         await finalizeSuccess(uuid, signedBocBase64, txHash, amount);
-        // also store provider response in audit table for debugging
         await supabase.from('withdrawal_audit').insert([{
             tx_uuid: uuid,
             action: 'sent_via_library',
