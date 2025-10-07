@@ -310,9 +310,6 @@ async function mainLoop() {
     console.log('[withdrawal-worker] starting worker', WORKER_ID);
     while (true) {
         try {
-            const raw = await supabase.rpc('claim_withdrawal', { p_worker_id: WORKER_ID });
-            console.log('[debug rpc raw claim]', JSON.stringify(raw).slice(0, 1000));
-
             const claim = await claimOne();
             if (claim) {
                 await processClaim(claim);
