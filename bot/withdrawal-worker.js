@@ -234,14 +234,13 @@ async function processClaim(claim) {
         return;
     }
 
-    // get now (server-side) from provider extended address info to keep same time basis as example
     let nowUtime;
     try {
         const info = await tonweb.provider.getExtendedAddressInfo(hotWalletAddressString);
-        nowUtime = BigInt(info.sync_utime || Math.floor(Date.now() / 1000));
+        nowUtime = Number(info.sync_utime ?? Math.floor(Date.now() / 1000));
     } catch (err) {
         console.warn('[worker] getExtendedAddressInfo failed, falling back to local time', err?.message ?? err);
-        nowUtime = BigInt(Math.floor(Date.now() / 1000));
+        nowUtime = Math.floor(Date.now() / 1000);
     }
 
     // Build HighloadQueryId object
