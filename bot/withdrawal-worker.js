@@ -160,6 +160,8 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
 
     let seqno = await contract.getSeqno();
 
+    console.log('The seqno of the contract is: ' + seqno)
+
     let transfer = await contract.createTransfer({
         seqno,
         secretKey: keyPair.secretKey,
@@ -169,6 +171,8 @@ async function signTransactionWithSeed(unsignedTransaction, seedPhrase, withdraw
             body: 'Gifts Predict'
         })]
     });
+
+    console.log('The create transfer awaited result is : ' + transfer)
 
     // zero secretKey in memory (best-effort)
     try { if (keyPair.secretKey && Buffer.isBuffer(keyPair.secretKey)) keyPair.secretKey.fill(0); } catch (e) { }
@@ -229,7 +233,7 @@ async function processClaim(claim) {
                 // no payload
             }
         ],
-        meta: { source_uuid: uuid}
+        meta: { source_uuid: uuid }
     };
 
     // fetch seed
@@ -249,9 +253,6 @@ async function processClaim(claim) {
     console.log('[debug] unsignedTransaction.validUntil', unsignedTransaction.validUntil, 'nowSec', Math.floor(Date.now() / 1000));
     try {
         const signedResponse = await signTransactionWithSeed(unsignedTransaction, seed, claim.withdrawal_address);
-        sendResp = signedResponse?.sendResult;
-        signedBocBase64 = signedResponse?.signed_boc ?? null;
-        if (!sendResp) throw new Error('no send result from signTransactionWithSeed');
     } catch (err) {
         // Log detailed error object to see why provider rejected (500)
         console.error('[worker] signing/sending failed:', err?.message ?? err);
@@ -264,12 +265,12 @@ async function processClaim(claim) {
 
     // Inspect sendResp for tx hash (provider-dependent)
     let txHash = null;
-    try {
-        txHash = sendResp?.transactionId ?? sendResp?.id ?? sendResp?.hash ?? sendResp?.result?.hash ?? sendResp?.result?.id ?? null;
-        console.log('[worker] sendResp extracted txHash:', txHash);
-    } catch (e) {
-        console.warn('[worker] failed to extract txHash from sendResp', e?.message ?? e);
-    }
+    // try {
+    //     txHash = sendResp?.transactionId ?? sendResp?.id ?? sendResp?.hash ?? sendResp?.result?.hash ?? sendResp?.result?.id ?? null;
+    //     console.log('[worker] sendResp extracted txHash:', txHash);
+    // } catch (e) {
+    //     console.warn('[worker] failed to extract txHash from sendResp', e?.message ?? e);
+    // }
 
     try {
         await finalizeSuccess(uuid, signedBocBase64, txHash, amount);
@@ -277,7 +278,7 @@ async function processClaim(claim) {
         await supabase.from('withdrawal_audit').insert([{
             tx_uuid: uuid,
             action: 'sent_via_library',
-            details: { sendResp }
+            details: { signedResponse }
         }]);
         console.log('[worker] completed', uuid, 'tx', txHash);
     } catch (err) {
