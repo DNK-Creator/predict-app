@@ -38,7 +38,7 @@
 
                         <!-- Commission hint: now part of document flow, below the amount input,
                              visible only when no 2000 TON warning and amount > 0.3 -->
-                        <div v-if="showCutHint" class="cut-wrapper" role="alert" aria-live="polite">
+                        <!-- <div v-if="showCutHint" class="cut-wrapper" role="alert" aria-live="polite">
                             <span v-if="cutPercentDisplay <= 9" :class="['cut-text', { 'warning-high': isHighCut }]">
                                 {{ $t('withdraw-okay') }} {{ cutPercentDisplay }}%
                             </span>
@@ -48,7 +48,7 @@
                             <span class="cut-net-text">
                                 ~ {{ netAmountFormatted }} TON
                             </span>
-                        </div>
+                        </div> -->
                     </div>
                 </div>
 
@@ -82,7 +82,7 @@ const { modelValue, address, balance, transactionLimit, dailyLimit, dailyUsed, h
     transactionLimit: { type: Number, default: 1500 },
     dailyLimit: { type: Number, default: 7500 },
     dailyUsed: { type: Number, default: 0 },
-    house_cut: { type: Number, default: 7 }
+    house_cut: { type: Number, default: 0 }
 })
 // defineEmits returns the emit function
 const emit = defineEmits(['update:modelValue', 'withdraw'])
