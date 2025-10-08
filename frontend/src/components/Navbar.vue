@@ -21,7 +21,7 @@
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">
                 <i class="fas fa-house icon" :aria-hidden="true"></i>
-                <span class="menu-label">{{ $t('main-page') }}</span>
+                <span class="menu-label">{{ $t('bets-page') }}</span>
             </div>
         </RouterLink>
 
