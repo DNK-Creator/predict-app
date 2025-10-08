@@ -10,7 +10,7 @@ const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY;
 const POLL_INTERVAL_MS = Number(30_000);
 const walletKey = process.env.VITE_WALLET_KEY; // legacy text fallback
 const WORKER_ID = process.env.VITE_WORKER_ID || 'worker-unknown';
-const TON_API_KEY = process.env.VITE_TONCENTER_API_KEY || '';
+const TON_API_KEY = process.env.VITE_SECOND_TONCENTER_API_KEY || '';
 const IS_MAINNET = 'mainnet';
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
@@ -438,6 +438,50 @@ async function processClaim(claim) {
         const resp = await sendHighloadTransferWithRetry(transferObj, 5);
         sendResp = resp?.resp ?? resp;
         console.log('[worker] transfer.send() accepted (may be pending):', JSON.stringify(sendResp));
+
+        // --- Detect rate-limit-style response and revert to pending instead of marking completed ---
+        const looksLikeRateLimit = (r) => {
+            if (!r) return false;
+            // string responses like "Ratelimit per ip exceed"
+            if (typeof r === 'string') {
+                return /rate\s*-?\s*limit|ratelimit/i.test(r);
+            }
+            // common fields that might contain the error message
+            const candidates = [
+                r.error, r.message, r.body, r.data,
+                r?.response?.data, r?.response?.statusText, r?.response?.body
+            ];
+            for (let c of candidates) {
+                if (!c) continue;
+                try {
+                    const s = (typeof c === 'object') ? JSON.stringify(c) : String(c);
+                    if (/rate\s*-?\s*limit|ratelimit/i.test(s)) return true;
+                } catch (e) { /* ignore stringify errors */ }
+            }
+            return false;
+        };
+
+        if (looksLikeRateLimit(sendResp)) {
+            console.warn('[worker] detected provider rate-limit response -> reverting to pending', JSON.stringify(sendResp));
+            // revert state so this withdrawal can be retried later
+            await revertToPending(uuid, 'rate_limit_exceeded').catch(e => {
+                console.error('[worker] revertToPending failed', e?.message ?? e);
+            });
+
+            // write an audit entry so we can track this
+            try {
+                await supabase.from('withdrawal_audit').insert([{
+                    tx_uuid: uuid,
+                    action: 'send_rate_limited',
+                    details: { info: sendResp }
+                }]);
+            } catch (e) {
+                console.warn('[worker] failed to write withdrawal_audit for rate limit', e?.message ?? e);
+            }
+
+            // do not continue to mark as completed
+            return;
+        }
     } catch (err) {
         console.error('[worker] signing/sending failed', err?.message ?? err);
         await revertToPending(uuid, 'sign_or_send_failed');
