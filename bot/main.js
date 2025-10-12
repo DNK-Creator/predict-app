@@ -733,14 +733,14 @@ function buildMessage(payload) {
 app.post("/api/notify-handpicking", notifyLimiter, verifySignature, async (req, res) => {
     console.log('Hit /api/notify-handpicking', req.headers['x-worker-id'] || '');
     try {
-        if (!process.env.TELEGRAM_BOT_TOKEN) {
+        if (!token) {
             console.error('Telegram token not configured');
             return res.status(500).json({ error: 'Telegram bot token not configured' });
         }
 
         const messageText = buildMessage(req.body); // function from earlier, escapes values
 
-        const tgUrl = `https://api.telegram.org/bot${encodeURIComponent(process.env.TELEGRAM_BOT_TOKEN)}/sendMessage`;
+        const tgUrl = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
         const tgResp = await fetch(tgUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -772,7 +772,7 @@ app.post("/api/botmessage", async (req, res) => {
         }
 
         if (!token) {
-            console.error('Telegram token not configured (process.env.TELEGRAM_BOT_TOKEN missing)');
+            console.error('Telegram token not configured (token is missing)');
             return res.status(500).json({ error: 'Telegram bot token not configured' });
         }
 
