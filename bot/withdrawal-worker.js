@@ -335,6 +335,16 @@ async function processClaim(claim) {
     const hotWalletAddressString = walletWrapperInfo.addressStr;
     console.log('[withdrawals] using wallet class:', walletClassKey, 'hot wallet address:', hotWalletAddressString);
 
+    // Convert amount to nanotons using tonweb utils: returns BN (bn.js)
+    let amountNano;
+    try {
+        amountNano = TonWeb.utils.toNano(String(amount)); // BN
+    } catch (err) {
+        console.error('[worker] toNano failed', err?.message ?? err);
+        await revertToPending(uuid, 'invalid_amount');
+        return;
+    }
+
     // --- START: balance check ---
     let balanceNano = 0n;
     try {
@@ -440,16 +450,6 @@ async function processClaim(claim) {
     } catch (err) {
         console.error('[worker] failed to persist query_id/created_at', err?.message ?? err);
         // continue — but this makes later matching harder
-    }
-
-    // Convert amount to nanotons using tonweb utils: returns BN (bn.js)
-    let amountNano;
-    try {
-        amountNano = TonWeb.utils.toNano(String(amount)); // BN
-    } catch (err) {
-        console.error('[worker] toNano failed', err?.message ?? err);
-        await revertToPending(uuid, 'invalid_amount');
-        return;
     }
 
     // Convert target address to proper bounceable/nonbounceable form (example logic)
