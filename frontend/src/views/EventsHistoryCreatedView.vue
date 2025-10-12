@@ -16,7 +16,7 @@
             <div v-else class="history-list">
                 <transition-group name="list-fade" tag="div">
                     <CreatedEventListItem v-for="event in displayedEvents" :key="event.id"
-                        :stake="event.creator_first_stake" :bet_name="event.name || ''" :bet_name_en="event.name_en"
+                        :stake="event.creator_first_stake" :bet_name="event.name || ''" :bet_name_en="event.name_en || ''"
                         :side="event.creator_side" :description="event.description" :status="event.status"
                         @click="tryOpeningEvent(event.is_approved, event.id)" />
                 </transition-group>
