@@ -761,7 +761,7 @@ defineEmits(['click', 'share'])
 }
 
 /* responsive tweaks */
-@media (max-width: 400px) {
+@media (max-width: 360px) {
     .bet-card {
         height: 160px;
         border-radius: 16px;

@@ -1,36 +1,18 @@
 <template>
     <div class="create-root" ref="root" role="region" aria-label="Create event">
         <div class="create-container">
-            <!-- Header -->
-            <div class="header-two">
-                <h2 class="header__text">{{ t('create-event') }}</h2>
-            </div>
-
             <!-- Type selector (Prediction / Deal) -->
             <div class="card type-card" role="tablist" aria-label="Event type">
                 <div class="type-buttons">
-                    <button :class="['type-btn', { active: eventType === 'prediction' }]" @click="setType('prediction')"
+                    <button :class="['type-btn', { active: eventType === 'prediction' }]" @click="openHistoryCreated"
                         role="tab" :aria-selected="eventType === 'prediction'">
-                        {{ t('prediction') }}
-                    </button>
-
-                    <button :class="['type-btn', { active: eventType === 'deal' }]" @click="setType('deal')" role="tab"
-                        :aria-selected="eventType === 'deal'">
-                        {{ t('deal') }}
+                        <img class="history-icon" :src="PastIcon">
+                        {{ t('created-events-history') }}
                     </button>
                 </div>
             </div>
 
-            <!-- Half-visible policy hint above the forms -->
-            <div class="hint-clip" aria-hidden="false">
-                <div class="hint-text">
-                    {{ $t('create-hint-policy') }}
-                </div>
-            </div>
-
-            <!-- Form card -->
             <div class="card form-card">
-                <!-- NAME -->
                 <label class="input-label" for="ev-name">{{ t('event-name') }}</label>
                 <textarea id="ev-name" ref="nameEl" v-model="form.name" class="text-input name-input" :maxlength="100"
                     :placeholder="$t('title-placeholder')" @input="autoSizeTextarea($event, 'name')" rows="1"
@@ -39,13 +21,11 @@
                     {{ form.name.length }} / 100
                 </div>
 
-                <!-- DESCRIPTION -->
                 <label class="input-label" for="ev-desc">{{ t('description') }}</label>
                 <textarea id="ev-desc" ref="descEl" v-model="form.description" class="text-input desc-input"
                     :maxlength="650" :placeholder="$t('describe-event-input')" @input="autoSizeTextarea($event, 'desc')"
                     rows="3" aria-describedby="desc-hint"></textarea>
 
-                <!-- description hint for each type -->
                 <div id="desc-hint" class="muted-hint type-hint">
                     <template v-if="eventType === 'prediction'">
                         {{ $t('description-hint-prediction') }}
@@ -57,18 +37,17 @@
 
                 <div class="input-label"> {{ $t('you-are-giving') }} </div>
 
-                <!-- AMOUNT (left aligned, ~30% width) -->
                 <div class="row amount-row" role="group" aria-label="Amount">
-                    <input id="amount" v-model="form.amountDisplay" @input="onAmountInput" class="amount-input"
-                        type="text" inputmode="decimal" pattern="^\\d*(\\.\\d{0,2})?$" placeholder="0.00"
-                        aria-describedby="amount-help" />
+                    <input ref="amountInput" id="amount" v-model="amount" @input="onAmountInput" @focus="onAmountFocus"
+                        @blur="onAmountBlur" class="amount-input" type="text" inputmode="decimal" autocomplete="off"
+                        pattern="^\\d*(\\.\\d{0,2})?$" placeholder="0.00" aria-describedby="amount-help" />
                     <img class="amount-icon" :src="TonIcon">
                 </div>
 
-                <div class="input-label-and"> {{ $t('and') }}: {{ selectedItemsText }}</div>
+                <!-- <div class="input-label-and"> {{ $t('and') }}: {{ selectedItemsText }}</div> -->
 
                 <!-- Inventory grid: 3 columns x 2 rows visible -->
-                <div id="inventory" class="inventory-container" role="list"
+                <!-- <div id="inventory" class="inventory-container" role="list"
                     aria-label="Inventory items (tap to select)">
                     <div v-for="(cell, idx) in inventoryCells" :key="cell.id"
                         :class="['inv-cell', { selected: isSelected(cell.id) }]" role="listitem" tabindex="0"
@@ -77,10 +56,10 @@
                         <div class="inv-placeholder"></div>
                         <div class="inv-label">Item {{ idx + 1 }}</div>
                     </div>
-                </div>
+                </div> -->
 
                 <!-- TYPE-SPECIFIC BLOCKS -->
-                <div v-if="eventType === 'prediction'" class="prediction-block">
+                <div v-if="eventType === 'prediction' && showPickingSides" class="prediction-block">
                     <label class="input-label">{{ t('choose-side') }}</label>
                     <div class="yesno-wrap" role="group" aria-label="Choose yes or no">
                         <button :class="['yesno-btn', { active: form.predictionSide === 'yes' }]"
@@ -94,7 +73,7 @@
                     </div>
                 </div>
 
-                <div v-else class="deal-block">
+                <!-- <div v-else class="deal-block">
                     <label class="input-label">{{ t('you-are-getting') }}</label>
                     <div class="row amount-row">
                         <input class="other-payment-input" v-model="form.otherPaymentDisplay"
@@ -119,12 +98,18 @@
                             :placeholder="$t('getting-gifts-hint')" @input="autoSizeTextarea($event, 'gifts')"
                             rows="2"></textarea>
                     </transition>
+                </div> -->
+            </div>
+            <!-- Half-visible policy hint above the forms -->
+            <div class="hint-clip" aria-hidden="false">
+                <div class="hint-text">
+                    {{ $t('create-hint-policy') }}
                 </div>
             </div>
             <!-- footer with CREATE button -->
-            <div class="footer">
-                <button class="footer__yes create-btn" @click="onCreate">
-                    {{ $t('create-for') }} 1 TON
+            <div class="footer-create">
+                <button class="footer-create__yes create-btn" @click="onCreate" :disabled="isCreating">
+                    {{ $t('create-for') }} 0.1 TON
                 </button>
             </div>
         </div>
@@ -134,8 +119,15 @@
 <script setup>
 import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue3-toastify'
+import 'vue3-toastify/dist/index.css'
 import { useRouter } from 'vue-router'
+import { useAppStore } from '@/stores/appStore'
+import { requestCreateBet } from '@/services/bets-requests'
 import TonIcon from '@/assets/icons/TON_White_Icon.png'
+import PastIcon from '@/assets/icons/Past_Icon.png'
+
+const app = useAppStore()
 
 const { t } = useI18n()
 const router = useRouter()
@@ -144,27 +136,26 @@ const root = ref(null)
 const nameEl = ref(null)
 const descEl = ref(null)
 
+const isCreating = ref(false)
+
 const eventType = ref('prediction') // 'prediction' | 'deal'
+const showPickingSides = ref(false)
 
 // simple form model
 const form = reactive({
     name: '',
     description: '',
-    amount: 0.0,
-    amountDisplay: '',
-    otherPayment: 0.0,
-    otherPaymentDisplay: '',
-    predictionSide: 'yes',
-    giftsEnabled: false,
-    giftsText: ''
+    predictionSide: 'yes'
 })
 
-// helper displays bound to inputs (for formatting)
-form.amountDisplay = ''
 form.otherPaymentDisplay = ''
 
 // inventory placeholder cells (empty). We show 3x2 visible rows; provide more to allow scroll.
 const inventoryCells = Array.from({ length: 18 }).map((_, i) => ({ id: `cell-${i + 1}` }))
+
+function openHistoryCreated() {
+    router.push({ name: 'created-history' })
+}
 
 // selection set
 const selectedIds = ref(new Set())
@@ -219,15 +210,75 @@ function autoSizeTextarea(e, which) {
     el.style.height = newH + 'px'
 }
 
-// amount input formatting: allow up to two decimals. Keep both raw numeric and display.
+const lastInputtedNumber = ref('')
+const amount = ref('')
+const amountInput = ref(null)
+
 function onAmountInput(e) {
-    const v = e.target.value.replace(',', '.').replace(/[^\d.]/g, '')
-    // keep only first dot
-    const parts = v.split('.')
-    let cleaned = parts.shift() || ''
-    if (parts.length) cleaned += '.' + parts.join('').slice(0, 2)
-    form.amountDisplay = cleaned
-    form.amount = cleaned === '' ? 0 : parseFloat(cleaned)
+    let v = e.target.value.replace(/,/g, '.')
+        .replace(/[^\d.]/g, '')
+        .replace(/^0(\d)/, '0')
+        .replace(/(\..*)\./g, '$1')
+
+    if (v.includes('.')) {
+        const [i, d] = v.split('.')
+        v = i + '.' + d.slice(0, 2)
+    }
+
+    if (v === '0' && lastInputtedNumber.value !== '0.') {
+        v = '0.'
+    } else if (lastInputtedNumber.value === '0.' && v === '0') {
+        v = ''
+    }
+
+    if (v === '.') {
+        v = '0.'
+    }
+
+    if (v === '0.00') {
+        v = '0.01'
+    }
+
+    const num = parseFloat(v)
+    if (!isNaN(num) && num > 99999) {
+        v = '99999'
+    }
+
+    if (v > 0) {
+        showPickingSides.value = true
+    } else {
+        showPickingSides.value = false
+    }
+
+    amount.value = v
+
+    lastInputtedNumber.value = v
+}
+
+function onAmountFocus() {
+    document.body.classList.add('keyboard-open');
+    setTimeout(() => {
+        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
+    }, 50);
+    if (window.visualViewport) {
+        const update = () => {
+            const kv = window.visualViewport;
+            const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
+            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+        };
+        amountInput._vvListener = update;
+        window.visualViewport.addEventListener('resize', update);
+        update();
+    }
+}
+
+function onAmountBlur() {
+    document.body.classList.remove('keyboard-open');
+    if (window.visualViewport && amountInput._vvListener) {
+        window.visualViewport.removeEventListener('resize', amountInput._vvListener);
+        delete amountInput._vvListener;
+        document.documentElement.style.removeProperty('--keyboard-height');
+    }
 }
 
 // other payment input
@@ -249,24 +300,101 @@ function setType(tpe) {
     })
 }
 
-// Create action placeholder (hook up actual API later)
-function onCreate() {
-    // collect data and emit/save
-    const payload = {
-        type: eventType.value,
-        name: form.name.trim(),
-        description: form.description.trim(),
-        amount: Number.isFinite(form.amount) ? form.amount : 0,
-        otherPayment: Number.isFinite(form.otherPayment) ? form.otherPayment : 0,
-        selectedItems: Array.from(selectedIds.value),
-        predictionSide: form.predictionSide,
-        giftsEnabled: !!form.giftsEnabled,
-        giftsText: form.giftsText
+function addTemporaryOutline(el, duration = 2800) {
+    if (!el) return
+    el.classList.add('input-error')
+    el.setAttribute('aria-invalid', 'true')
+    // store timeout id so multiple calls don't create overlapping timeouts
+    if (el._outlineTimeout) clearTimeout(el._outlineTimeout)
+    el._outlineTimeout = setTimeout(() => {
+        el.classList.remove('input-error')
+        el.removeAttribute('aria-invalid')
+        delete el._outlineTimeout
+    }, duration)
+}
+
+async function onCreate() {
+    const totalCreationPrice = Number(Number(amount.value) + 0.1).toFixed(2)
+    if (app.points < totalCreationPrice) {
+        let messageText = app.language === 'ru' ? 'Недостаточно средств для создания события.' : 'Not enough funds to create an event.'
+        toast.error(messageText)
+        return
     }
-    console.log('Create payload', payload)
-    // TODO: call API, show spinner / navigate back after success
-    // For now navigate back to bets:
-    router.back()
+
+    const nameTrimmed = String(form.name || '').trim()
+    const descTrimmed = String(form.description || '').trim()
+    const nameLen = nameTrimmed.length
+    const descLen = descTrimmed.length
+    const MAX_NAME = 100
+    const MAX_DESC = 650
+
+    const invalidEls = []
+
+    if (nameLen === 0 || nameLen > MAX_NAME) {
+        invalidEls.push({ el: nameEl.value, reason: nameLen === 0 ? 'empty' : 'toolong' })
+    }
+    if (descLen === 0 || descLen > MAX_DESC) {
+        invalidEls.push({ el: descEl.value, reason: descLen === 0 ? 'empty' : 'toolong' })
+    }
+
+    if (invalidEls.length > 0) {
+        invalidEls.forEach(i => addTemporaryOutline(i.el))
+
+        const toastMsg = app.language === 'ru' ? 'Заполните необходимую информацию' : 'Fill out the necessary information'
+        toast.error(toastMsg)
+
+        return
+    }
+
+    const payload = {
+        name: nameTrimmed,
+        description: descTrimmed,
+        stake: Number.isFinite(Number(amount.value)) ? Number(amount.value) : 0,
+        side: form.predictionSide
+    }
+
+    isCreating.value = true
+
+    try {
+        const resp = await requestCreateBet(payload, { timeoutMs: 12000 })
+
+        if (resp.ok) {
+            toast.success(app.language === 'ru' ? 'Событие отправлено на модерацию' : 'Event submitted for moderation')
+            if (resp.data?.user?.points !== undefined) {
+                app.points = resp.data.user.points // or dispatch store action
+            }
+
+            openHistoryCreated()
+
+            return
+        }
+
+        // Not ok -> determine message to show
+        let message
+        if (resp.error === 'validation_error' || resp.status === 400) {
+            message = app.language === 'ru' ? 'Проверьте данные и попробуйте снова' : 'Please check the input and try again'
+        } else if (resp.error === 'insufficient_funds') {
+            message = app.language === 'ru' ? 'Недостаточно средств для создания события' : 'Not enough points to create the event'
+        } else if (resp.error === 'telegram_error') {
+            message = app.language === 'ru' ? 'Не удалось уведомить команду поддержки, но событие создано' : 'Event created but notification to support failed'
+            toast.success(message)
+            return
+        } else if (resp.error === 'timeout') {
+            message = app.language === 'ru' ? 'Сервер не отвечает, попробуйте позже' : 'Server timed out, try again later'
+        } else if (resp.error === 'network_error') {
+            message = app.language === 'ru' ? 'Сетевая ошибка, проверьте соединение' : 'Network error — check your connection'
+        } else {
+            message = resp.message || (app.language === 'ru' ? 'Ошибка на сервере' : 'Server error')
+        }
+
+        toast.error(message)
+
+    } catch (e) {
+        console.error('onCreate unexpected error', e)
+        toast.error(app.language === 'ru' ? 'Неожиданная ошибка' : 'Unexpected error')
+    } finally {
+        isCreating.value = false
+    }
 }
 
 // ensure initial autosize on mount
@@ -343,6 +471,10 @@ onMounted(() => {
 
 .type-btn {
     flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     min-width: 120px;
     padding: 10px 12px;
     border-radius: 10px;
@@ -363,15 +495,21 @@ onMounted(() => {
     box-shadow: 0 8px 24px rgba(59, 130, 246, 0.18);
 }
 
+.history-icon {
+    width: 16px;
+    height: 16px;
+}
+
 /* small half-visible policy hint: clip so only top half visible */
 .hint-clip {
     width: 95%;
     overflow: hidden;
     text-justify: start;
-    height: 40px;
-    margin-top: 0px;
-    margin-bottom: 12px;
+    height: 50px;
+    margin-top: 4px;
+    margin-bottom: 4px;
     position: relative;
+    user-select: none;
 }
 
 .hint-text {
@@ -380,6 +518,7 @@ onMounted(() => {
     line-height: 1;
     font-weight: 600;
     font-family: "Inter", sans-serif;
+    text-align: center;
 }
 
 /* form inputs */
@@ -390,8 +529,10 @@ onMounted(() => {
     color: #F7F9FB;
     margin-top: 16px;
     margin-bottom: 8px;
+    width: 94%;
     display: block;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
+    user-select: none;
 }
 
 .input-label-and {
@@ -408,6 +549,7 @@ onMounted(() => {
     font-size: 0.82rem;
     margin-top: 12px;
     margin-bottom: 6px;
+    user-select: none;
 }
 
 /* shared text-input + autosize textarea look */
@@ -422,14 +564,30 @@ onMounted(() => {
     font-family: "Inter", sans-serif;
     resize: none;
     overflow-y: auto;
+    overflow-x: hidden;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
     min-height: 2.5rem;
     line-height: 1.3;
 }
 
+.text-input:focus {
+    outline: none;
+    border: 1px solid #4d4d4d;
+}
+
+.text-input::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    /* Remove scrollbar space */
+    background: transparent;
+    /* Optional: just make scrollbar invisible */
+}
+
 /* name special */
 .name-input {
-    min-height: 2.5rem;
-    max-height: 220px;
+    min-height: 3.5rem;
+    max-height: 280px;
 }
 
 /* description bigger by default */
@@ -458,6 +616,11 @@ onMounted(() => {
 .amount-icon {
     width: 16px;
     height: 16px;
+    -webkit-user-drag: none;
+    user-select: none;
+    -moz-user-select: none;
+    -webkit-user-select: none;
+    -ms-user-select: none;
 }
 
 .amount-input {
@@ -471,6 +634,11 @@ onMounted(() => {
     color: #fff;
     font-weight: 700;
     font-family: "Inter", sans-serif;
+}
+
+.amount-input:focus {
+    outline: none;
+    border: 1px solid #4d4d4d;
 }
 
 /* Inventory container: shows 2 rows (each row height calculated), 3 columns, scrollable */
@@ -605,13 +773,13 @@ onMounted(() => {
     box-shadow: 0 8px 28px rgba(45, 131, 236, 0.18), 0 0 18px rgba(45, 131, 236, 0.18);
 }
 
-/* yes/no pair for prediction: 50% container with two half buttons */
 .yesno-wrap {
-    width: 50%;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
     gap: 8px;
     margin-top: 16px;
-    align-items: center;
 }
 
 .yesno-btn {
@@ -700,7 +868,7 @@ onMounted(() => {
 }
 
 /* footer fixed like your bet-details footer */
-.footer {
+.footer-create {
     width: min(720px, 100%);
     display: flex;
     margin: auto auto;
@@ -709,6 +877,7 @@ onMounted(() => {
     align-items: center;
     padding: 8px 12px;
     padding-bottom: 16px;
+    margin-bottom: 24px;
     z-index: 5;
     box-sizing: border-box;
     pointer-events: auto;
@@ -730,6 +899,13 @@ onMounted(() => {
     cursor: pointer;
     font-family: "Inter", sans-serif;
     font-size: 1rem;
+}
+
+.create-btn[disabled] {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
 /* small fade transition used for gifts reveal */
@@ -759,19 +935,45 @@ onMounted(() => {
 }
 
 /* responsive */
-@media (max-width: 520px) {
+@media (max-width: 380px) {
     .inventory-container {
-        height: calc((70px * 2) + 12px);
-        grid-auto-rows: 70px;
+        height: calc((70px * 2) + 120px);
+        grid-auto-rows: 80px;
     }
 
-    .amount-input,
-    .other-payment-input {
-        width: 46%;
+    .text-input.name-input {
+        min-height: 80px;
     }
 
-    .yesno-wrap {
-        width: 80%;
+    .name-input {
+        font-size: 0.85rem;
+        height: 2rem;
     }
+}
+
+/* visible error outline for invalid inputs (temporary) */
+.input-error {
+    border-color: #ff4d4f !important;
+    box-shadow: 0 0 0 4px rgba(255, 77, 79, 0.10), 0 6px 18px rgba(255, 77, 79, 0.06);
+    transition: box-shadow 180ms ease, border-color 120ms ease;
+}
+
+/* small pulse animation to draw attention once when error is applied */
+@keyframes inputErrorPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(255, 77, 79, 0.14);
+    }
+
+    60% {
+        box-shadow: 0 0 0 6px rgba(255, 77, 79, 0.06);
+    }
+
+    100% {
+        box-shadow: 0 0 0 4px rgba(255, 77, 79, 0.10);
+    }
+}
+
+.input-error {
+    animation: inputErrorPulse 520ms ease;
 }
 </style>

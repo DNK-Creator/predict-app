@@ -9,6 +9,10 @@
             {{ $t('past') }}
         </button>
     </div>
+    <div class="create-event-button" @click="createEventFunc">
+        <img :src="createIcon" class="create-icon">
+        <span>{{ $t('create-event') }}</span>
+    </div>
     <div class="lists-parent">
         <div class="bets-list" v-show="helperQuickSelected === 'active' || selectedTab === 'active'"
             :class="{ listActive: isActiveShown }">
@@ -45,6 +49,7 @@ import { fetchActiveBets, fetchPastBets } from '@/services/bets-requests'
 import { useAppStore } from '@/stores/appStore'
 import { useTelegram } from '@/services/telegram'
 import BetsCard from '@/components/bet-details/BetsCard.vue'
+import createIcon from '@/assets/icons/Plus_White_Icon.png'
 
 const activeEvents = ref([])
 const activeLoading = ref(true)
@@ -95,6 +100,10 @@ const isActiveSelected = computed(() => {
 
 function openBetPage(id) {
     router.push({ name: 'BetDetails', params: { id } })
+}
+
+function createEventFunc() {
+    router.push({ name: 'create-event'})
 }
 
 function computeBetStatus(closeTimeIso, result) {
@@ -336,5 +345,31 @@ function shareBetFunction(betName, betNameEn) {
 
 .list-element {
     width: 100%;
+}
+
+.create-event-button {
+    display: flex;
+    cursor: pointer;
+    align-self: center;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: auto auto;
+    width: 92%;
+    height: 2.5rem;
+    margin-top: 12px;
+    border-radius: 20px;
+    border: none;
+    background: linear-gradient(#3b82f6, #3b82f6);
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.create-icon {
+    margin-top: 1px;
+    height: 12px;
+    width: 12px;
 }
 </style>

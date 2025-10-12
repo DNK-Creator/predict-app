@@ -7,9 +7,10 @@ import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
+import crypto from 'crypto';
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
-const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_API_KEY; // service_role key (server-only)
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // service_role key (server-only)
 const TONCENTER_API_KEY = process.env.VITE_TONCENTER_API_KEY;
 const TONCENTER_API_BASE = process.env.VITE_TONCENTER_URL || 'https://api.toncenter.com/api/v2'
 const HOT_WALLET = process.env.VITE_HOT_WALLET;
@@ -28,6 +29,18 @@ if (!HOT_WALLET) {
 const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false }
 });
+
+function verifySignature(req, res, next) {
+    const raw = req.rawBody || JSON.stringify(req.body); // ensure rawBody or fallback
+    const sig = req.headers['x-internal-signature'];
+    if (!sig) return res.status(403).json({ error: 'missing signature' });
+
+    const expected = crypto.createHmac('sha256', process.env.INTERNAL_SECRET).update(raw).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) {
+        return res.status(403).json({ error: 'invalid signature' });
+    }
+    next();
+}
 
 const token = process.env.BOT_TOKEN
 const bot = new Telegraf(token)
@@ -81,6 +94,16 @@ process.on('uncaughtException', (err) => {
 });
 
 const app = express()
+
+app.use((req, res, next) => {
+    let data = [];
+    req.on('data', chunk => data.push(chunk));
+    req.on('end', () => {
+        req.rawBody = Buffer.concat(data).toString('utf8');
+        next();
+    });
+});
+
 app.use(express.json())
 
 // Restricted CORS: only your frontend allowed, credentials enabled
@@ -305,6 +328,159 @@ app.post('/api/bet-placed', async (req, res) => {
 });
 
 
+// POST /api/create-event
+app.post('/api/create-event', async (req, res) => {
+    try {
+        const chat_id = '-1002951097413'
+        const { telegram, name, description, side, stake } = req.body || {};
+        if (!telegram || !name || !description || !side || (stake === undefined || stake === null)) {
+            return res.status(400).json({
+                ok: false,
+                error: 'validation_error',
+                message: 'telegram, name, description, side, stake required'
+            });
+        }
+
+        // fetch user row (get username and placed_bets)
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('id, username, telegram, points, placed_bets')
+            .eq('telegram', Number(telegram))
+            .limit(1)
+            .maybeSingle();
+
+        if (userErr) {
+            console.error('create-event: supabase users select error', userErr);
+            return res.status(500).json({ ok: false, error: 'db_error', message: 'database error' });
+        }
+
+        if (!userRow) {
+            return res.status(404).json({ ok: false, error: 'user_not_found', message: 'user not found' });
+        }
+
+        const stakeNum = Number(stake)
+        if (!Number.isFinite(stakeNum) || stakeNum < 0) {
+            return res.status(400).json({ ok: false, error: 'validation_error', message: 'invalid stake' });
+        }
+
+        const totalEventPrice = stakeNum + 0.1 // stake user is initially betting and also 0.1 price for creation
+
+        if (totalEventPrice > Number(userRow.points)) {
+            return res.status(400).json({ ok: false, error: 'insufficient_funds', message: 'not enough points to create the event' });
+        }
+
+        let sideFormatted = 'empty';
+        if (String(side).toLowerCase() === 'yes') sideFormatted = 'yes';
+        else if (String(side).toLowerCase() === 'no') sideFormatted = 'no';
+
+        // insert potential created event row
+        const { data: newEventRow, error: insertErr } = await supabaseAdmin
+            .from('bets')
+            .insert([
+                {
+                    name: String(name).trim(), description: String(description).trim(), creator_first_stake: stakeNum, creator_side: sideFormatted,
+                    isApproved: false, result: 'undefined', prizes_given: false, creator_telegram: telegram, status: 'Waiting'
+                }
+            ])
+            .select()
+
+        if (insertErr) {
+            console.error('create-event: supabase insert error', insertErr);
+            return res.status(500).json({ ok: false, error: 'db_error', message: 'could not create event' });
+        }
+
+        const newEventId = Array.isArray(newEventRow) ? newEventRow[0]?.id : newEventRow?.id
+        if (!newEventId) {
+            console.error('create-event: could not find new event id', newEventRow)
+            return res.status(500).json({ ok: false, error: 'db_error', message: 'could not determine new event id' });
+        }
+
+        const newPoints = Number(userRow.points) - totalEventPrice
+        const updatePayload = { points: newPoints }
+
+        // Only add to placed_bets if stake > 0
+        if (stakeNum > 0) {
+            const existingPlaced = Array.isArray(userRow.placed_bets) ? userRow.placed_bets.slice() : []
+
+            const newPlacedBet = {
+                side: sideFormatted,
+                stake: stakeNum,
+                bet_id: newEventId,
+                placed_at: new Date().toISOString() // using current server time
+            }
+
+            existingPlaced.push(newPlacedBet)
+            updatePayload.placed_bets = existingPlaced
+        }
+
+        // update users row (deduct points, upsert to placed_bets)
+        const { data: newUserRow, error: updateUserErr } = await supabaseAdmin
+            .from('users')
+            .update(updatePayload)
+            .eq('telegram', Number(telegram))
+            .limit(1)
+            .maybeSingle();
+
+        if (updateUserErr) {
+            console.error('create-event: supabase update users record error', updateUserErr);
+            // NOTE: newEvent was created but user update failed — consider a compensating action or audit
+            return res.status(500).json({ ok: false, error: 'db_error', message: 'could not update user' });
+        }
+
+        // prepare message (escape username & values for HTML mode)
+        const escapeHtml = (s = '') =>
+            String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+        // Build clickable username link: prefer https://t.me/<username> if available
+        const rawUsername = userRow.username ? String(userRow.username).replace(/^@/, '') : null;
+        let userLinkHref, userLinkText;
+        if (rawUsername) {
+            userLinkHref = `https://t.me/${encodeURIComponent(rawUsername)}`;
+            userLinkText = `@${rawUsername}`;
+        } else {
+            // fallback to tg://user?id=<telegram>
+            userLinkHref = `tg://user?id=${encodeURIComponent(String(userRow.telegram))}`;
+            userLinkText = `telegram:${userRow.telegram}`;
+        }
+
+        const stakeFormatted = Number.isFinite(stakeNum) ? stakeNum : stake;
+
+        const lines = [];
+
+        lines.push('<b>New Event Creation Request 🖨️</b>');
+
+        const clickable = `<a href="${userLinkHref}">${escapeHtml(userLinkText)}</a>`;
+
+        const sideEscaped = escapeHtml(String(sideFormatted));
+
+        lines.push(`${clickable} just requested to create an event named: ${escapeHtml(String(name))}. The description is: "${description}"`);
+
+        lines.push(`Initial choice: ${stakeFormatted} TON on ${sideEscaped} ⭐`);
+
+        const messageText = lines.join('\n');
+
+        // send message using Telegraf bot instance
+        try {
+            const chatId = chat_id;
+
+            if (!chatId) {
+                console.error('create-event: no chat id configured');
+            } else {
+                await bot.telegram.sendMessage(chat_id, messageText, { parse_mode: 'HTML', disable_web_page_preview: true });
+            }
+        } catch (tgErr) {
+            console.error('create-event: telegram send error', tgErr);
+            return res.status(502).json({ ok: false, error: 'telegram_error', message: 'notification_failed' });
+        }
+    } catch (err) {
+        console.error('create-event unexpected error', err);
+        return res.status(500).json({ ok: false, error: 'internal_error', message: 'internal server error' });
+    }
+});
+
 app.get("/api/get-chance", async (req, res) => {
     console.log('Hit /api/get-chance')
     try {
@@ -508,6 +684,56 @@ app.post("/api/giftHandle", async (req, res) => {
     }
 });
 
+// rate limit to protect the Telegram bot from spam
+const notifyLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10,              // limit to 10 calls/min (tune as needed)
+    message: { error: 'too_many_requests' }
+});
+
+function buildMessage(payload) {
+    // build safe HTML message, escaping user-controlled values
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<b>Manual withdrawal required</b>\n\n` +
+        `UUID: <code>${esc(payload.uuid)}</code>\n` +
+        `Amount: ${esc(payload.amount)} TON (${esc(payload.amountNano)} nanotons)\n` +
+        `Balance: ${esc(payload.balanceNano)} nanotons\n` +
+        `To: <code>${esc(payload.withdrawal_address)}</code>\n` +
+        `Time: ${esc(payload.timestamp)}\n`;
+}
+
+app.post("/api/notify-handpicking", notifyLimiter, verifySignature, async (req, res) => {
+    console.log('Hit /api/notify-handpicking', req.headers['x-worker-id'] || '');
+    try {
+        if (!process.env.TELEGRAM_BOT_TOKEN) {
+            console.error('Telegram token not configured');
+            return res.status(500).json({ error: 'Telegram bot token not configured' });
+        }
+
+        const messageText = buildMessage(req.body); // function from earlier, escapes values
+
+        const tgUrl = `https://api.telegram.org/bot${encodeURIComponent(process.env.TELEGRAM_BOT_TOKEN)}/sendMessage`;
+        const tgResp = await fetch(tgUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                chat_id: '-1002951097413',
+                text: messageText,
+                parse_mode: 'HTML'
+            })
+        });
+
+        const tgData = await tgResp.json().catch(() => null);
+        if (!tgResp.ok) {
+            console.error('Telegram API error:', tgResp.status, tgData);
+            return res.status(502).json({ error: 'Telegram API error', status: tgResp.status });
+        }
+        return res.status(200).json({ ok: true, result: tgData?.result });
+    } catch (err) {
+        console.error('Unexpected error in /api/notify-handpicking:', err);
+        return res.status(500).json({ error: 'failed to send bot message' });
+    }
+});
 
 app.post("/api/botmessage", async (req, res) => {
     console.log("Hit /api/botmessage");

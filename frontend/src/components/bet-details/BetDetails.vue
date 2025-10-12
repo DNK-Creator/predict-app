@@ -60,7 +60,7 @@
                         <div class="chance-row">
                             <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
                                 volume.No).toFixed(2)
-                            }}</span>
+                                }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -90,7 +90,7 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                        }}</span>
+                            }}</span>
                     </div>
                 </div>
 
@@ -167,7 +167,7 @@
                         <div class="giveaway-hint-clip" aria-hidden="true">
                             <div class="giveaway-hint">{{ $t('tickets-left') }}: {{ bet.giveaway_tickets_left }}/{{
                                 bet.giveaway_total_tickets
-                            }}</div>
+                                }}</div>
                         </div>
 
                     </div>
@@ -256,7 +256,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, onActivated, onDeactivated, computed, nextTick, watch } from 'vue'
 import { useAppStore } from '@/stores/appStore'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { updateLayoutVars, setKeyboardHeight } from '@/services/useLayoutChanges.js'
 import {
     getBetById,
@@ -268,6 +268,7 @@ import {
     getUserLastCommentTime,
     getBetsHolders
 } from '@/services/bets-requests.js'
+import supabase from '@/services/supabase'
 import MemoryOrb from './MemoryOrb.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
 import HolderItem from '@/components/bet-details/HolderItem.vue'
@@ -281,6 +282,8 @@ import 'vue3-toastify/dist/index.css'
 import { v4 as uuidv4 } from 'uuid'
 import tonIcon from '@/assets/icons/TON_Icon.png'
 import { parseISO, differenceInMilliseconds } from 'date-fns'
+
+const router = useRouter()
 
 // accept id as optional prop (router can pass params as props when configured)
 const props = defineProps({
@@ -1020,8 +1023,53 @@ onDeactivated(() => {
     }
 })
 
+async function validateIdAndApproval(id) {
+    console.log(id)
+    // Normalize id to integer (if you use strings for IDs adjust accordingly)
+    const numericId = Number(id)
+    if (!numericId || Number.isNaN(numericId)) {
+        // invalid id in URL -> redirect
+        router.replace({ path: '/' })
+        return false
+    }
+
+    try {
+        // Query only the approval field
+        const { data, error } = await supabase
+            .from('bets')
+            .select('is_approved')
+            .eq('id', numericId)
+            .single()
+
+        if (error) {
+            // Not found or DB error -> redirect to main page
+            console.warn('Supabase error when validating bet id:', error)
+            router.replace({ path: '/' })
+            return false
+        }
+
+        // If row found but not approved -> redirect
+        if (!data || !data.is_approved) {
+            router.replace({ path: '/' })
+            return false
+        }
+
+        // ok to continue
+        return true
+    } catch (e) {
+        console.error('Unexpected error validating bet id:', e)
+        router.replace({ path: '/' })
+        return false
+    }
+}
+
 onMounted(async () => {
-    await loadData()
+    const idParam = route.params.id
+
+    const ok = await validateIdAndApproval(idParam)
+    if (!ok) return // already redirected
+
+    await loadData(Number(idParam))
     await refreshUserLastCommentTime()
     await nextTick()
 

@@ -50,7 +50,7 @@ import { computed, watch, onMounted, nextTick, ref, onUpdated, onBeforeUnmount }
 const route = useRoute()
 
 // route names where we want the bottom navbar hidden (match your router names)
-const menuHideRoutes = ['deposit', 'BetDetails', 'privacy', 'bets-history', 'gifts-prices']
+const menuHideRoutes = ['deposit', 'BetDetails', 'privacy', 'bets-history', 'gifts-prices', 'created-history']
 
 const hideMenu = computed(() => menuHideRoutes.includes(route.name))
 

@@ -1,9 +1,12 @@
 import TonWeb from 'tonweb';
 import TonWebMnemonic from 'tonweb-mnemonic';
 import { createClient } from '@supabase/supabase-js';
+import crypto from 'crypto';
 
 const { HighloadWallets } = TonWeb; // contains HighloadWalletContractV3, HighloadQueryId
 const { HighloadWalletContractV3, HighloadQueryId } = HighloadWallets;
+
+const SHARED_SECRET = process.env.INTERNAL_SECRET;
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY;
@@ -34,6 +37,36 @@ function backoffMs(attempt, base = 500, max = 30000) {
     const expo = Math.min(max, base * Math.pow(2, attempt));
     const jitter = Math.floor((Math.random() * 0.6 - 0.3) * expo);
     return Math.max(0, expo + jitter);
+}
+
+const MAIN_BACKEND_URL = 'https://api.giftspredict.ru';
+
+function signPayload(payloadJson) {
+    return crypto.createHmac('sha256', SHARED_SECRET).update(payloadJson).digest('hex');
+}
+
+async function notifyMainBackend(payload) {
+    const url = `${MAIN_BACKEND_URL.replace(/\/$/, '')}/api/notify-handpicking`;
+    const body = JSON.stringify(payload);
+    const sig = signPayload(body);
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-worker-id': WORKER_ID,
+                'x-internal-signature': sig,
+            },
+            body,
+        });
+        let bodyResp = null;
+        try { bodyResp = await resp.json(); } catch (e) { bodyResp = null; }
+        console.log('[worker] notifyMainBackend response', resp.status, bodyResp);
+        return { status: resp.status, bodyResp };
+    } catch (err) {
+        console.warn('[worker] notifyMainBackend failed', err?.message ?? err);
+        return { error: String(err?.message ?? err) };
+    }
 }
 
 // Helper to try wallet classes and pick the one that matches an active on-chain address.
@@ -301,6 +334,86 @@ async function processClaim(claim) {
     const walletInstance = walletWrapperInfo.walletInstance;
     const hotWalletAddressString = walletWrapperInfo.addressStr;
     console.log('[withdrawals] using wallet class:', walletClassKey, 'hot wallet address:', hotWalletAddressString);
+
+    // --- START: balance check ---
+    let balanceNano = 0n;
+    try {
+        const addrInfo = await tonweb.provider.getAddressInfo(hotWalletAddressString);
+        // toncenter / provider may return balance as string/number in different fields — try common ones
+        if (addrInfo && addrInfo.balance !== undefined && addrInfo.balance !== null) {
+            balanceNano = BigInt(String(addrInfo.balance));
+        } else if (addrInfo && addrInfo.account && addrInfo.account.balance !== undefined && addrInfo.account.balance !== null) {
+            balanceNano = BigInt(String(addrInfo.account.balance));
+        } else if (addrInfo && addrInfo.result && addrInfo.result.balance !== undefined && addrInfo.result.balance !== null) {
+            balanceNano = BigInt(String(addrInfo.result.balance));
+        } else {
+            // fallback: try calling provider method that returns bigint if available
+            try {
+                if (typeof walletInstance.getBalance === 'function') {
+                    const b = await walletInstance.getBalance();
+                    balanceNano = BigInt(String(b));
+                }
+            } catch (e) { /* ignore */ }
+        }
+    } catch (e) {
+        console.warn('[worker] getAddressInfo failed (balance check)', e?.message ?? e);
+    }
+
+    // Convert BN (TonWeb) to BigInt for comparison
+    const amountNanoBigInt = BigInt(amountNano.toString());
+
+    if (amountNanoBigInt > balanceNano) {
+        console.log('[worker] insufficient hot wallet balance -> marking Handpicking', {
+            amountNano: amountNanoBigInt.toString(),
+            balanceNano: balanceNano.toString()
+        });
+
+        try {
+            await supabase.from('transactions').update({
+                status: 'Handpicking',
+                handled: true,          // mark handled so worker won't pick it again
+                worker_id: null,
+                processed_at: new Date().toISOString()
+            }).eq('uuid', uuid);
+        } catch (e) {
+            console.error('[worker] failed to set Handpicking status in transactions', e?.message ?? e);
+        }
+
+        // Add an audit row
+        try {
+            await supabase.from('withdrawal_audit').insert([{
+                tx_uuid: uuid,
+                action: 'handpicking_insufficient_funds',
+                details: {
+                    required: amountNanoBigInt.toString(),
+                    balance: balanceNano.toString()
+                }
+            }]);
+        } catch (e) {
+            console.warn('[worker] failed to insert withdrawal_audit for handpicking', e?.message ?? e);
+        }
+
+        // Notify main backend (main.js). main.js should implement POST /internal/notify-handpicking
+        const notifyPayload = {
+            uuid,
+            wallet_id,
+            amount: amount,                // human TON decimal (existing DB field)
+            amountNano: amountNanoBigInt.toString(),
+            balanceNano: balanceNano.toString(),
+            withdrawal_address,
+            worker_id: WORKER_ID,
+            timestamp: new Date().toISOString()
+        };
+
+        try {
+            await notifyMainBackend(notifyPayload);
+        } catch (e) {
+            console.warn('[worker] notifyMainBackend threw', e?.message ?? e);
+        }
+
+        return;
+    }
+    // --- END: balance check ---
 
     let nowUtime;
     try {

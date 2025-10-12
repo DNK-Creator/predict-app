@@ -6,6 +6,53 @@ const { user } = useTelegram()
 
 let _cachedBets = null
 
+// client-side: utils/requestCreateBet.js (or inline)
+export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+        const resp = await fetch('https://api.giftspredict.ru/api/create-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+                telegram: Number(user?.id ?? 99),
+                name: String(eventObj.name),
+                description: String(eventObj.description),
+                side: String(eventObj.side),
+                stake: String(Number(eventObj.stake).toFixed(2))
+            })
+        });
+
+        clearTimeout(id);
+
+        let body = null;
+        try {
+            body = await resp.json();
+        } catch (e) {
+            body = null;
+        }
+
+        if (resp.ok) {
+            return { ok: true, status: resp.status, data: body };
+        }
+
+        // for non-2xx responses, normalize error object
+        const errCode = body?.error || 'server_error';
+        const message = body?.message || (body?.error_description || 'Server returned an error');
+        return { ok: false, status: resp.status, error: errCode, message, data: body };
+
+    } catch (err) {
+        clearTimeout(id);
+        if (err.name === 'AbortError') {
+            return { ok: false, status: 0, error: 'timeout', message: 'Request timed out' };
+        }
+        // network failure
+        return { ok: false, status: 0, error: 'network_error', message: String(err.message || err) };
+    }
+}
+
 export async function fetchActiveBets({ offset = 0, limit = 10 } = {}) {
     const to = offset + limit - 1
     const { data, error } = await supabase
@@ -20,13 +67,25 @@ export async function fetchActiveBets({ offset = 0, limit = 10 } = {}) {
 }
 
 export async function fetchPastBets({ offset = 0, limit = 8 } = {}) {
-    console.log(offset, limit)
     const to = offset + limit - 1
     const { data, error } = await supabase
         .from('bets')
         .select('*')
         .neq('result', 'undefined')
         .order('volume_number', { ascending: false })
+        .range(offset, to)
+
+    if (error) throw error
+    return data || []
+}
+
+export async function fetchCreatedEvents({ offset = 0, limit = 8 } = {}) {
+    const to = offset + limit - 1
+    const { data, error } = await supabase
+        .from('bets')
+        .select('id, name, description, creator_first_stake, creator_side, is_approved, status')
+        .eq('creator_telegram', user?.id ?? 99)
+        .order('creator_first_stake', { ascending: false })
         .range(offset, to)
 
     if (error) throw error

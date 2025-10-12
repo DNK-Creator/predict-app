@@ -8,7 +8,8 @@ import PrivacyView from '@/views/PrivacyView.vue'
 import GiftsPricesView from '@/views/GiftsPricesView.vue'
 import HistoryView from '@/views/HistoryView.vue'
 import TransactionsUserView from '@/views/TransactionsUserView.vue'
-// import CreateEventView from '@/views/CreateEventView.vue'
+import CreateEventView from '@/views/CreateEventView.vue'
+import EventsHistoryCreatedView from '@/views/EventsHistoryCreatedView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -65,11 +66,16 @@ const router = createRouter({
     //   name: 'running',
     //   component: RunningView,
     // },
-    // {
-    //   path: '/create-event',
-    //   name: 'create-event',
-    //   component: CreateEventView,
-    // },
+    {
+      path: '/create-event',
+      name: 'create-event',
+      component: CreateEventView,
+    },
+    {
+      path: '/created-history',
+      name: 'created-history',
+      component: EventsHistoryCreatedView,
+    },
   ],
 })
 

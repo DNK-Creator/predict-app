@@ -1,43 +1,30 @@
 <template>
-    <!-- animated wrapper -->
-
-    <ActivityEventModal :show="activityModalShow" :name="selected ? selected.bet_name : ''"
-        :side="selected ? selected.side : null" :stake="selected ? selected.stake : null"
-        :multiplier="selected ? selected.multiplier : null" :username="selected ? selected.username : ''"
-        :photo_url="selected ? selected.photo_url : null" :gifts_bet="selected ? selected.gifts_bet : null"
-        :name_en="selected ? selected.bet_name_en : ''" @close="closeActivityModal"
-        @open-bet-page="openActivityEvent(selected ? selected.bet_id : '39')" />
-
     <transition name="history-fade" appear>
         <div v-show="showView" class="transactions-view-container">
-            <!-- initial/global spinner -->
             <div v-if="spinnerShow" class="inline-loader" role="status" aria-live="polite">
-                <!-- simple placeholder spinner/text (replace with your loader component if you have one) -->
                 <div class="loading-spinner">{{ $t('loading-dots') }}</div>
             </div>
 
             <!-- empty state -->
             <div v-else-if="isEmpty" class="empty-state" role="status" aria-live="polite">
                 <div class="empty-icon">🧾</div>
-                <h3 class="empty-title">{{ $t('no-activity') }}</h3>
-                <p class="empty-desc">{{ $t('none-to-show') }}</p>
+                <h3 class="empty-title">{{ $t('created-events-empty-first') }}</h3>
+                <p class="empty-desc">{{ $t('created-events-empty-second') }}</p>
             </div>
 
             <!-- list -->
             <div v-else class="history-list">
                 <transition-group name="list-fade" tag="div">
-                    <ActivityListItem v-for="tx in displayedTransactions" :key="tx.id" :stake="tx.stake"
-                        :multiplier="tx.multiplier" :gifts_bet="tx.gifts_bet" :bet_name="tx.bet_name || ''"
-                        :username="tx.username" :side="tx.side" :created_at="tx.created_at" :photo_url="tx.photo_url"
-                        :bet_name_en="tx.bet_name_en" :status="tx.bet_status" @click="openActivityModal(tx)" />
+                    <CreatedEventListItem v-for="event in displayedEvents" :key="event.id"
+                        :stake="event.creator_first_stake" :bet_name="event.name || ''" :side="event.creator_side"
+                        :description="event.description" :status="event.status"
+                        @click="tryOpeningEvent(event.is_approved, event.id)" />
                 </transition-group>
 
-                <!-- inline loader while loading more pages -->
-                <div v-if="loadingMore && displayedTransactions.length > 0" class="inline-loader">
+                <div v-if="loadingMore && displayedEvents.length > 0" class="inline-loader">
                     <div class="loading-spinner">{{ $t('loading-dots') }}</div>
                 </div>
 
-                <!-- sentinel for intersection observer (only when not all loaded) -->
                 <div v-if="!allLoaded" ref="scrollAnchor" class="scroll-anchor"></div>
             </div>
         </div>
@@ -45,18 +32,17 @@
 </template>
 
 <script setup>
-import supabase from '@/services/supabase'
+import { fetchCreatedEvents } from '@/services/bets-requests'
 import { ref, onMounted, watch, nextTick, onUnmounted, computed } from 'vue'
-import ActivityListItem from '@/components/ActivityListItem.vue'
-import ActivityEventModal from '@/components/ActivityEventModal.vue'
 import { useRouter } from 'vue-router'
+import CreatedEventListItem from '@/components/CreatedEventListItem.vue'
 
 const router = useRouter()
 
 const pageSize = 12
 let activeLoadId = 0
 
-const displayedTransactions = ref([]) // shown in the list
+const displayedEvents = ref([]) // shown in the list
 const loadingMore = ref(false)
 const allLoaded = ref(false)
 const pages = ref(0) // next page index to request (0-based)
@@ -68,40 +54,20 @@ const activityModalShow = ref(false)
 const spinnerShow = ref(true)
 const showView = ref(false)
 
+const activePage = ref(0)
+
 const scrollAnchor = ref(null)
 let observer = null
 
-function openActivityEvent(id) {
+function tryOpeningEvent(approved, id) {
+    if (!approved) return
     router.push({ name: 'BetDetails', params: { id } })
-}
-
-function openActivityModal(event) {
-    selected.value = event
-    activityModalShow.value = true
-}
-
-function closeActivityModal() {
-    activityModalShow.value = false
-    selected.value = null
 }
 
 function formatRangeForPage(pageIndex) {
     const from = pageIndex * pageSize
     const to = from + pageSize - 1
     return { from, to }
-}
-
-async function fetchActivityPage(pageIndex) {
-    const { from, to } = formatRangeForPage(pageIndex)
-    const { data, error } = await supabase
-        .from('bets_holders')
-        .select('id, stake, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
-        .eq('dont_show', false)
-        .order('created_at', { ascending: false })
-        .range(from, to)
-
-    if (error) throw error
-    return data || []
 }
 
 async function resetAndLoad() {
@@ -113,15 +79,18 @@ async function resetAndLoad() {
     loadingMore.value = false
 
     try {
-        const firstPage = await fetchActivityPage(0)
+        const offset = activePage.value * pageSize
+        const firstPage = await fetchCreatedEvents({ offset, limit: pageSize })
         if (myLoadId !== activeLoadId) return
 
-        displayedTransactions.value = Array.isArray(firstPage) ? firstPage.slice() : []
+        activePage.value += 1
+
+        displayedEvents.value = Array.isArray(firstPage) ? firstPage.slice() : []
         pages.value = 1 // next page to fetch
         if (firstPage.length < pageSize) allLoaded.value = true
     } catch (err) {
-        console.error('Error loading activity first page', err)
-        displayedTransactions.value = []
+        console.error('Error loading created events first page', err)
+        displayedEvents.value = []
         allLoaded.value = true
     } finally {
         spinnerShow.value = false
@@ -134,16 +103,18 @@ async function loadMore() {
     const myLoadId = activeLoadId
     loadingMore.value = true
     try {
-        const pageIndex = pages.value
-        const incoming = await fetchActivityPage(pageIndex)
+        const offset = activePage.value * pageSize
+        const incoming = await fetchCreatedEvents({ offset, limit: pageSize })
         if (myLoadId !== activeLoadId) return
+
+        activePage.value += 1
 
         if (incoming.length < pageSize) allLoaded.value = true
 
         // dedupe by id
-        const existingIds = new Set(displayedTransactions.value.map(t => t.id))
+        const existingIds = new Set(displayedEvents.value.map(t => t.id))
         const filtered = incoming.filter(item => !existingIds.has(item.id))
-        if (filtered.length > 0) displayedTransactions.value.push(...filtered)
+        if (filtered.length > 0) displayedEvents.value.push(...filtered)
 
         pages.value = pages.value + 1
     } catch (err) {
@@ -188,7 +159,7 @@ onUnmounted(() => {
     if (observer) observer.disconnect()
 })
 
-const isEmpty = computed(() => !spinnerShow.value && displayedTransactions.value.length === 0)
+const isEmpty = computed(() => !spinnerShow.value && displayedEvents.value.length === 0)
 
 // keep compatibility for the original watch used in your file (avoid flicker)
 watch(spinnerShow, async (spinnerIsVisible) => {
@@ -430,16 +401,18 @@ watch(spinnerShow, async (spinnerIsVisible) => {
     flex-direction: column;
     gap: 10px;
     align-items: center;
-    padding: 18px
+    padding: 18px;
+    user-select: none;
 }
 
 .empty-title {
     margin: 0;
-    font-weight: 600
+    font-weight: 600;
+    color: white;
 }
 
 .empty-desc {
     margin: 0;
-    color: #888
+    color: #888;
 }
 </style>

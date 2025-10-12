@@ -17,7 +17,12 @@
                     <div class="bet-amount">{{ $t('bet') }} {{ stakeDisplay }} TON</div>
                 </div>
                 <div class="bottom">
-                    <div class="bet"><span> {{ $t('side') }} • {{ translateSide(side) }} </span></div>
+                    <div v-if="isPending()" class="bet"><span> {{ $t('side') }} • {{ translateSide(side) }} </span>
+                    </div>
+                    <div v-else-if="isWin()" class="bet"><span> {{ $t('winner') }} </span>
+                    </div>
+                    <div v-else-if="isLose()" class="bet"><span> {{ $t('loser') }} </span>
+                    </div>
                     <div class="stake">x{{ multiplierDisplay }}</div>
                 </div>
             </div>
@@ -64,7 +69,8 @@ const props = defineProps({
     username: { type: String, default: '' },
     side: { type: String, default: '' },
     created_at: [String, Number, Date],
-    photo_url: { type: String, default: '' }
+    photo_url: { type: String, default: '' },
+    status: { type: String, default: '' }
 })
 
 const betNameDisplay = computed(() => {
@@ -74,6 +80,18 @@ const betNameDisplay = computed(() => {
     }
     return props.bet_name
 })
+
+const isLose = () => {
+    return props.status === 'lose'
+}
+
+const isWin = () => {
+    return props.status === 'win'
+}
+
+const isPending = () => {
+    return props.status === 'pending'
+}
 
 const stakeDisplay = computed(() => {
     if (props.stake == null) return '—'
@@ -199,7 +217,7 @@ const displayGifts = computed(() => {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    margin-bottom: 12px;
+    margin-bottom: 4px;
 }
 
 .bet-group {
@@ -223,6 +241,7 @@ const displayGifts = computed(() => {
     justify-content: center;
     gap: 12px;
     width: 100%;
+    margin-bottom: 8px;
 }
 
 .avatar {
@@ -245,12 +264,14 @@ const displayGifts = computed(() => {
 }
 
 .name {
+    font-family: "Inter", sans-serif;
     color: white;
     font-weight: 600;
+    font-size: 0.9rem;
 }
 
 .time {
-    font-size: 1rem;
+    font-size: 0.9rem;
     max-width: 120px;
     color: rgba(210, 210, 210, 0.78);
     font-family: "Inter", sans-serif;
@@ -259,13 +280,14 @@ const displayGifts = computed(() => {
 }
 
 .bet-amount {
-    font-size: 1rem;
+    font-size: 0.9rem;
     color: #85ceff;
     font-family: "Inter", sans-serif;
     font-weight: 600;
 }
 
 .bet-name {
+    font-family: "Inter", sans-serif;
     color: white;
     font-weight: 600;
     font-size: 0.9rem;
@@ -279,6 +301,9 @@ const displayGifts = computed(() => {
 }
 
 .bet {
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 0.9rem;
     color: #dcdcdc;
 }
 
@@ -343,7 +368,8 @@ const displayGifts = computed(() => {
 
 .more-text {
     color: white;
-    font-weight: 700;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     font-size: 0.95rem;
     line-height: 1;
 }
