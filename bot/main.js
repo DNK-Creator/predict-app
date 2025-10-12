@@ -407,7 +407,7 @@ app.post('/api/create-event', async (req, res) => {
             .insert([
                 {
                     name: String(name).trim(), description: String(description).trim(), creator_first_stake: stakeNum, creator_side: sideFormatted,
-                    isApproved: false, result: 'undefined', prizes_given: false, creator_telegram: telegram, status: 'Waiting'
+                    is_approved: false, result: 'undefined', prizes_given: false, creator_telegram: telegram, status: 'Waiting'
                 }
             ])
             .select()

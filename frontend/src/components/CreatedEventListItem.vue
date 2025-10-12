@@ -30,16 +30,21 @@ const app = useAppStore()
 const props = defineProps({
     stake: [String, Number],
     bet_name: { type: String, default: '' },
+    bet_name_en: { type: String, default: '' },
     side: { type: String, default: '' },
     status: { type: String, default: '' }
 })
 
 const betNameDisplay = computed(() => {
-    if (props.bet_name == null) return '—'
-    if (props.bet_name.length > 100) {
-        return props.bet_name.slice(0, 100) + '..'
+    let neededName = props.bet_name
+    if (props.status.toLowerCase() === 'accepted' || props.status.toLowerCase() === 'approved') {
+        neededName = app.language === 'ru' ? props.bet_name : props.bet_name_en
     }
-    return props.bet_name
+    if (neededName == null) return '—'
+    if (neededName.length > 100) {
+        return neededName.slice(0, 100) + '..'
+    }
+    return neededName
 })
 
 const displayedStatus = computed(() => {

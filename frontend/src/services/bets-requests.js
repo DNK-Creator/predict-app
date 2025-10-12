@@ -83,7 +83,7 @@ export async function fetchCreatedEvents({ offset = 0, limit = 8 } = {}) {
     const to = offset + limit - 1
     const { data, error } = await supabase
         .from('bets')
-        .select('id, name, description, creator_first_stake, creator_side, is_approved, status')
+        .select('id, name, name_en, description, creator_first_stake, creator_side, is_approved, status')
         .eq('creator_telegram', user?.id ?? 99)
         .order('creator_first_stake', { ascending: false })
         .range(offset, to)

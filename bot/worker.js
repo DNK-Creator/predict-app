@@ -5,7 +5,7 @@ const TONCENTER = process.env.VITE_TONCENTER_URL || 'https://toncenter.com/api/v
 const TON_API_KEY = process.env.VITE_TONCENTER_API_KEY;
 const HOT_WALLET = process.env.VITE_HOT_WALLET;
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
-const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_API_KEY; // service_role key (server-only)
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // service_role key (server-only)
 const POLL_INTERVAL_MS = Number(7000);
 const LIMIT = 5; // how many recent transactions to fetch per poll
 

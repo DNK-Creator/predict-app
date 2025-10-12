@@ -13,18 +13,19 @@
             </div>
 
             <div class="card form-card">
-                <label class="input-label" for="ev-name">{{ t('event-name') }}</label>
+                <label class="input-label" for="ev-name">{{ $t('event-name') }}</label>
                 <textarea id="ev-name" ref="nameEl" v-model="form.name" class="text-input name-input" :maxlength="100"
-                    :placeholder="$t('title-placeholder')" @input="autoSizeTextarea($event, 'name')" rows="1"
-                    aria-describedby="name-help"></textarea>
+                    :placeholder="$t('title-placeholder')" @input="autoSizeTextarea($event, 'name')"
+                    @focus="onNameFocus" @blur="onNameBlur" rows="1" aria-describedby="name-help"></textarea>
                 <div id="name-help" class="muted-hint">
                     {{ form.name.length }} / 100
                 </div>
 
-                <label class="input-label" for="ev-desc">{{ t('description') }}</label>
+                <label class="input-label" for="ev-desc">{{ $t('description') }}</label>
                 <textarea id="ev-desc" ref="descEl" v-model="form.description" class="text-input desc-input"
                     :maxlength="650" :placeholder="$t('describe-event-input')" @input="autoSizeTextarea($event, 'desc')"
-                    rows="3" aria-describedby="desc-hint"></textarea>
+                    @focus="onDescriptionFocus" @blur="onDescriptionBlur" rows="3"
+                    aria-describedby="desc-hint"></textarea>
 
                 <div id="desc-hint" class="muted-hint type-hint">
                     <template v-if="eventType === 'prediction'">
@@ -60,15 +61,15 @@
 
                 <!-- TYPE-SPECIFIC BLOCKS -->
                 <div v-if="eventType === 'prediction' && showPickingSides" class="prediction-block">
-                    <label class="input-label">{{ t('choose-side') }}</label>
+                    <label class="input-label">{{ $t('choose-side') }}</label>
                     <div class="yesno-wrap" role="group" aria-label="Choose yes or no">
                         <button :class="['yesno-btn', { active: form.predictionSide === 'yes' }]"
                             @click="form.predictionSide = 'yes'">
-                            {{ t('yes') }}
+                            {{ $t('yes') }}
                         </button>
                         <button :class="['yesno-btn', { active: form.predictionSide === 'no' }]"
                             @click="form.predictionSide = 'no'">
-                            {{ t('no') }}
+                            {{ $t('no') }}
                         </button>
                     </div>
                 </div>
@@ -181,12 +182,6 @@ function toggleSelect(id) {
     }
 }
 
-// computed textual listing of selected items (selection order)
-/**
- * Example outputs:
- *   "а также: Item 1, Item 2."
- *   "а также: Item 10."
- */
 const selectedItemsText = computed(() => {
     if (!selectedOrder.value || selectedOrder.value.length === 0) return ''
     // map ids -> labels based on inventoryCells order (or selection order)
@@ -255,31 +250,147 @@ function onAmountInput(e) {
     lastInputtedNumber.value = v
 }
 
+const vvState = { listener: null }
+
 function onAmountFocus() {
-    document.body.classList.add('keyboard-open');
+    document.body.classList.add('keyboard-open')
+
+    // prefer immediate (no-smooth) scrollIntoView to avoid jitter when vp changes
     setTimeout(() => {
-        try { amountInput.value?.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) { }
-    }, 50);
+        try { amountInput.value?.scrollIntoView({ behavior: 'auto', block: 'nearest' }) } catch (_) { }
+    }, 80)
+
     if (window.visualViewport) {
+        let raf = 0
         const update = () => {
-            const kv = window.visualViewport;
-            const keyboardHeight = Math.max(0, window.innerHeight - kv.height);
-            document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-        };
-        amountInput._vvListener = update;
-        window.visualViewport.addEventListener('resize', update);
-        update();
+            if (raf) cancelAnimationFrame(raf)
+            raf = requestAnimationFrame(() => {
+                const kv = window.visualViewport
+                const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
+                document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+            })
+        }
+        vvState.listener = update
+        window.visualViewport.addEventListener('resize', update, { passive: true })
+        update()
     }
 }
 
 function onAmountBlur() {
-    document.body.classList.remove('keyboard-open');
-    if (window.visualViewport && amountInput._vvListener) {
-        window.visualViewport.removeEventListener('resize', amountInput._vvListener);
-        delete amountInput._vvListener;
-        document.documentElement.style.removeProperty('--keyboard-height');
+    setTimeout(() => {
+        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
+            && document.activeElement !== nameEl.value) {
+
+            document.body.classList.remove('keyboard-open')
+            if (window.visualViewport && vvState.listener) {
+                window.visualViewport.removeEventListener('resize', vvState.listener)
+                vvState.listener = null
+                document.documentElement.style.removeProperty('--keyboard-height')
+            }
+
+        }
+    }, 100);
+}
+
+function onNameFocus() {
+    document.body.classList.add('keyboard-open')
+
+    // prefer immediate (no-smooth) scrollIntoView to avoid jitter when vp changes
+    setTimeout(() => {
+        try { nameEl.value?.scrollIntoView({ behavior: 'auto', block: 'nearest' }) } catch (_) { }
+    }, 80)
+
+    if (window.visualViewport) {
+        let raf = 0
+        const update = () => {
+            if (raf) cancelAnimationFrame(raf)
+            raf = requestAnimationFrame(() => {
+                const kv = window.visualViewport
+                const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
+                document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+            })
+        }
+        vvState.listener = update
+        window.visualViewport.addEventListener('resize', update, { passive: true })
+        update()
     }
 }
+
+function onNameBlur() {
+    setTimeout(() => {
+        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
+            && document.activeElement !== nameEl.value) {
+
+            document.body.classList.remove('keyboard-open')
+            if (window.visualViewport && vvState.listener) {
+                window.visualViewport.removeEventListener('resize', vvState.listener)
+                vvState.listener = null
+                document.documentElement.style.removeProperty('--keyboard-height')
+            }
+
+        }
+    }, 100);
+}
+
+function onDescriptionFocus() {
+    document.body.classList.add('keyboard-open')
+
+    // prefer immediate (no-smooth) scrollIntoView to avoid jitter when vp changes
+    setTimeout(() => {
+        try { descEl.value?.scrollIntoView({ behavior: 'auto', block: 'nearest' }) } catch (_) { }
+    }, 80)
+
+    if (window.visualViewport) {
+        let raf = 0
+        const update = () => {
+            if (raf) cancelAnimationFrame(raf)
+            raf = requestAnimationFrame(() => {
+                const kv = window.visualViewport
+                const keyboardHeight = Math.max(0, window.innerHeight - kv.height)
+                document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+            })
+        }
+        vvState.listener = update
+        window.visualViewport.addEventListener('resize', update, { passive: true })
+        update()
+    }
+}
+
+function onDescriptionBlur() {
+    setTimeout(() => {
+        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
+            && document.activeElement !== nameEl.value) {
+
+            document.body.classList.remove('keyboard-open')
+            if (window.visualViewport && vvState.listener) {
+                window.visualViewport.removeEventListener('resize', vvState.listener)
+                vvState.listener = null
+                document.documentElement.style.removeProperty('--keyboard-height')
+            }
+
+        }
+    }, 100);
+}
+
+function _labelPointerCaptureHandler(ev) {
+    // find label (in case inner node was tapped)
+    const label = ev.target?.closest?.('label.input-label')
+    if (!label) return
+
+    // Must be able to prevent default on touch events: listener registered with passive:false
+    ev.preventDefault?.()
+    ev.stopImmediatePropagation?.()
+
+    // blur whatever is currently focused (if interactive)
+    const active = document.activeElement
+    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+        try { active.blur() } catch (e) { /* ignore */ }
+    }
+
+    // close nav/popovers to match your other logic
+    window.dispatchEvent(new CustomEvent('app-close-nav'))
+}
+
 
 // other payment input
 function onOtherPaymentInput(e) {
@@ -294,10 +405,7 @@ function onOtherPaymentInput(e) {
 function setType(tpe) {
     if (eventType.value === tpe) return
     eventType.value = tpe
-    // small UX: scroll top of form into view
-    nextTick(() => {
-        root.value?.scrollTo({ top: 0, behavior: 'smooth' })
-    })
+    nextTick(() => root.value?.scrollTo({ top: 0, behavior: 'auto' }))
 }
 
 function addTemporaryOutline(el, duration = 2800) {
@@ -397,15 +505,9 @@ async function onCreate() {
     }
 }
 
-// ensure initial autosize on mount
 onMounted(() => {
-    if (nameEl.value) {
-        nextTick(() => {
-            if (nameEl.value) {
-                nameEl.value.style.height = 'auto'
-            }
-        })
-    }
+    // ensure initial autosize
+    if (nameEl.value) nextTick(() => { if (nameEl.value) nameEl.value.style.height = 'auto' })
 })
 </script>
 
@@ -956,6 +1058,27 @@ onMounted(() => {
     border-color: #ff4d4f !important;
     box-shadow: 0 0 0 4px rgba(255, 77, 79, 0.10), 0 6px 18px rgba(255, 77, 79, 0.06);
     transition: box-shadow 180ms ease, border-color 120ms ease;
+}
+
+:root {
+    --keyboard-height: 0px
+}
+
+html,
+body,
+.create-root {
+    touch-action: manipulation;
+    /* tells browser we don't need pinch/zoom for most controls */
+    -webkit-tap-highlight-color: transparent;
+    /* remove highlight flicker on tap */
+}
+
+
+button,
+input,
+textarea {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
 }
 
 /* small pulse animation to draw attention once when error is applied */
