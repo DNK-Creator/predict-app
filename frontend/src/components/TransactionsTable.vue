@@ -77,6 +77,8 @@ function translateStatus(status) {
         return app.language === 'ru' ? 'Обработка вывода' : 'Withdrawal processing'
     } else if (status === 'Completed') {
         return app.language === 'ru' ? 'Успешный вывод' : 'Successful Withdrawal'
+    } else if(status === 'Handpicking') {
+        return app.language === 'ru' ? 'Вывод рассматривается' : 'Withdrawal is in work'
     }
 }
 
