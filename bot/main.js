@@ -206,7 +206,6 @@ app.post('/api/bet-placed', async (req, res) => {
             .from('users')
             .select('id, username, telegram')
             .eq('telegram', Number(telegram))
-            .limit(1)
             .maybeSingle();
 
         if (userErr) {
@@ -222,7 +221,6 @@ app.post('/api/bet-placed', async (req, res) => {
             .from('bets')
             .select('id, name_en, volume')
             .eq('id', Number(bet_id))
-            .limit(1)
             .maybeSingle();
 
         if (eventErr) {
@@ -311,7 +309,6 @@ app.post('/api/bet-placed', async (req, res) => {
                 .select('giveaway_tickets')
                 .eq('user_id', Number(telegram))
                 .eq('bet_id', Number(bet_id))
-                .limit(1)
                 .maybeSingle();
 
             if (bhErr) {
@@ -374,7 +371,6 @@ app.post('/api/create-event', async (req, res) => {
             .from('users')
             .select('id, username, telegram, points, placed_bets')
             .eq('telegram', Number(telegram))
-            .limit(1)
             .maybeSingle();
 
         if (userErr) {
@@ -446,7 +442,7 @@ app.post('/api/create-event', async (req, res) => {
             .from('users')
             .update(updatePayload)
             .eq('telegram', Number(telegram))
-            .limit(1)
+            .select()
             .maybeSingle();
 
         if (updateUserErr) {
@@ -517,7 +513,6 @@ app.get("/api/get-chance", async (req, res) => {
             .from("bets")
             .select("current_odds")
             .eq("id", betID)
-            .limit(1)
             .maybeSingle();
 
         let oddsNumber = currentChance.current_odds
@@ -582,7 +577,7 @@ app.post("/api/giftHandle", async (req, res) => {
                 .from("gift_prices")
                 .select("*")
                 .ilike("collection_name", collectionKey)
-                .limit(1);
+                .maybeSingle();
 
             if (gpErr) {
                 // table might not exist
@@ -621,7 +616,6 @@ app.post("/api/giftHandle", async (req, res) => {
                 .from("users")
                 .select("id, points")
                 .eq("telegram", telegramSender)
-                .limit(1)
                 .maybeSingle();
 
             if (userErr) {
@@ -912,7 +906,6 @@ app.post('/api/deposit-cancel', async (req, res) => {
             })
             .eq('uuid', txId)
             .is('handled', false)
-            .limit(1)
             .select()
             .single();
 
@@ -958,7 +951,6 @@ app.post('/api/stars-payment', async (req, res) => {
             .from('users')
             .select('*')
             .eq('telegram', Number(telegramId))
-            .limit(1)
             .maybeSingle()
 
         if (userErr) {
