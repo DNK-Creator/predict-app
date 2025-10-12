@@ -442,7 +442,8 @@ let __menuMo = null
 let _removeBackHandler = null
 let _backHandler = null
 // routes where we want Telegram's back button visible
-const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy', 'bets-history', 'gifts-prices', 'transactions', 'created-history'])
+const ROUTES_SHOW_BACK_BUTTON = new Set(['BetDetails', 'deposit', 'privacy', 'bets-history',
+  'gifts-prices', 'transactions', 'created-history', 'create-event'])
 
 function enableTelegramBackButton() {
   if (!tg?.BackButton) return

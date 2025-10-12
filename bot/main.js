@@ -382,7 +382,7 @@ app.post('/api/create-event', async (req, res) => {
             return res.status(404).json({ ok: false, error: 'user_not_found', message: 'user not found' });
         }
 
-        const stakeNum = Number(stake)
+        const stakeNum = Math.round(Number(stake) * 100) / 100
         if (!Number.isFinite(stakeNum) || stakeNum < 0) {
             return res.status(400).json({ ok: false, error: 'validation_error', message: 'invalid stake' });
         }
@@ -419,8 +419,10 @@ app.post('/api/create-event', async (req, res) => {
             return res.status(500).json({ ok: false, error: 'db_error', message: 'could not determine new event id' });
         }
 
-        const newPoints = Number(userRow.points) - totalEventPrice
-        const updatePayload = { points: newPoints }
+        // quick fix: round to 2 decimals before updating DB
+        const rawNewPoints = Number(userRow.points) - totalEventPrice;
+        const newPoints = Math.round(rawNewPoints * 100) / 100; // number with 2 decimal precision
+        const updatePayload = { points: newPoints };
 
         // Only add to placed_bets if stake > 0
         if (stakeNum > 0) {
@@ -450,6 +452,15 @@ app.post('/api/create-event', async (req, res) => {
             // NOTE: newEvent was created but user update failed — consider a compensating action or audit
             return res.status(500).json({ ok: false, error: 'db_error', message: 'could not update user' });
         }
+
+        // ALL SUCCESS AND RESPONSE UNTIL TELEGRAM BOT MESSAGES
+        res.status(200).json({
+            ok: true,
+            data: {
+                event: Array.isArray(newEventRow) ? newEventRow[0] : newEventRow,
+                user: newUserRow
+            }
+        });
 
         // prepare message (escape username & values for HTML mode)
         const escapeHtml = (s = '') =>

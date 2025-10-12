@@ -422,7 +422,8 @@ function addTemporaryOutline(el, duration = 2800) {
 }
 
 async function onCreate() {
-    const totalCreationPrice = Number(Number(amount.value) + 0.1).toFixed(2)
+    const rawTotalCreationPrice = Number(amount.value) + 0.1
+    const totalCreationPrice = Math.round(rawTotalCreationPrice * 100) / 100; // number with 2 decimal precision
     if (app.points < totalCreationPrice) {
         let messageText = app.language === 'ru' ? 'Недостаточно средств для создания события.' : 'Not enough funds to create an event.'
         toast.error(messageText)
@@ -469,7 +470,7 @@ async function onCreate() {
         if (resp.ok) {
             toast.success(app.language === 'ru' ? 'Событие отправлено на модерацию' : 'Event submitted for moderation')
             if (resp.data?.user?.points !== undefined) {
-                app.points = resp.data.user.points // or dispatch store action
+                app.points = Number(resp.data.user.points).toFixed(2);
             }
 
             openHistoryCreated()
