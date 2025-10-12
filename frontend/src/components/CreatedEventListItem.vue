@@ -179,7 +179,7 @@ function translateSide() {
 
 .bet-amount {
     font-size: 1rem;
-    color: white;
+    color: rgb(139, 255, 133);
     font-family: "Inter", sans-serif;
     font-weight: 600;
 }
