@@ -31,14 +31,20 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
 });
 
 function verifySignature(req, res, next) {
-    const raw = req.rawBody || JSON.stringify(req.body); // ensure rawBody or fallback
+    // prefer rawBody (string) for HMAC; if missing fall back to JSON serialization
+    const raw = (typeof req.rawBody === 'string' && req.rawBody.length > 0) ? req.rawBody : JSON.stringify(req.body || {});
     const sig = req.headers['x-internal-signature'];
     if (!sig) return res.status(403).json({ error: 'missing signature' });
 
     const expected = crypto.createHmac('sha256', process.env.INTERNAL_SECRET).update(raw).digest('hex');
-    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) {
+    try {
+        if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig))) {
+            return res.status(403).json({ error: 'invalid signature' });
+        }
+    } catch (e) {
         return res.status(403).json({ error: 'invalid signature' });
     }
+
     next();
 }
 
@@ -95,16 +101,17 @@ process.on('uncaughtException', (err) => {
 
 const app = express()
 
-app.use((req, res, next) => {
-    let data = [];
-    req.on('data', chunk => data.push(chunk));
-    req.on('end', () => {
-        req.rawBody = Buffer.concat(data).toString('utf8');
-        next();
-    });
-});
+function rawBodySaver(req, res, buf, encoding) {
+    if (!buf || !buf.length) return;
+    // limit raw body we keep in memory to avoid OOM when large uploads occur
+    const MAX_KEEP = 32 * 1024; // 32 KB
+    const str = buf.toString(encoding || 'utf8');
+    req.rawBody = (str.length > MAX_KEEP) ? (str.slice(0, MAX_KEEP) + '... (truncated)') : str;
+}
 
-app.use(express.json())
+// Parse JSON / URL-encoded while capturing raw body into req.rawBody
+app.use(express.json({ limit: '1mb', verify: rawBodySaver }));
+app.use(express.urlencoded({ extended: true, limit: '1mb', verify: rawBodySaver }));
 
 // Restricted CORS: only your frontend allowed, credentials enabled
 const corsRestricted = cors({
@@ -135,14 +142,35 @@ app.use((req, res, next) => {
 app.set('trust proxy', 1);
 
 app.use((req, res, next) => {
-    console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
-    // for non-GETs, show the body (small bodies only) 
-    if (req.method !== 'GET' && req.body && Object.keys(req.body).length <= 50) {
-        console.log('[req.body]', JSON.stringify(req.body));
-    } else if (req.method !== 'GET') {
-        console.log('[req.body] (omitted — too large or empty)');
+    try {
+        console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
+
+        if (req.method !== 'GET') {
+            // Prefer parsed req.body (safe), fallback to req.rawBody (string)
+            if (req.body && typeof req.body === 'object') {
+                const keys = Object.keys(req.body);
+                if (keys.length <= 50) {
+                    try {
+                        console.log('[req.body]', JSON.stringify(req.body));
+                    } catch (e) {
+                        console.log('[req.body] (not serializable)');
+                    }
+                } else {
+                    console.log('[req.body] (omitted — too many keys)');
+                }
+            } else if (typeof req.rawBody === 'string' && req.rawBody.length > 0) {
+                // rawBody is the raw string captured by verify
+                console.log('[req.rawBody]', req.rawBody.length > 2000 ? req.rawBody.slice(0, 2000) + '... (truncated)' : req.rawBody);
+            } else {
+                console.log('[req.body] (empty)');
+            }
+        }
+    } catch (e) {
+        // Logging must never break request processing
+        console.warn('[req logger] error', e?.message ?? e);
+    } finally {
+        next();
     }
-    next();
 });
 
 
