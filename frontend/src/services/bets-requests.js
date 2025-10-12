@@ -59,6 +59,7 @@ export async function fetchActiveBets({ offset = 0, limit = 10 } = {}) {
         .from('bets')
         .select('*')
         .eq('result', 'undefined')
+        .eq('is_approved', true)
         .order('volume_number', { ascending: false })
         .range(offset, to)
 
@@ -72,6 +73,7 @@ export async function fetchPastBets({ offset = 0, limit = 8 } = {}) {
         .from('bets')
         .select('*')
         .neq('result', 'undefined')
+        .eq('is_approved', true)
         .order('volume_number', { ascending: false })
         .range(offset, to)
 
