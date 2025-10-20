@@ -850,7 +850,7 @@ app.post("/api/withdraw-gifts", async (req, res) => {
         // Call worker. Use generous timeout.
         let workerResult;
         try {
-            workerResult = await sendToWorker("./giftrelayer-listener.js", "withdrawGifts", payload, 120_000);
+            workerResult = await global.__SUPERVISOR.sendToWorker("./giftrelayer-listener.js", "withdrawGifts", payload, 120_000);
         } catch (err) {
             console.error("withdraw-gifts: error sending to worker:", err);
             // Worker didn't start / IPC failed — rollback removed gifts (best-effort) so user doesn't lose inventory.
@@ -1625,13 +1625,16 @@ import process from 'process';
 function startWorkerWithSupervisor() {
     // list of worker files (relative to project root)
     const workers = [
-        './worker.js',                  // existing deposit crypto worker
-        './giftrelayer-listener.js',    // new Gift Relayer listener
-        './withdrawal-worker.js'        // new Withdrawal Worker
+        './worker.js',
+        './giftrelayer-listener.js',
+        './withdrawal-worker.js'
     ];
 
     // per-worker state for backoff + child reference
     const state = {};
+    // pending IPC replies: map msgId -> { resolve, reject, timer }
+    const pending = new Map();
+
     for (const wf of workers) {
         state[wf] = { restartDelay: 1000, maxDelay: 60_000, child: null, spawning: false };
     }
@@ -1639,8 +1642,6 @@ function startWorkerWithSupervisor() {
     function spawnWorker(wf) {
         const abs = path.resolve(wf);
         const st = state[wf];
-
-        // avoid concurrent spawns for same worker
         if (st.spawning) {
             console.log(`[supervisor] spawn already in progress for ${wf}`);
             return;
@@ -1648,7 +1649,6 @@ function startWorkerWithSupervisor() {
         st.spawning = true;
 
         console.log(`[supervisor] spawning worker: ${abs}`);
-        // inside spawnWorker(wf) where you call spawn(...)
         const child = spawn(process.execPath, [abs], {
             env: { ...process.env, SUPERVISOR_CHILD: '1', WORKER_NAME: wf },
             stdio: ['ignore', 'inherit', 'inherit', 'ipc']
@@ -1658,19 +1658,47 @@ function startWorkerWithSupervisor() {
 
         child.once('spawn', () => {
             st.spawning = false;
-            st.restartDelay = 1000; // reset backoff on successful spawn
+            st.restartDelay = 1000;
             console.log(`[supervisor] worker spawned: ${wf} (pid=${child.pid})`);
         });
 
+        // Handle messages from the child and resolve pending promises
         child.on('message', (m) => {
-            // optional: children can send messages via process.send()
-            console.log(`[worker msg ${wf}]`, m);
+            try {
+                // normalize shape:
+                // child replies with { replyTo: id, ok: true/false, result?, error? }
+                if (m && typeof m === 'object' && m.replyTo) {
+                    const entry = pending.get(m.replyTo);
+                    if (!entry) {
+                        console.warn(`[supervisor] no pending IPC entry for replyTo=${m.replyTo}`);
+                        return;
+                    }
+                    // clear timeout
+                    clearTimeout(entry.timer);
+                    pending.delete(m.replyTo);
+                    if (m.ok) entry.resolve(m.result);
+                    else entry.reject(new Error(m.error || 'worker_error'));
+                    return;
+                }
+
+                // Optional: other child-initiated messages
+                console.log(`[worker msg ${wf}]`, m);
+            } catch (err) {
+                console.error('[supervisor] error handling child message', err);
+            }
         });
 
         child.on('exit', (code, signal) => {
             st.child = null;
             st.spawning = false;
             console.warn(`[supervisor] worker exited (${wf}) code=${code} signal=${signal}`);
+            // reject all pending requests for this worker (best-effort)
+            for (const [id, entry] of pending.entries()) {
+                // We don't know which worker the pending id targeted, so reject all (safer).
+                clearTimeout(entry.timer);
+                entry.reject(new Error(`worker_exited_before_reply (worker=${wf})`));
+                pending.delete(id);
+            }
             // schedule restart with exponential backoff
             const delay = st.restartDelay;
             setTimeout(() => {
@@ -1684,14 +1712,12 @@ function startWorkerWithSupervisor() {
             st.child = null;
             st.spawning = false;
             console.error(`[supervisor] spawn error (${wf}):`, err);
-            // try again after restartDelay
             setTimeout(() => spawnWorker(wf), st.restartDelay);
         });
     }
 
-    // inside startWorkerWithSupervisor(), replace the "start all workers" loop with:
+    // Start all workers initially
     for (const wf of workers) {
-        // skip if already have a child (safety belt)
         if (state[wf].child) {
             console.log(`[supervisor] child already present for ${wf} pid=${state[wf].child.pid}`);
             continue;
@@ -1699,7 +1725,6 @@ function startWorkerWithSupervisor() {
         spawnWorker(wf);
     }
 
-    // graceful shutdown: kill children, then exit
     const shutdown = () => {
         console.log('[supervisor] shutting down workers...');
         for (const wf of workers) {
@@ -1713,16 +1738,61 @@ function startWorkerWithSupervisor() {
                 }
             }
         }
-        // give children a short time to exit
-        setTimeout(() => process.exit(0), 2_000);
+        setTimeout(() => process.exit(0), 2000);
     };
-
     process.on('SIGINT', shutdown);
     process.on('SIGTERM', shutdown);
 
-    // optional: expose a simple health check to know child PIDs (useful in logs)
+    // Helper: find child by the exact worker path string used earlier
+    function _getChildForWorker(wf) {
+        const st = state[wf];
+        if (!st) return null;
+        return st.child ?? null;
+    }
+
+    // Public: sendToWorker(workerPath, cmd, payload, timeoutMs = 60_000)
+    async function sendToWorker(workerPath, cmd, payload = {}, timeoutMs = 60_000) {
+        const child = _getChildForWorker(workerPath);
+        if (!child) {
+            throw new Error(`worker_not_running: ${workerPath}`);
+        }
+        if (!child.send) {
+            throw new Error(`worker_ipc_not_available: ${workerPath}`);
+        }
+
+        const id = uuidv4();
+        const msg = { id, cmd, payload };
+
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                pending.delete(id);
+                reject(new Error('worker_ipc_timeout'));
+            }, timeoutMs);
+
+            pending.set(id, { resolve, reject, timer });
+
+            try {
+                child.send(msg, (err) => {
+                    if (err) {
+                        clearTimeout(timer);
+                        pending.delete(id);
+                        reject(err);
+                    }
+                });
+            } catch (err) {
+                clearTimeout(timer);
+                pending.delete(id);
+                reject(err);
+            }
+        });
+    }
+
+    // Return supervisory interface
     return {
-        getChildren: () => workers.map(wf => ({ worker: wf, pid: state[wf].child?.pid ?? null, restartingIn: state[wf].restartDelay }))
+        getChildren: () => workers.map(wf => ({ worker: wf, pid: state[wf].child?.pid ?? null, restartingIn: state[wf].restartDelay })),
+        sendToWorker,
+        // expose state for debug if you want
+        _state: state
     };
 }
 
@@ -1730,4 +1800,5 @@ function startWorkerWithSupervisor() {
 // startWorkerWithSupervisor();
 
 const sup = startWorkerWithSupervisor();
+global.__SUPERVISOR = sup;
 console.log('[supervisor] children', sup.getChildren());
