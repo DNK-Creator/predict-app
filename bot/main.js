@@ -3,6 +3,7 @@ import axios from 'axios'
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express"
+import cheerio from 'cheerio'
 import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -14,6 +15,8 @@ const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // service_r
 const TONCENTER_API_KEY = process.env.VITE_TONCENTER_API_KEY;
 const TONCENTER_API_BASE = process.env.VITE_TONCENTER_URL || 'https://api.toncenter.com/api/v2'
 const HOT_WALLET = process.env.VITE_HOT_WALLET;
+
+const GIFT_RELAYER_TELEGRAM_ID = 8126734333
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error('Missing Supabase server envs (SUPABASE_URL / SUPABASE_SERVICE_KEY). Exiting.')
@@ -193,10 +196,82 @@ bot.on("pre_checkout_query", async (ctx) => {
     });
 });
 
+function parseTelegramNFT(html) {
+    const $ = cheerio.load(html)
+
+    // name/title
+    const name = ($('meta[property="og:title"]').attr('content') || $('title').text() || '').trim()
+
+    // image
+    const image = ($('meta[property="og:image"]').attr('content') ||
+        $('meta[property="twitter:image"]').attr('content') || '').trim()
+
+    // try OG description first (often contains the three lines)
+    const ogDesc = $('meta[property="og:description"]').attr('content') ||
+        $('meta[name="twitter:description"]').attr('content') || ''
+
+    const result = { name, image, model: '', backdrop: '', symbol: '', description: ogDesc.trim() }
+
+    if (ogDesc) {
+        // expected format (lines): "Model: Black Flip\nBackdrop: Shamrock Green\nSymbol: Crystal Ball"
+        const lines = ogDesc.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+        for (const line of lines) {
+            const m = line.match(/^\s*Model\s*:\s*(.+)$/i)
+            const b = line.match(/^\s*Backdrop\s*:\s*(.+)$/i)
+            const s = line.match(/^\s*Symbol\s*:\s*(.+)$/i)
+            if (m) result.model = m[1].trim()
+            if (b) result.backdrop = b[1].trim()
+            if (s) result.symbol = s[1].trim()
+        }
+    }
+
+    // fallback: parse table rows <tr><th>Model</th><td>Black Flip <mark>1.5%</mark></td></tr>
+    if (!(result.model && result.backdrop && result.symbol)) {
+        $('table.tgme_gift_table tr').each((i, tr) => {
+            const th = $(tr).find('th').text().trim()
+            let td = $(tr).find('td').text().trim()
+            // remove any markup percentages like "Black Flip 1.5%" => "Black Flip"
+            td = td.replace(/\s*\d+(\.\d+)?%/g, '').trim()
+            if (/^Model$/i.test(th)) result.model = result.model || td
+            if (/^Backdrop$/i.test(th)) result.backdrop = result.backdrop || td
+            if (/^Symbol$/i.test(th)) result.symbol = result.symbol || td
+        })
+    }
+
+    // final sanitize (coerce to empty string if null)
+    result.model = result.model || ''
+    result.backdrop = result.backdrop || ''
+    result.symbol = result.symbol || ''
+    return result
+}
+
+app.get('/api/telegram/nft/:slug', async (req, res) => {
+    try {
+        const slug = req.params.slug
+        // build Telegram web page URL (the t.me path typically redirects; use full web URL)
+        const url = `https://t.me/nft/${encodeURIComponent(slug)}`
+
+        const upstream = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'node-fetch' } })
+        if (!upstream.ok) {
+            return res.status(502).json({ error: 'upstream fetch failed', status: upstream.status })
+        }
+        const html = await upstream.text()
+
+        const parsed = parseTelegramNFT(html)
+
+        // optional: add CORS header for your client (restrict to your origin in production)
+        res.set('Access-Control-Allow-Origin', 'https://giftspredict.ru')
+        return res.json(parsed)
+    } catch (err) {
+        console.error('error fetching/parsing', err)
+        return res.status(500).json({ error: err.message })
+    }
+})
+
 // POST /api/bet-placed
 app.post('/api/bet-placed', async (req, res) => {
     try {
-        const { telegram, bet_id, side, stake, chat_id } = req.body || {};
+        const { telegram, bet_id, side, stake, placed_gifts, chat_id } = req.body || {};
         if (!telegram || !bet_id || !side || (stake === undefined || stake === null)) {
             return res.status(400).json({ error: 'telegram, bet_id, side, stake required' });
         }
@@ -280,9 +355,21 @@ app.post('/api/bet-placed', async (req, res) => {
         const stakeNumber = Number(stake);
         const stakeFormatted = Number.isFinite(stakeNumber) ? stakeNumber : stake;
 
-        // Template required by you:
-        // <username> (clickable to https://t.me/<username>) just placed <stake> TON on <side> in the event <betNameEn> ⭐
-        // Prepend Whale Alert 🐳 line if stake > 15
+        // Safely parse placed_gifts (may be array or JSON string).
+        let giftsArray = [];
+        try {
+            if (Array.isArray(placed_gifts)) {
+                giftsArray = placed_gifts;
+            } else if (placed_gifts) {
+                // if it's a stringified JSON, try parse; otherwise treat as empty
+                giftsArray = typeof placed_gifts === 'string' ? JSON.parse(placed_gifts) : [];
+            }
+        } catch (e) {
+            console.warn('bet-placed: failed to parse placed_gifts, ignoring gifts', e);
+            giftsArray = [];
+        }
+        if (!Array.isArray(giftsArray)) giftsArray = [];
+
         const lines = [];
         if (Number(stake) > 15) {
             lines.push('<b>Whale Alert 🐳</b>');
@@ -292,9 +379,33 @@ app.post('/api/bet-placed', async (req, res) => {
         const clickable = `<a href="${userLinkHref}">${escapeHtml(userLinkText)}</a>`;
         const sideEscaped = escapeHtml(String(side));
         const betNameEscaped = escapeHtml(String(betNameEn));
-        // include TON suffix per your template
-        // Modified message format
-        lines.push(`${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`);
+
+        const giftsList = giftsArray
+            .map(g => {
+                const gName = escapeHtml(String(g?.name ?? 'Gift'));
+                const gNumber = escapeHtml(String(g?.number ?? ''));
+                return `${gName}-${gNumber}`;
+            })
+            .filter(Boolean)
+            .join(', '); // join with comma and space
+
+        // Construct the single-line primary sentence
+        let primaryLine = '';
+        if (giftsList.length > 0) {
+            // gifts present
+            if (stakeNumber > 0) {
+                // include stake, then comma, then gifts, then on "side"
+                primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON, ${giftsList} on "${sideEscaped}"`;
+            } else {
+                // no stake: omit stake, show gifts only
+                primaryLine = `${clickable} just placed ${giftsList} on "${sideEscaped}"`;
+            }
+        } else {
+            // no gifts: keep previous single-line format with stake (even if 0 it will show 0)
+            primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`;
+        }
+
+        lines.push(primaryLine);
 
         lines.push(`Event: ${betNameEscaped} ⭐`);
 
@@ -351,7 +462,6 @@ app.post('/api/bet-placed', async (req, res) => {
         return res.status(500).json({ error: 'internal_error', details: String(err) });
     }
 });
-
 
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
@@ -561,29 +671,254 @@ export async function createInvoiceLink(amount) {
     );
 }
 
+// POST /api/withdraw-gifts
+app.post("/api/withdraw-gifts", async (req, res) => {
+    console.log("[BACKEND HIT] /api/withdraw-gifts");
+    try {
+        const body = req.body ?? {};
+
+        // Basic validation
+        if (!body || typeof body !== "object") {
+            return res.status(400).json({ ok: false, error: "empty_payload" });
+        }
+        const requestedGifts = Array.isArray(body.gifts) ? body.gifts : [];
+        const recipient = body.recipient ?? body.to ?? null;
+
+        if (!recipient) {
+            return res.status(400).json({ ok: false, error: "missing_recipient" });
+        }
+        if (requestedGifts.length === 0) {
+            return res.status(400).json({ ok: false, error: "no_gifts_provided" });
+        }
+
+        // Resolve who is making the request (the owner of the gifts).
+        // Prefer authenticated user (req.user.telegram) — adjust to your auth system.
+        // const requesterTelegram =
+        //     (req.user && req.user.telegram) ||
+        //     Number(body.requester_telegram ?? body.requester?.telegram ?? body.senderTelegram ?? body.ownerTelegram) ||
+        //     null;
+
+        // if (!requesterTelegram || Number.isNaN(requesterTelegram)) {
+        //     return res.status(401).json({ ok: false, error: "missing_requester_telegram" });
+        // }
+
+        // Fetch the user's inventory from Supabase
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from("users")
+            .select("id, telegram, inventory, updated_at")
+            .eq("telegram", Number(recipient))
+            .maybeSingle();
+
+        if (userErr) {
+            console.error("withdraw-gifts: db error selecting user:", userErr);
+            return res.status(500).json({ ok: false, error: "db_error_read_user", details: userErr.message || userErr });
+        }
+        if (!userRow) {
+            return res.status(404).json({ ok: false, error: "user_not_found" });
+        }
+
+        const inventory = Array.isArray(userRow.inventory) ? userRow.inventory : [];
+
+        // Helper: find a matching inventory item by uuid->message_id->gift_id_long
+        function findInventoryMatch(reqGift) {
+            if (!reqGift) return null;
+            const maybeUuid = reqGift.uuid ?? reqGift.u ?? null;
+            const maybeMsgId = reqGift.telegram_message_id ?? reqGift.telegramMessageId ?? reqGift.msgId ?? null;
+            const maybeGiftIdLong = reqGift.gift_id_long ?? reqGift.giftId ?? reqGift.gift_id ?? null;
+
+            if (maybeUuid) {
+                const found = inventory.find(i => String(i.uuid) === String(maybeUuid));
+                if (found) return found;
+            }
+            if (maybeMsgId) {
+                const found = inventory.find(i => String(i.telegram_message_id) === String(maybeMsgId));
+                if (found) return found;
+            }
+            if (maybeGiftIdLong) {
+                const found = inventory.find(i => String(i.gift_id_long) === String(maybeGiftIdLong));
+                if (found) return found;
+            }
+            return null;
+        }
+
+        // Verify all requested gifts exist in inventory
+        const missing = [];
+        const matchedInventoryItems = []; // items we will pass to worker (full DB objects)
+        for (const rg of requestedGifts) {
+            const match = findInventoryMatch(rg);
+            if (!match) {
+                // collect an identifier for reporting
+                missing.push(rg.uuid ?? rg.telegram_message_id ?? rg.gift_id_long ?? JSON.stringify(rg).slice(0, 50));
+            } else {
+                matchedInventoryItems.push(match);
+            }
+        }
+
+        if (missing.length > 0) {
+            return res.status(400).json({ ok: false, error: "gifts_not_in_inventory", missing });
+        }
+
+        // === Reserve: remove gifts from inventory immediately (CAS by updated_at) ===
+        // Build new inventory by removing the reserved gifts
+        const removeUuids = new Set(matchedInventoryItems.map(i => String(i.uuid ?? i.telegram_message_id ?? i.gift_id_long)));
+        const newInventory = inventory.filter(item => !removeUuids.has(String(item.uuid ?? item.telegram_message_id ?? item.gift_id_long)));
+
+        // Attempt CAS update using updated_at to avoid race conditions. Retry if concurrent modification.
+        const MAX_RETRIES = 3;
+        let attempt = 0;
+        let updatedUser = null;
+        while (attempt < MAX_RETRIES) {
+            attempt++;
+            const currentUpdatedAt = userRow.updated_at;
+
+            // perform update only if updated_at matches
+            const { data: updData, error: updErr } = await supabaseAdmin
+                .from("users")
+                .update({ inventory: newInventory })
+                .eq("id", userRow.id)
+                .eq("updated_at", currentUpdatedAt)
+                .select("id, telegram, inventory, updated_at")
+                .single();
+
+            if (updErr) {
+                // If update failed because updated_at changed, re-fetch and retry
+                console.warn(`withdraw-gifts: CAS attempt ${attempt} failed:`, updErr.message || updErr);
+                // re-fetch user
+                const { data: freshUser, error: freshErr } = await supabaseAdmin
+                    .from("users")
+                    .select("id, telegram, inventory, updated_at")
+                    .eq("telegram", Number(recipient))
+                    .maybeSingle();
+
+                if (freshErr) {
+                    console.error("withdraw-gifts: error re-fetching user after CAS failure:", freshErr);
+                    return res.status(500).json({ ok: false, error: "db_error_recheck", details: freshErr.message || freshErr });
+                }
+                if (!freshUser) {
+                    return res.status(404).json({ ok: false, error: "user_not_found_during_retry" });
+                }
+
+                // recompute inventory & ensure gifts still present
+                const freshInventory = Array.isArray(freshUser.inventory) ? freshUser.inventory : [];
+                const stillPresent = matchedInventoryItems.every(mi => {
+                    return freshInventory.some(fi => String(fi.uuid ?? fi.telegram_message_id ?? fi.gift_id_long) === String(mi.uuid ?? mi.telegram_message_id ?? mi.gift_id_long));
+                });
+
+                if (!stillPresent) {
+                    // someone else removed or modified inventory in the meantime — abort to avoid double-use
+                    return res.status(409).json({ ok: false, error: "inventory_changed_concurrent", message: "Failed to reserve gifts: inventory changed" });
+                }
+
+                // recompute newInventory and try again
+                const freshRemoveUuids = new Set(matchedInventoryItems.map(i => String(i.uuid ?? i.telegram_message_id ?? i.gift_id_long)));
+                const freshNewInventory = freshInventory.filter(item => !freshRemoveUuids.has(String(item.uuid ?? item.telegram_message_id ?? item.gift_id_long)));
+                // assign for next iteration
+                userRow.inventory = freshInventory;
+                userRow.updated_at = freshUser.updated_at;
+                // set newInventory for attempt
+                newInventory.splice(0, newInventory.length, ...freshNewInventory);
+                continue;
+            } else {
+                // success
+                updatedUser = updData;
+                break;
+            }
+        }
+
+        if (!updatedUser) {
+            return res.status(500).json({ ok: false, error: "failed_to_reserve_gifts", message: "Could not atomically reserve/remove gifts from inventory" });
+        }
+
+        // At this point, gifts have been removed from the user's inventory and reserved for transfer.
+        // Build payload to send to worker: pass recipient and the rich gift objects taken from DB
+        const payload = {
+            recipient,
+            gifts: matchedInventoryItems.map(item => ({
+                uuid: item.uuid ?? null,
+                telegram_message_id: item.telegram_message_id ?? null,
+                gift_id_long: item.gift_id_long ?? null,
+                saved_id: item.saved_id ?? null,
+                slug: item.slug ?? null,
+                name: item.name ?? item.collection_name ?? null,
+                model: item.model ?? null,
+                number: item.number ?? item.num ?? null,
+            })),
+            requester_telegram: Number(recipient),
+            request_time: new Date().toISOString()
+        };
+
+        // Call worker. Use generous timeout.
+        let workerResult;
+        try {
+            workerResult = await sendToWorker("./giftrelayer-listener.js", "withdrawGifts", payload, 120_000);
+        } catch (err) {
+            console.error("withdraw-gifts: error sending to worker:", err);
+            // Worker didn't start / IPC failed — rollback removed gifts (best-effort) so user doesn't lose inventory.
+            try {
+                const rollbackRes = await supabaseAdmin
+                    .from("users")
+                    .update({ inventory: inventory }) // old inventory snapshot
+                    .eq("id", userRow.id)
+                    .select()
+                    .single();
+                console.warn("withdraw-gifts: worker IPC failed — rolled back inventory (best-effort).", rollbackRes);
+            } catch (rbErr) {
+                console.error("withdraw-gifts: rollback failed after worker IPC error:", rbErr);
+            }
+            return res.status(500).json({ ok: false, error: "worker_ipc_error", details: err.message ?? String(err) });
+        }
+
+        // Worker processed the request (it is responsible for calling /api/giftFailed for any gift-level failures).
+        // Return the worker's result to the client. Do NOT re-add failed gifts here — worker will call /api/giftFailed as needed.
+        return res.json({ ok: true, result: workerResult });
+
+    } catch (err) {
+        console.error("[withdraw-gifts] unexpected error:", err);
+        return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
+    }
+});
+
+
+// POST /api/giftHandle
 app.post("/api/giftHandle", async (req, res) => {
     console.log("[BACKEND HIT] /api/giftHandle");
     try {
         const rec = req.body ?? {};
         // Basic validation
-        // Expect the worker to POST the record with fields like:
-        // { telegram_sender_id, sender_username, gift_id, collection_name, unique_base_name, is_unique, star_count, raw_json, ... }
         if (!rec || Object.keys(rec).length === 0) {
             return res.status(400).json({ error: "empty payload" });
         }
 
-        // 2) Determine the collection key to lookup
-        const collectionKey = String(rec.collection_name || "").trim();
+        // 1) Determine the collection key to lookup
+        const collectionKey = String(rec.collection_name || rec.collection || "").trim();
         if (!collectionKey) {
             console.warn("giftHandle: no collection key provided", rec);
             return res.status(400).json({ error: "no_collection_key" });
         }
 
-        // 3) Fetch current up-to-date prices for this collection from Supabase.
-        //    A dedicated table `gift_prices` (columns: collection_name text, price_ton numeric)
+        // 2) Validate telegram sender id from payload (the depositor)
+        const telegramSenderRaw = rec.telegram_sender_id ?? rec.sender ?? null;
+        if (!telegramSenderRaw) {
+            console.warn("giftHandle: no sender telegram id in payload", rec);
+            return res.status(400).json({ error: "no_sender_telegram_id" });
+        }
+        const telegramSender = Number(telegramSenderRaw);
+        if (Number.isNaN(telegramSender)) {
+            console.warn("giftHandle: invalid sender telegram id", telegramSenderRaw);
+            return res.status(400).json({ error: "invalid_sender_telegram_id" });
+        }
+
+        // 3) If the relayer itself deposited (i.e. relayer -> user transfer), you may treat differently.
+        //    Keep your existing guard if you have a constant GIFT_RELAYER_TELEGRAM_ID in scope.
+        if (typeof GIFT_RELAYER_TELEGRAM_ID !== 'undefined' && telegramSender === GIFT_RELAYER_TELEGRAM_ID) {
+            // This indicates the relayer sent the gift (not a deposit); nothing to credit here.
+            return res.json({ ok: true, processed: true });
+        }
+
+        // 4) Fetch current up-to-date price for this collection from Supabase.
         let priceTon = null;
         try {
-            // Attempt 1: gift_prices table (case-insensitive match)
+            // Using maybeSingle() usually returns one object or null; handle that.
             const { data: gpData, error: gpErr } = await supabaseAdmin
                 .from("gift_prices")
                 .select("*")
@@ -591,13 +926,12 @@ app.post("/api/giftHandle", async (req, res) => {
                 .maybeSingle();
 
             if (gpErr) {
-                // table might not exist
                 console.error("giftHandle: gift_prices query error (maybe table missing) -", gpErr.message || gpErr);
-                return res.status(400).json({ error: "table_not_found" });
-
-            } else if (gpData && gpData.length > 0) {
-                const row = gpData[0];
-                priceTon = row.price_ton !== undefined ? Number(row.price_ton) : null;
+                // Treat as missing mapping (allow fallback below or return)
+            } else if (gpData) {
+                // Found a row; extract price
+                const row = gpData;
+                priceTon = (row && row.price_ton !== undefined && row.price_ton !== null) ? Number(row.price_ton) : null;
                 console.log("giftHandle: found price in gift_prices table", { collection: collectionKey, priceTon });
             }
         } catch (err) {
@@ -607,25 +941,44 @@ app.post("/api/giftHandle", async (req, res) => {
         // If price not found, return reasonable error so you can add mapping in DB.
         if (priceTon == null || Number.isNaN(priceTon)) {
             console.warn("giftHandle: price not found for collection", collectionKey);
-            // GIFT NOT UNIQUE OR NOT FOUND BUT KEEP TRACK OF IT IN CASE WE FUCKED UP
             return res.status(404).json({ error: "gift_not_unique", collection: collectionKey });
         }
 
-        // 4) Find (or create) the user and update points
-        // rec.telegram_sender_id is expected to be Telegram id (integer or string)
-        const telegramSenderRaw = rec.telegram_sender_id ?? null;
-        if (!telegramSenderRaw) {
-            console.warn("giftHandle: no sender telegram id in payload", rec);
-            return res.status(400).json({ error: "no_sender_telegram_id" });
-        }
-        const telegramSender = Number(telegramSenderRaw);
+        // 5) Build the gift object we will append to inventory using fields from rec.
+        //    We'll follow your original inventory shape (lowercase keys) and add Telegram-specific metadata.
+        const giftUuid = uuidv4();
 
+        // Normalize/derive fields from worker's record (rec)
+        const numberField = (rec.num ?? rec.number ?? rec.Number ?? null);
+        const modelField = (rec.model ?? rec.modelName ?? rec.Model ?? null);
+        const telegramMessageId = rec.telegram_message_id ?? rec.telegramMessageId ?? rec.telegram_message ?? null;
+        const giftIdLong = rec.gift_id_long ?? rec.gift_id ?? rec.giftId ?? null;
+        const savedId = rec.saved_id ?? rec.savedId ?? null;
+        const slug = rec.gift_slug ?? rec.slug ?? null;
+        const depositedAt = rec.created_at ?? new Date().toISOString();
+
+        const newGift = {
+            // basic fields (compatible with your inventory sample)
+            name: collectionKey,
+            uuid: giftUuid,
+            model: modelField ? String(modelField) : null,
+            value: Number.isFinite(priceTon) ? Number(priceTon) : 0,
+            number: (numberField !== undefined && numberField !== null) ? Number(numberField) : null,
+
+            // telegram-specific metadata (helpful for future transfers)
+            telegram_message_id: telegramMessageId !== undefined ? (telegramMessageId === null ? null : Number(telegramMessageId)) : null,
+            gift_id_long: giftIdLong !== undefined ? String(giftIdLong) : null,
+            saved_id: savedId !== undefined ? String(savedId) : null,
+            slug: slug ?? null,
+            deposited_at: depositedAt
+        };
+
+        // 6) Find user by telegram and append the gift to inventory (or create new user)
         let user = null;
         try {
-            // find user by telegram
             const { data: existingUser, error: userErr } = await supabaseAdmin
                 .from("users")
-                .select("id, points")
+                .select("id, inventory, telegram")
                 .eq("telegram", telegramSender)
                 .maybeSingle();
 
@@ -635,12 +988,13 @@ app.post("/api/giftHandle", async (req, res) => {
             }
 
             if (existingUser) {
-                // update points
-                const oldPoints = Number(existingUser.points ?? 0);
-                const newPoints = oldPoints + Number(priceTon);
+                const oldInventory = Array.isArray(existingUser.inventory) ? existingUser.inventory : [];
+                // Prepend to list (you used this previously) — or push depending on ordering preference
+                const newInventory = [newGift, ...oldInventory];
+
                 const { data: updUser, error: updErr } = await supabaseAdmin
                     .from("users")
-                    .update({ points: newPoints })
+                    .update({ inventory: newInventory })
                     .eq("id", existingUser.id)
                     .select()
                     .single();
@@ -651,10 +1005,10 @@ app.post("/api/giftHandle", async (req, res) => {
                 }
                 user = updUser;
             } else {
-                // create a minimal user record (telegram required by constraint)
+                // Insert a minimal user row. Ensure your users table allows null other fields.
                 const { data: insUser, error: insErr } = await supabaseAdmin
                     .from("users")
-                    .insert({ telegram: telegramSender, points: Number(priceTon) })
+                    .insert({ telegram: telegramSender, inventory: [newGift] })
                     .select()
                     .single();
 
@@ -669,13 +1023,13 @@ app.post("/api/giftHandle", async (req, res) => {
             return res.status(500).json({ error: "internal_error", details: err.message });
         }
 
-        // 5) Insert transaction row
+        // 7) Insert transaction row (record the deposit)
         try {
             const now = new Date().toISOString();
             const txUuid = uuidv4();
             const txRow = {
                 uuid: txUuid,
-                user_id: user?.telegram ?? null,
+                user_id: user?.telegram ?? telegramSender,
                 amount: Number(priceTon),
                 status: "Пополнение подарком",
                 created_at: now,
@@ -698,21 +1052,18 @@ app.post("/api/giftHandle", async (req, res) => {
 
             if (txErr) {
                 console.error("giftHandle: transactions insert error", txErr);
-                // There was an error writing the transaction — attempt to roll back the points update?
-                // For now, return an error so you can investigate.
                 return res.status(500).json({ error: "db_error_insert_transaction", details: txErr.message || txErr });
             }
 
             console.log("giftHandle: processed gift COMPLETE - DONE!");
 
             return res.json({ ok: true, processed: true, user_id: user.telegram, amount: priceTon, transaction_uuid: txUuid });
-
         } catch (err) {
             console.error("giftHandle: transaction insertion internal error", err);
             return res.status(500).json({ error: "internal_error", details: err.message });
         }
     } catch (err) {
-        console.error(err);
+        console.error("giftHandle: unexpected error", err);
         return res.status(500).json({ error: "unexpected_error", details: err.message });
     }
 });

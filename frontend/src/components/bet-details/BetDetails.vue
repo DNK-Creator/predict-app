@@ -6,7 +6,8 @@
         </div>
 
         <ShowBetModal :visible="showBetModal" :bet="bet" :side="betSide" @close="showBetModal = false"
-            @placed="onBetPlaced" />
+            @placed="onBetPlaced" @side-to-yes="onSideChangeToYes" @side-to-no="onSideChangeToNo" :gifts="userInventory"
+            :prices="giftsPrices" />
 
         <GiveawayModal :show="showGiveawayModal" @close="showGiveawayModal = false" :gift_name="bet.giveaway_prize_name"
             :gift_value="bet.giveaway_gift_value" :total_tickets="bet.giveaway_total_tickets"
@@ -94,7 +95,7 @@
                     </div>
                 </div>
 
-                <section v-if="userBetAmount.stake > 0" class="placed-bet-container">
+                <section v-if="userBetAmount.stake > 0 || userBetAmount.placed_gifts.length > 0" class="placed-bet-container">
                     <div v-if="showCelebration === false" class="placed-bet-object">
                         <span>
                             {{ $t('potential-win') }}:
@@ -302,6 +303,9 @@ const route = useRoute()
 
 const commentsInput = ref(null)
 
+const userInventory = ref([])
+const giftsPrices = ref([])
+
 // create a reactive boolean the template can use
 const isKeyboardOpen = ref(false)
 
@@ -425,6 +429,14 @@ function giveawayOpened() {
     }
 }
 
+function onSideChangeToYes() {
+    betSide.value = 'Yes'
+}
+
+function onSideChangeToNo() {
+    betSide.value = 'No'
+}
+
 function translatePlaceholder() {
     return app.language === 'ru' ? 'Напишите комментарий..' : 'Post a comment..'
 }
@@ -529,9 +541,8 @@ const newComment = ref('')
 const scrollArea = ref(null)
 const commentsAnchor = ref(null)
 const volume = ref(0)
-const userBetAmount = ref({ stake: 0, result: '0' })
+const userBetAmount = ref({ stake: 0, placed_gifts: [], result: '0' })
 const canComment = ref(false)
-const currentOdds = ref(0.5)
 
 const showBetModal = ref(false)
 const betSide = ref('Yes')
@@ -807,7 +818,7 @@ function readVolumeObject(vol) {
     return { yes, no }
 }
 
-const volParts = computed(() => readVolumeObject(bet.value.volume))
+const volParts = computed(() => readVolumeObject(bet.value.volume_with_gifts))
 
 const calculatedOdds = computed(() => {
     const yes = Number(volParts.value.yes) || 0;
@@ -960,18 +971,20 @@ async function loadData(idToLoad) {
     commentsPage = 0
     comments.value = []
     newComment.value = ''
-    volume.value = 0
-    userBetAmount.value = { stake: 0, result: '0' }
+    volume.value = { "No": 0, "Yes": 0 }
+    userBetAmount.value = { stake: 0, placed_gifts: [], result: '0' }
     canComment.value = false
 
     try {
         bet.value = await getBetById(id)
-        volume.value = bet.value.volume
-        currentOdds.value = bet.value.current_odds
+        volume.value = bet.value.volume_with_gifts
         userBetAmount.value = await getUserBetAmount(id)
         comments.value = await getComments(id, commentsPage)
         canComment.value = await availableComments(id)
         holders.value = await getBetsHolders(id)
+
+        await loadGifts()
+        await loadRoughPrices()
 
         const betResultNorm = normalizeResult(bet.value?.result)
         const userResultNorm = normalizeResult(userBetAmount.value?.result)
@@ -979,7 +992,7 @@ async function loadData(idToLoad) {
         if (
             betResultNorm &&
             betResultNorm !== 'undefined' &&            // keep your original "undefined" guard
-            userBetAmount.value.stake > 0 &&
+            (userBetAmount.value.stake > 0 || userBetAmount.value.placed_gifts.length > 0) &&
             userResultNorm === betResultNorm
         ) {
             showCelebration.value = true
@@ -1004,7 +1017,7 @@ async function onBetPlaced() {
     canComment.value = true
     // refresh bet and user amounts after placing
     bet.value = await getBetById(betId.value)
-    volume.value = bet.value.volume
+    volume.value = bet.value.volume_with_gifts
     userBetAmount.value = await getUserBetAmount(betId.value)
 }
 
@@ -1023,8 +1036,35 @@ onDeactivated(() => {
     }
 })
 
+async function loadRoughPrices() {
+    // if (!user) return
+    const { data, error } = await supabase
+        .from('gift_prices')
+        .select('collection_name, price_ton, lottie_url')
+
+    if (error) {
+        console.error('Error loading gifts:', error)
+    } else {
+        giftsPrices.value = Array.isArray(data) ? data : []
+    }
+}
+
+async function loadGifts() {
+    // if (!user) return
+    const { data, error } = await supabase
+        .from('users')
+        .select('inventory')
+        .eq('telegram', user?.id ?? 99)
+        .single()
+
+    if (error) {
+        console.error('Error loading gifts:', error)
+    } else {
+        userInventory.value = Array.isArray(data) ? data[0].inventory : data.inventory
+    }
+}
+
 async function validateIdAndApproval(id) {
-    console.log(id)
     // Normalize id to integer (if you use strings for IDs adjust accordingly)
     const numericId = Number(id)
     if (!numericId || Number.isNaN(numericId)) {
@@ -1192,6 +1232,14 @@ async function tryPostComment() {
     await postComment()
 }
 
+function sumUpBetGifts(arr) {
+    if (!Array.isArray(arr)) return 0;
+    return arr.reduce((acc, obj) => {
+        const val = Number(obj?.value);
+        return acc + (isFinite(val) ? val : 0);
+    }, 0);
+}
+
 // updated postComment - handles server-side cooldown response
 async function postComment() {
     if (!newComment.value) return
@@ -1203,7 +1251,7 @@ async function postComment() {
         // adapt this to your actual state - below is an example placeholder
 
         const usersStake = userBetAmount?.value
-            ? { side: userBetAmount.value.result, amount: userBetAmount.value.stake }
+            ? { side: userBetAmount.value.result, amount: userBetAmount.value.stake + sumUpBetGifts(userBetAmount.value.placed_gifts) }
             : null
 
         // call server-side function which enforces cooldown and inserts
@@ -1441,8 +1489,8 @@ watch(
 function onResize() { updateCaretPosition(); }
 
 // --- Helpers + potential profit computation for the existing user bet ---
-// House cut used in bet modal (10%)
-const HOUSE_CUT = 0.03
+// House cut used in bet modal (20%)
+const HOUSE_CUT = 0.2
 
 // small formatter for TON amounts (similar to modal)
 function formatTon(x) {
@@ -1469,7 +1517,7 @@ function normalizeUserSide(side) {
  * Returns a Number (rounded to 2 decimals) — template calls formatTon(...) to display.
  */
 const potentialWinningsForUser = computed(() => {
-    const stake = Number(userBetAmount.value?.stake) || 0
+    const stake = Number(userBetAmount.value?.stake) + Number(sumUpBetGifts(userBetAmount.value.placed_gifts)) || 0
     if (stake <= 0) return 0
 
     const yes = Number(volParts.value.yes) || 0
@@ -1543,7 +1591,6 @@ const potentialWinningsForUser = computed(() => {
 .header__text {
     font-size: 1.2rem;
     width: 100%;
-    max-width: 85%;
     margin: 0 auto;
     color: #F7F9FB;
     text-align: center;
@@ -1949,6 +1996,7 @@ const potentialWinningsForUser = computed(() => {
     transform: rotate(2deg);
     animation: float-breathe-one 6s ease-in-out infinite;
     animation-delay: 0s;
+    width: 10rem;
 }
 
 @keyframes float-breathe-one {
@@ -2020,13 +2068,13 @@ const potentialWinningsForUser = computed(() => {
 .chance-row {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
     margin-top: 2px;
 }
 
 .ton-image {
-    height: 20px;
-    width: 20px;
+    height: 16px;
+    width: 16px;
 }
 
 @keyframes float-breathe-two {
@@ -2114,7 +2162,7 @@ const potentialWinningsForUser = computed(() => {
     color: white;
     font-family: "Inter", sans-serif;
     font-weight: 600;
-    font-size: 1.4rem;
+    font-size: 1.2rem;
     line-height: 1;
     text-align: center;
     text-justify: center;
@@ -2123,6 +2171,8 @@ const potentialWinningsForUser = computed(() => {
 .info-hint {
     color: rgb(211, 211, 211, 0.78);
     font-size: 0.85rem;
+    text-align: center;
+    text-justify: center;
 }
 
 .volume_info,
@@ -2351,7 +2401,7 @@ const potentialWinningsForUser = computed(() => {
     left: 50%;
     transform: translateX(-50%);
     bottom: calc(env(safe-area-inset-bottom, 0px));
-    width: min(720px, 96%);
+    width: min(480px, 96%);
     height: 100px;
     display: flex;
     gap: 10px;

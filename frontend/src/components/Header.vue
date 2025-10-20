@@ -211,16 +211,16 @@ function onHistoryClick() {
     margin: auto auto;
     cursor: pointer;
     width: 45%;
-    max-width: 260px;
+    max-width: 165px;
     background-color: #3b82f6;
     text-align: center;
 }
 
 .wallet-address {
     margin: 0.25rem 0;
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     font-weight: bold;
-    width: 180px;
+    width: min(100%, 180px);
 }
 
 .wallet-address-icon {

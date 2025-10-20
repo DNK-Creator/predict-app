@@ -2,12 +2,14 @@
     <Teleport to="body">
         <!-- backdrop -->
         <transition name="fade">
-            <div v-if="show" class="overlay overlay--visible" @click.self="onClose" />
+            <div v-if="show" :class="['overlay', 'overlay--visible', { passthrough: passThrough }]"
+                @click.self="onClose" :aria-hidden="passThrough ? 'true' : 'false'" />
         </transition>
 
         <!-- modal -->
         <transition name="slide-up">
-            <div v-if="show" class="settings-modal" role="dialog" aria-modal="true" aria-label="Activity details">
+            <div v-if="show" class="settings-modal" role="dialog" aria-modal="true" aria-label="Activity details"
+                :class="{ passthrough: passThrough }" :aria-hidden="passThrough ? 'true' : 'false'">
                 <div class="footer">
                     <h2 class="modal-title"> {{ translateName() || '—' }} </h2>
                     <button class="close-btn" @click="onClose">✖</button>
@@ -29,7 +31,8 @@
 
                 <!-- BIGGER GIFTS GRID (inserted into modal) -->
                 <div v-if="displayGifts.length > 0" class="modal-gifts-section" role="region" aria-label="Winnings">
-                    <div class="modal-gifts-list" role="list" tabindex="0" aria-live="polite">
+                    <div class="modal-gifts-list" :class="{ passthrough: passThrough }" role="list" tabindex="0"
+                        aria-live="polite">
                         <div v-for="(g, idx) in displayGifts" :key="(g.gift_url || '') + '-' + idx"
                             class="modal-gift-card" role="listitem" :aria-label="g.gift_name || 'gift'">
                             <div class="modal-gift-image-wrap">
@@ -45,7 +48,7 @@
                 <!-- ACTION BUTTON (24px gap to gifts above) -->
                 <div class="action-row">
                     <button class="action-btn" @click="onOpenBetPage" aria-label="Open bet">{{ $t('open-event')
-                    }}</button>
+                        }}</button>
                 </div>
             </div>
         </transition>
@@ -54,7 +57,7 @@
 
 <script setup>
 import { useAppStore } from '@/stores/appStore'
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 // get props as an object so we can watch props.show cleanly
 const props = defineProps({
@@ -71,9 +74,27 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'open-bet-page'])
 
+const passThrough = ref(false)
+
 function onClose() {
+    passThrough.value = true
+    console.log(passThrough.value)
     emit('close')
 }
+
+watch(() => props.show, (newVal, oldVal) => {
+    if (oldVal === true && newVal === false) {
+        passThrough.value = true
+    }
+})
+
+function onAfterLeave() {
+    passThrough.value = false
+}
+
+watch(() => props.show, (newVal) => {
+    if (newVal === true) passThrough.value = false
+})
 
 const app = useAppStore()
 
@@ -154,13 +175,11 @@ const displayGifts = computed(() => giftsArray.value || [])
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
     z-index: 30;
 }
 
 .overlay--visible {
-    background-color: rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(3px);
+    background-color: rgba(0, 0, 0, 0.4);
 }
 
 /* Modal container, pinned bottom */
@@ -388,18 +407,21 @@ const displayGifts = computed(() => giftsArray.value || [])
     border-radius: 10px;
 }
 
+.fade.passthrough {
+    pointer-events: none;
+    touch-action: auto;
+}
+
 /* keep your transitions intact */
 .fade-enter-active,
 .fade-leave-active {
     transition:
-        background-color 300ms ease-out,
-        backdrop-filter 300ms ease-out;
+        background-color 300ms ease-out;
 }
 
 .fade-enter-from,
 .fade-leave-to {
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
 }
 
 .slide-up-enter-active,
@@ -449,6 +471,10 @@ const displayGifts = computed(() => giftsArray.value || [])
     -ms-overflow-style: none;
 }
 
+.modal-gifts-list.passthrough {
+    overscroll-behavior: disabled;
+}
+
 .modal-gifts-list::-webkit-scrollbar {
     display: none;
 }
@@ -495,7 +521,6 @@ const displayGifts = computed(() => giftsArray.value || [])
     border-radius: 8px;
     /* match wrapper radius so corners are smooth */
 }
-
 
 /* Meta (name / count) sits below the square image and has its own padding */
 .modal-gift-meta {
@@ -576,6 +601,15 @@ const displayGifts = computed(() => giftsArray.value || [])
 .action-btn:hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 22px rgba(21, 90, 140, 0.12);
+}
+
+.passthrough {
+    pointer-events: none;
+    touch-action: auto;
+}
+
+.keep-interactive {
+    pointer-events: auto;
 }
 
 /* reduce motion preference */

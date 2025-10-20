@@ -63,7 +63,7 @@
     "by-stars": "Stars",
     "deposit-ton-connect": "Deposit with TON Connect",
     "connected-balance": "Balance on connected wallet:",
-    "gifts-deposit-instruction-one": "To top up your balance with a gift, send a gift to our bot.",
+    "gifts-deposit-instruction-one": "To add new gifts to the inventory, send unique gifts to",
     "gifts-deposit-instruction-two": "The gift will be credited to your TON balance at the market price from the list.",
     "gifts-deposit-instruction-three": "The transfer operation is final, and the balance will be updated immediately.",
     "stars-deposit-instruction": "Stars are automatically converted to TON, and your balance will be updated instantly.",
@@ -115,7 +115,7 @@
     "no-gifts": "No available gifts",
     "current-prices": "Current gift prices",
     "running-title": "Race",
-    "potential-win": "Potential winnings",
+    "potential-win": "Approximate winnings",
     "got-win": "Earnings",
     "value": "Value",
     "boost": "BOOST",
@@ -170,5 +170,14 @@
     "events": "Events",
     "created-events-history": "Previously created",
     "winner": "Winner",
-    "loser": "Loser"
+    "loser": "Loser",
+    "inventory": "Inventory",
+    "none-gifts-one": "There are no unique gifts yet.",
+    "none-gifts-two": "To add new ones, send gifts to",
+    "to-add-new-gifts": "To add new ones, send gifts to",
+    "gift": "Gift",
+    "total-bet": "Your bet",
+    "withdraw-gift": "Withdraw gifts",
+    "max-withdraw-gifts": "Limit of 10 gifts per withdraw.",
+    "withdrawing-wait": "Withdrawing.."
 }

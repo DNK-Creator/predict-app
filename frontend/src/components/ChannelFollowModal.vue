@@ -60,9 +60,7 @@ function onSubscribe() {
 .overlay {
     position: fixed;
     inset: 0;
-    background-color: rgba(0, 0, 0, 0.45);
-    /* darker like in image */
-    backdrop-filter: blur(4px);
+    background-color: rgba(0, 0, 0, 0.55);
     z-index: 20;
 }
 
@@ -283,7 +281,7 @@ function onSubscribe() {
 /* keep transitions you already had */
 .fade-enter-active,
 .fade-leave-active {
-    transition: background-color 300ms ease-out, backdrop-filter 300ms ease-out;
+    transition: background-color 300ms ease-out;
 }
 
 .slide-up-enter-active,

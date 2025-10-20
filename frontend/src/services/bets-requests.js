@@ -192,7 +192,7 @@ export async function getUsersHistoryBets() {
 export async function getBetById(betId) {
     const { data, error } = await supabase
         .from('bets')
-        .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume, close_time, current_odds, giveaway_total_tickets, giveaway_tickets_left, giveaway_prize_image, giveaway_prize_name, giveaway_chat_link, giveaway_gift_value')
+        .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume_with_gifts, close_time, current_odds, giveaway_total_tickets, giveaway_tickets_left, giveaway_prize_image, giveaway_prize_name, giveaway_chat_link, giveaway_gift_value')
         .eq('id', betId)
         .single()
     if (error) throw error
@@ -200,16 +200,18 @@ export async function getBetById(betId) {
 }
 
 // client: call RPC
-export async function placeBetRequest(betId, side, stake) {
-    if (!betId || !side || !stake) throw new Error('missing args');
+export async function placeBetRequest(betId, side, stake, placed_gifts) {
+    if (!betId || !side) throw new Error('missing args');
+    if (!stake && !placed_gifts) throw new Error('missing args');
 
     const { data, error } = await supabase.rpc('place_bet_rpc', {
         p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
         p_bet_id: Number(betId),
         p_side: String(side),
-        p_stake: String(Number(stake).toFixed(2)), // send numeric string with 3 decimals
+        p_stake: String(Number(stake).toFixed(2)), // send numeric string with 2 decimals
         p_photo_url: user?.photo_url ?? null,
         p_username: user?.username ?? 'Anonymous',
+        p_placed_gifts: placed_gifts
     });
 
     if (error) {
@@ -220,20 +222,30 @@ export async function placeBetRequest(betId, side, stake) {
     // RPC returns a row (an array because set-returning); extract first element if needed
     const row = Array.isArray(data) ? data[0] : data;
 
-    // after your RPC returns successfully (inside client)
-    await fetch('https://api.giftspredict.ru/api/bet-placed', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            telegram: Number(user?.id ?? 0),  // same telegram id you passed to RPC
+    try {
+        const payload = JSON.stringify({
+            telegram: Number(user?.id ?? 0),
             bet_id: Number(betId),
             side: String(side),
             stake: String(Number(stake).toFixed(2)),
+            placed_gifts: placed_gifts,
             chat_id: '@giftspredict_chat'
-        })
-    });
+        });
+
+        void fetch('https://api.giftspredict.ru/api/bet-placed', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true
+        }).catch(err => {
+            // silently ignore but log for diagnostics
+            console.warn('Ignored webhook error (giftspredict):', err);
+        });
+
+    } catch (err) {
+        // Defensive: nothing should throw, but ignore any synchronous errors here too
+        console.warn('Ignored webhook setup error (giftspredict):', err);
+    }
 
     return {
         placed_bets: row?.placed_bets ?? [],
@@ -294,11 +306,13 @@ export async function getUserBetAmount(betId) {
     if (entry) {
         return {
             stake: entry.stake,
+            placed_gifts: entry.placed_gifts,
             result: entry.side
         }
     } else {
         return {
             stake: 0,
+            placed_gifts: [],
             result: "0"
         }
     }

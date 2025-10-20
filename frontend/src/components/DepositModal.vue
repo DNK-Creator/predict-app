@@ -187,8 +187,7 @@ function onDepositStars() {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(5px);
+    background: rgba(0, 0, 0, 0.45);
     z-index: 1000;
 }
 

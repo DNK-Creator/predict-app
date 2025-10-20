@@ -262,13 +262,11 @@ watch(() => props.show, (val) => {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
     z-index: 30;
 }
 
 .overlay--visible {
-    background-color: rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(3px);
+    background-color: rgba(0, 0, 0, 0.4);
 }
 
 /* Modal container, pinned bottom */
@@ -436,14 +434,12 @@ watch(() => props.show, (val) => {
 .fade-enter-active,
 .fade-leave-active {
     transition:
-        background-color 300ms ease-out,
-        backdrop-filter 300ms ease-out;
+        background-color 300ms ease-out;
 }
 
 .fade-enter-from,
 .fade-leave-to {
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
 }
 
 .slide-up-enter-active,

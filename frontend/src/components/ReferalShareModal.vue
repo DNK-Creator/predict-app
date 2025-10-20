@@ -102,13 +102,11 @@ onMounted(() => {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
     z-index: 20;
 }
 
 .overlay--visible {
     background-color: rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(3px);
 }
 
 /* Modal container, 45vh tall, pinned bottom */
@@ -280,14 +278,12 @@ onMounted(() => {
 .fade-enter-active,
 .fade-leave-active {
     transition:
-        background-color 300ms ease-out,
-        backdrop-filter 300ms ease-out;
+        background-color 300ms ease-out;
 }
 
 .fade-enter-from,
 .fade-leave-to {
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
 }
 
 /* SLIDE-UP TRANSITION FOR MODAL */

@@ -14,18 +14,16 @@
                 <div class="wallet-top-header" @click="openWalletInfo">
                     <div class="status-container">
                         <img :src="walletIcon">
-                        <span class="wallet-status-text"> {{ walletStatus }} </span>
+                        <div class="wallet-action-text" v-if="app.walletAddress"> {{ $t("connected") }} </div>
+                        <div class="wallet-action-text" v-else> {{ $t("connect-plus") }} </div>
                     </div>
-
-                    <div class="wallet-action-text" v-if="app.walletAddress"> {{ $t("connected") }} </div>
-                    <div class="wallet-action-text" v-else> {{ $t("connect-plus") }} </div>
                 </div>
                 <div class="wallet">
                     <h3 class="wallet-balance-hint">{{ $t("gifts-predict-balance") }}</h3>
                     <h1 class="wallet-balance">{{ app.points }} TON</h1>
                     <div class="wallet-buttons">
                         <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
-                        }}</button>
+                            }}</button>
                     </div>
                 </div>
             </div>

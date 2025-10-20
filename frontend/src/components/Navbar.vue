@@ -17,6 +17,14 @@
             </div>
         </RouterLink>
 
+        <RouterLink to="/inventory" custom v-slot="{ isActive, navigate }">
+            <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
+                :aria-current="isActive ? 'page' : null" tabindex="0">
+                <i class="fa-solid fa-gift icon" :aria-hidden="true"></i>
+                <span class="menu-label">{{ $t('inventory') }}</span>
+            </div>
+        </RouterLink>
+
         <RouterLink to="/" custom v-slot="{ isActive, navigate }">
             <div class="menu-item" :class="{ active: isActive }" @click="navigate" role="button"
                 :aria-current="isActive ? 'page' : null" tabindex="0">

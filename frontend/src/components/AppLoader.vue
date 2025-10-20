@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
 /* Progress bar container (unfilled color) */
 .progress-bar {
     position: relative;
-    width: 60%;
+    width: min(60%, 360px);
     height: 7px;
     background: rgb(75, 77, 80);
     /* unfilled color */

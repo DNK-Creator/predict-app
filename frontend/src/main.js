@@ -1,20 +1,19 @@
 import { createApp } from 'vue'
 import { createI18n } from 'vue-i18n'
 import { createPinia } from 'pinia'
+import { installGlobalErrorHandlers } from '@/services/debugLogger'
+import { watch } from 'vue'
+import { useAppStore } from '@/stores/appStore'
 import Toast from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
-import { installGlobalErrorHandlers } from '@/services/debugLogger'
-installGlobalErrorHandlers()
-import { watch } from 'vue'                    // <-- add
-import { useAppStore } from '@/stores/appStore' // <-- add
 
-import "@fontsource/inter/200.css"; // thin
-import "@fontsource/inter/400.css"; // regular
-import "@fontsource/inter/600.css"; // bold
+import "@fontsource/inter/200.css"
+import "@fontsource/inter/400.css"
+import "@fontsource/inter/600.css"
 
-import "@fontsource/montserrat/400.css"; // regular
+import "@fontsource/montserrat/400.css"
 
-import '@fontsource/press-start-2p';
+import '@fontsource/press-start-2p'
 
 import App from './App.vue'
 import router from './router'
@@ -23,6 +22,8 @@ import ru from './locales/ru.json'
 import en from './locales/en.json'
 
 import './assets/main.css'
+
+installGlobalErrorHandlers()
 
 const i18n = createI18n({
     legacy: false,

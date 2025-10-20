@@ -38,7 +38,7 @@
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
                                 <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect')
-                                }}</span>
+                                    }}</span>
                                 <span v-else="!address" class="deposit-text-info-two">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
@@ -110,15 +110,15 @@
                         <div class="deposit-method-container" v-show="selectedDeposit === 'GIFTS'">
                             <div ref="svgContainerTwo" class="media-method"> </div>
                             <div class="description-texts">
-                                <div class="top-info-gifts">
+                                <div class="info-relayer">
                                     <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-one') }}</span>
                                     <button class="bot-button" @click="openRelayerChat">@GiftsPredictRelayer</button>
                                 </div>
-                                <div class="top-info-gifts">
+                                <!-- <div class="top-info-gifts">
                                     <button class="list-button" @click="$emit('open-prices')">{{
                                         $t('gifts-deposit-instruction-two') }}</button>
                                 </div>
-                                <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-three') }}</span>
+                                <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-three') }}</span> -->
                             </div>
                         </div>
                     </div>
@@ -535,20 +535,20 @@ const actionText = computed(() => {
 function selectDeposit(code) {
     selectedDeposit.value = code
     amount.value = ''
-    if (animOne && animTwo) {
+    if (animOne && animTwo && animThree) {
         if (code === 'TON') {
-            animOne.play()
-            if (animThree) animThree.stop()
+            if (animOne) animOne.play()
             if (animTwo) animTwo.stop()
+            if (animThree) animThree.stop()
         }
         else if (code === 'GIFTS') {
-            animOne.stop()
-            animTwo.play()
+            if (animOne) animOne.stop()
+            if (animTwo) animTwo.play()
             if (animThree) animThree.stop()
         }
         else {
-            animOne.stop()
-            animTwo.stop()
+            if (animOne) animOne.stop()
+            if (animTwo) animTwo.stop()
             if (animThree) animThree.play()
         }
     }
@@ -572,6 +572,7 @@ async function ensureTgs(media) {
 function destroyAnims() {
     if (animOne && typeof animOne.destroy === 'function') { animOne.destroy(); animOne = null }
     if (animTwo && typeof animTwo.destroy === 'function') { animTwo.destroy(); animTwo = null }
+    if (animThree && typeof animThree.destroy === 'function') { animThree.destroy(); animThree = null }
 }
 
 async function initAnimations() {
@@ -614,16 +615,17 @@ async function initAnimations() {
             })
         }
 
-        if (animOne) {
+        if (animOne && animTwo && animThree) {
             if (selectedDeposit.value === 'TON') {
-                animOne.play()
+                if (animOne) animOne.play()
                 if (animTwo) animTwo.stop()
-            } else if (selectDeposit.value === 'GIFTS') {
-                animOne.stop()
                 if (animThree) animThree.stop()
+            } else if (selectedDeposit.value === 'GIFTS') {
+                if (animOne) animOne.stop()
                 if (animTwo) animTwo.play()
+                if (animThree) animThree.stop()
             } else {
-                animOne.stop()
+                if (animOne) animOne.stop()
                 if (animTwo) animTwo.stop()
                 if (animThree) animThree.play()
             }
@@ -665,19 +667,17 @@ function connectNewWallet() {
 </script>
 
 <style scoped>
-/* base overlay = fully dark + blurred */
+/* base overlay = fully dark */
 .overlay {
     position: fixed;
     inset: 0;
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
     z-index: 10;
     user-select: none;
 }
 
 .overlay--visible {
-    background-color: rgba(0, 0, 0, 0.2);
-    backdrop-filter: blur(3px);
+    background-color: rgba(0, 0, 0, 0.4);
 }
 
 /* Modal container, 45vh tall, pinned bottom */
@@ -894,6 +894,12 @@ function connectNewWallet() {
     line-height: 1.45rem;
 }
 
+.info-relayer {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.45rem;
+}
+
 .description-texts {
     display: flex;
     flex-direction: column;
@@ -905,6 +911,7 @@ function connectNewWallet() {
     text-align: center;
     width: 100%;
     max-width: 480px;
+    margin-top: 2rem;
 }
 
 .deposit-text-info {
@@ -912,7 +919,7 @@ function connectNewWallet() {
     font-family: "Inter", sans-serif;
     font-weight: 600;
     text-align: center;
-    padding: 5px;
+    padding: 0 5px;
 }
 
 .deposit-text-info-two {
@@ -968,6 +975,13 @@ function connectNewWallet() {
     cursor: pointer;
     font-family: "Inter", sans-serif;
     font-weight: 600;
+}
+
+.bot-button {
+    width: 50%;
+    margin: auto auto;
+    font-size: 1rem;
+    background-color: #ffffff00;
 }
 
 .list-button {
@@ -1060,7 +1074,7 @@ function connectNewWallet() {
 }
 
 @media (max-width: 420px) {
-    
+
     .amount-input {
         font-size: 1.6rem;
         padding: 0.35rem;
@@ -1108,14 +1122,12 @@ function connectNewWallet() {
 .fade-enter-active,
 .fade-leave-active {
     transition:
-        background-color 300ms ease-out,
-        backdrop-filter 300ms ease-out;
+        background-color 300ms ease-out;
 }
 
 .fade-enter-from,
 .fade-leave-to {
     background-color: rgba(0, 0, 0, 0);
-    backdrop-filter: blur(0px);
 }
 
 .slide-up-enter-active,

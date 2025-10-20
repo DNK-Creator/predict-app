@@ -210,7 +210,6 @@ watch(() => props.show, (val) => {
     justify-content: center;
     background: rgba(4, 6, 10, 0.98);
     z-index: 60;
-    backdrop-filter: blur(6px);
 
     /* important: clip any horizontal overflow from transitions */
     overflow-x: hidden;

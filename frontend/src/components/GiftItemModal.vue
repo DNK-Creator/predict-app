@@ -231,7 +231,6 @@ function onAction() {
     width: 100vw;
     height: 100vh;
     background: rgba(0, 0, 0, 0.4);
-    backdrop-filter: blur(5px);
     z-index: 1000;
 }
 
