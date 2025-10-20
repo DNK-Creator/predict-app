@@ -3,7 +3,7 @@ import axios from 'axios'
 import { Telegraf, Markup, session } from "telegraf"
 import 'dotenv/config'
 import express from "express"
-import cheerio from 'cheerio'
+import { load } from 'cheerio'
 import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
@@ -197,7 +197,7 @@ bot.on("pre_checkout_query", async (ctx) => {
 });
 
 function parseTelegramNFT(html) {
-    const $ = cheerio.load(html)
+    const $ = load(html)
 
     // name/title
     const name = ($('meta[property="og:title"]').attr('content') || $('title').text() || '').trim()
