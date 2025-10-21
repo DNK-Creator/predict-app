@@ -306,7 +306,7 @@ async function loadTransactions() {
     // if (!user) return
     const { data, error } = await supabase
         .from('transactions')
-        .select('uuid, amount, status, created_at, type')
+        .select('uuid, amount, status, gift_url, created_at, type')
         .eq('user_id', user?.id ?? 99)
         .order('created_at', { ascending: false })
 

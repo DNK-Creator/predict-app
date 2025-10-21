@@ -197,51 +197,118 @@ bot.on("pre_checkout_query", async (ctx) => {
 });
 
 function parseTelegramNFT(html) {
-    const $ = load(html)
+    const $ = load(html || '')
 
     // name/title
     const name = ($('meta[property="og:title"]').attr('content') || $('title').text() || '').trim()
 
     // image
     const image = ($('meta[property="og:image"]').attr('content') ||
-        $('meta[property="twitter:image"]').attr('content') || '').trim()
+        $('meta[name="twitter:image"]').attr('content') || '').trim()
 
     // try OG description first (often contains the three lines)
-    const ogDesc = $('meta[property="og:description"]').attr('content') ||
-        $('meta[name="twitter:description"]').attr('content') || ''
+    const ogDesc = ($('meta[property="og:description"]').attr('content') ||
+        $('meta[name="twitter:description"]').attr('content') || '').trim()
 
-    const result = { name, image, model: '', backdrop: '', symbol: '', description: ogDesc.trim() }
+    const result = {
+        name,
+        image,
+        description: ogDesc,
+        model: '',
+        modelRarity: null,
+        backdrop: '',
+        backdropRarity: null,
+        symbol: '',
+        symbolRarity: null,
+        quantityIssued: null,
+        quantityTotal: null
+    }
 
+    // helper to parse percent string like "1.5%" or "2 %" -> number (1.5 or 2) or null
+    function parsePercentStr(s) {
+        if (!s && s !== 0) return null
+        const m = String(s).match(/(-?\d+(?:[.,]\d+)?)\s*%/)
+        if (!m) return null
+        // normalize comma decimal
+        const num = Number(m[1].replace(',', '.'))
+        return Number.isFinite(num) ? num : null
+    }
+
+    // helper to parse issued/total string like "337 243/374 077 issued" -> { issued: 337243, total: 374077 }
+    function parseQuantityStr(s) {
+        if (!s) return { issued: null, total: null }
+        // remove non-digit except slash and spaces
+        const cleaned = String(s).replace(/\u00A0/g, ' '); // NBSP -> space
+        // find '123/456' pattern
+        const m = cleaned.match(/([\d\s, ._]+)\s*\/\s*([\d\s, ._]+)/)
+        if (!m) return { issued: null, total: null }
+        const a = m[1].replace(/[^\d]/g, '')
+        const b = m[2].replace(/[^\d]/g, '')
+        const issued = a ? Number(a) : null
+        const total = b ? Number(b) : null
+        return { issued: Number.isFinite(issued) ? issued : null, total: Number.isFinite(total) ? total : null }
+    }
+
+    // First attempt: parse OG description lines "Model: ...\nBackdrop: ...\nSymbol: ..."
     if (ogDesc) {
-        // expected format (lines): "Model: Black Flip\nBackdrop: Shamrock Green\nSymbol: Crystal Ball"
         const lines = ogDesc.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
         for (const line of lines) {
             const m = line.match(/^\s*Model\s*:\s*(.+)$/i)
             const b = line.match(/^\s*Backdrop\s*:\s*(.+)$/i)
             const s = line.match(/^\s*Symbol\s*:\s*(.+)$/i)
-            if (m) result.model = m[1].trim()
-            if (b) result.backdrop = b[1].trim()
-            if (s) result.symbol = s[1].trim()
+            if (m) result.model = (result.model || m[1]).trim()
+            if (b) result.backdrop = (result.backdrop || b[1]).trim()
+            if (s) result.symbol = (result.symbol || s[1]).trim()
         }
     }
 
-    // fallback: parse table rows <tr><th>Model</th><td>Black Flip <mark>1.5%</mark></td></tr>
-    if (!(result.model && result.backdrop && result.symbol)) {
-        $('table.tgme_gift_table tr').each((i, tr) => {
-            const th = $(tr).find('th').text().trim()
-            let td = $(tr).find('td').text().trim()
-            // remove any markup percentages like "Black Flip 1.5%" => "Black Flip"
-            td = td.replace(/\s*\d+(\.\d+)?%/g, '').trim()
-            if (/^Model$/i.test(th)) result.model = result.model || td
-            if (/^Backdrop$/i.test(th)) result.backdrop = result.backdrop || td
-            if (/^Symbol$/i.test(th)) result.symbol = result.symbol || td
-        })
-    }
+    // Fallback / canonical parse from the gift table rows (this is where rarities are present in <mark>)
+    $('table.tgme_gift_table tr').each((i, tr) => {
+        const th = $(tr).find('th').text().trim()
+        const td = $(tr).find('td')
+        const tdText = td.text().trim()
+        // extract <mark> value if present
+        const markText = td.find('mark').first().text().trim()
 
-    // final sanitize (coerce to empty string if null)
+        if (/^Model$/i.test(th)) {
+            // remove trailing percentage in text for plain name
+            const nameOnly = tdText.replace(/\s*[\d.,]+\s*%/g, '').trim()
+            result.model = result.model || nameOnly
+            result.modelRarity = result.modelRarity ?? parsePercentStr(markText || tdText)
+        } else if (/^Backdrop$/i.test(th)) {
+            const nameOnly = tdText.replace(/\s*[\d.,]+\s*%/g, '').trim()
+            result.backdrop = result.backdrop || nameOnly
+            result.backdropRarity = result.backdropRarity ?? parsePercentStr(markText || tdText)
+        } else if (/^Symbol$/i.test(th)) {
+            const nameOnly = tdText.replace(/\s*[\d.,]+\s*%/g, '').trim()
+            result.symbol = result.symbol || nameOnly
+            result.symbolRarity = result.symbolRarity ?? parsePercentStr(markText || tdText)
+        } else if (/^Quantity$/i.test(th)) {
+            // try parse issued/total
+            const q = parseQuantityStr(tdText)
+            result.quantityIssued = q.issued
+            result.quantityTotal = q.total
+        }
+    })
+
+    // Final sanitize / ensure strings
     result.model = result.model || ''
     result.backdrop = result.backdrop || ''
     result.symbol = result.symbol || ''
+
+    // If rarities are still null, attempt to find inline percent pattern in the page near the attribute labels (defensive)
+    function findNearbyPercent(label) {
+        // search for "Label" then nearby mark or percent text
+        const th = $(`table.tgme_gift_table tr th`).filter((i, el) => $(el).text().trim().toLowerCase() === label.toLowerCase()).first()
+        if (!th || th.length === 0) return null
+        const td = $(th).next('td')
+        const m = td.find('mark').first().text() || td.text()
+        return parsePercentStr(m)
+    }
+    if (result.modelRarity == null) result.modelRarity = findNearbyPercent('Model')
+    if (result.backdropRarity == null) result.backdropRarity = findNearbyPercent('Backdrop')
+    if (result.symbolRarity == null) result.symbolRarity = findNearbyPercent('Symbol')
+
     return result
 }
 
@@ -671,6 +738,168 @@ export async function createInvoiceLink(amount) {
     );
 }
 
+// POST /api/giftFailed
+// body: { owner_telegram: number|string, gift: { uuid, telegram_message_id, gift_id_long, saved_id, slug, name, model, number, value }, reason?: string, attempted_at?: string }
+app.post("/api/giftFailed", async (req, res) => {
+    console.log("[BACKEND HIT] /api/giftFailed");
+    try {
+        const body = req.body ?? {};
+        const ownerTelegramRaw = body.owner_telegram ?? body.requester_telegram ?? body.owner ?? null;
+        const ownerTelegram = ownerTelegramRaw ? Number(ownerTelegramRaw) : null;
+        const gift = body.gift ?? null;
+        const reason = body.reason ?? null;
+        const attemptedAt = body.attempted_at ?? body.attemptedAt ?? new Date().toISOString();
+
+        if (!ownerTelegram || Number.isNaN(ownerTelegram)) {
+            return res.status(400).json({ ok: false, error: "missing_owner_telegram" });
+        }
+        if (!gift || typeof gift !== "object") {
+            return res.status(400).json({ ok: false, error: "missing_gift_object" });
+        }
+
+        // canonical id key for lookup (prefer uuid, then telegram_message_id, then gift_id_long)
+        const giftKey = gift.uuid ?? gift.telegram_message_id ?? gift.gift_id_long ?? null;
+        if (!giftKey) {
+            return res.status(400).json({ ok: false, error: "gift_missing_identifier" });
+        }
+
+        // Fetch current user row (we will use updated_at for CAS)
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from("users")
+            .select("id, telegram, inventory, updated_at, language")
+            .eq("telegram", ownerTelegram)
+            .maybeSingle();
+
+        if (userErr) {
+            console.error("giftFailed: db error selecting user:", userErr);
+            return res.status(500).json({ ok: false, error: "db_error_read_user", details: userErr.message || userErr });
+        }
+        if (!userRow) {
+            return res.status(404).json({ ok: false, error: "user_not_found" });
+        }
+
+        // Prepare the gift object to insert (normalize fields)
+        const giftToInsert = {
+            uuid: gift.uuid ?? null,
+            telegram_message_id: gift.telegram_message_id ?? null,
+            gift_id_long: gift.gift_id_long ?? null,
+            saved_id: (gift.saved_id && String(gift.saved_id) !== "null") ? gift.saved_id : null,
+            slug: gift.slug ?? null,
+            name: gift.name ?? gift.collection_name ?? null,
+            model: gift.model ?? null,
+            number: gift.number ?? gift.num ?? null,
+            value: gift.value ?? null,
+            // extra metadata for troubleshooting
+            failed_reason: reason ?? null,
+            failed_at: attemptedAt,
+            returned_at: new Date().toISOString()
+        };
+
+        // CAS retry loop
+        const MAX_RETRIES = 3;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            // refresh user row each attempt (first iteration we already have userRow)
+            let freshUser = userRow;
+            if (attempt > 0) {
+                const { data: refetch, error: refetchErr } = await supabaseAdmin
+                    .from("users")
+                    .select("id, telegram, inventory, updated_at")
+                    .eq("id", userRow.id)
+                    .maybeSingle();
+                if (refetchErr) {
+                    console.error("giftFailed: error re-fetching user on retry:", refetchErr);
+                    return res.status(500).json({ ok: false, error: "db_error_recheck", details: refetchErr.message || refetchErr });
+                }
+                if (!refetch) {
+                    return res.status(404).json({ ok: false, error: "user_not_found_during_retry" });
+                }
+                freshUser = refetch;
+            }
+
+            const currentInv = Array.isArray(freshUser.inventory) ? freshUser.inventory : [];
+
+            // Idempotency: if gift already present (match by uuid/msgid/gift_id_long) => report already present
+            const exists = currentInv.some(i => {
+                const a = String(i.uuid ?? i.telegram_message_id ?? i.gift_id_long ?? "");
+                const b = String(giftToInsert.uuid ?? giftToInsert.telegram_message_id ?? giftToInsert.gift_id_long ?? "");
+                return a && b && a === b;
+            });
+            if (exists) {
+                return res.json({ ok: true, readded: false, reason: "already_present" });
+            }
+
+            // Prepend giftToInsert to inventory (keeps newest first)
+            const newInv = [giftToInsert, ...currentInv];
+
+            // Attempt conditional update using updated_at
+            const { data: upd, error: updErr } = await supabaseAdmin
+                .from("users")
+                .update({ inventory: newInv })
+                .eq("id", freshUser.id)
+                .eq("updated_at", freshUser.updated_at)
+                .select("id, telegram, inventory, language, updated_at")
+                .single();
+
+            if (updErr) {
+                // If CAS failure due to concurrent update, loop and retry
+                console.warn(`giftFailed: CAS attempt ${attempt + 1} failed:`, updErr.message || updErr);
+                // try next iteration (re-fetch happens at loop top)
+                if (attempt === MAX_RETRIES - 1) {
+                    console.error("giftFailed: exceeded CAS retries, failed to re-add gift", giftToInsert);
+                    return res.status(500).json({ ok: false, error: "failed_to_readd_gift", details: updErr.message || updErr });
+                }
+                continue;
+            }
+
+            // success
+            console.log("[giftFailed] re-added gift to inventory for", ownerTelegram, "giftKey:", giftKey);
+
+            // send message using your Telegraf bot instance (don't block endpoint on failure)
+            try {
+                const chatId = ownerTelegram;
+                // prefer language from freshUser if available, otherwise fallback to initial userRow.language
+                const lang = (typeof freshUser?.language !== 'undefined') ? freshUser.language : (userRow.language ?? 'en');
+                // safe slug/name
+                const slugSafe = String(gift.slug ?? giftToInsert.slug ?? giftToInsert.name ?? 'gift').replace(/[\r\n]+/g, ' ').trim();
+
+                // message text (plain text to avoid HTML injection)
+                const messageBotText = (lang === 'ru')
+                    ? `Не удалось вывести подарок: ${slugSafe}. Подарок возвращён в инвентарь.`
+                    : `Could not withdraw the gift: ${slugSafe}. The gift has been returned to your inventory.`;
+
+                if (!chatId) {
+                    console.warn('giftFailed: no chat id to notify (ownerTelegram missing)');
+                } else if (typeof bot === 'undefined' || !bot?.telegram?.sendMessage) {
+                    console.warn('giftFailed: bot instance unavailable, skipping Telegram notification');
+                } else {
+                    // fire-and-forget but await so we can log failures — doesn't affect response to caller
+                    try {
+                        await bot.telegram.sendMessage(chatId, messageBotText, {
+                            disable_web_page_preview: true
+                        });
+                        console.log(`giftFailed: telegram notification sent to ${chatId}`);
+                    } catch (tgErr) {
+                        console.warn('giftFailed: telegram send error', tgErr?.message ?? tgErr);
+                        // intentionally ignore — we don't want to fail the endpoint because of notification errors
+                    }
+                }
+            } catch (notifyErr) {
+                console.warn('giftFailed: unexpected error while notifying user', notifyErr?.message ?? notifyErr);
+                // ignore and continue
+            }
+
+            return res.json({ ok: true, readded: true, item: giftToInsert });
+        }
+
+        // fallback (shouldn't reach here)
+        return res.status(500).json({ ok: false, error: "failed_to_readd_gift_unknown" });
+    } catch (err) {
+        console.error("giftFailed: unexpected error", err);
+        return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
+    }
+});
+
+
 // POST /api/withdraw-gifts
 app.post("/api/withdraw-gifts", async (req, res) => {
     console.log("[BACKEND HIT] /api/withdraw-gifts");
@@ -705,7 +934,7 @@ app.post("/api/withdraw-gifts", async (req, res) => {
         // Fetch the user's inventory from Supabase
         const { data: userRow, error: userErr } = await supabaseAdmin
             .from("users")
-            .select("id, telegram, inventory, updated_at")
+            .select("id, telegram, language, inventory, updated_at")
             .eq("telegram", Number(recipient))
             .maybeSingle();
 
@@ -868,6 +1097,151 @@ app.post("/api/withdraw-gifts", async (req, res) => {
             return res.status(500).json({ ok: false, error: "worker_ipc_error", details: err.message ?? String(err) });
         }
 
+        // Build set of successful gift identifiers (the worker uses g.uuid or g.telegram_message_id as `gift`)
+        const successIds = new Set();
+        if (Array.isArray(resultsArr)) {
+            for (const r of resultsArr) {
+                if (r && (r.ok === true || r.ok === 'true')) {
+                    // r.gift might be number or string; normalize to String
+                    successIds.add(String(r.gift));
+                }
+            }
+        }
+
+        // send message using your Telegraf bot instance (don't block endpoint on failure)
+        try {
+            const chatId = recipient;
+            // language from initial fetch (userRow) — safe fallback if CAS/updatedUser lacks it
+            const lang = (typeof userRow?.language !== 'undefined') ? userRow.language : 'en';
+
+            // workerResult expected shape: { ok: true, results: [ { gift: <id>, ok: true/false, error? } ] }
+            // Normalize results array
+            const resultsArr = (workerResult && Array.isArray(workerResult.results)) ? workerResult.results : (workerResult && workerResult.results ? workerResult.results : []);
+
+            // Map matchedInventoryItems to their identifier (uuid/telegram_message_id/gift_id_long)
+            function itemIdentifier(it) {
+                return String(it.uuid ?? it.telegram_message_id ?? it.gift_id_long ?? '');
+            }
+
+            // Collect slugs/names for the successful items (matching by identifier)
+            const successSlugs = matchedInventoryItems
+                .filter(mi => successIds.size === 0 ? true : successIds.has(itemIdentifier(mi))) // if worker didn't return results, assume success for all reserved
+                .map(mi => {
+                    const raw = mi.slug ?? mi.name ?? mi.collection_name ?? mi.uuid ?? '';
+                    return String(raw || '').replace(/[\r\n]+/g, ' ').trim();
+                })
+                .filter(Boolean);
+
+            // If worker returned explicit failures, exclude those from the success list
+            // (the filter above handles that). If worker didn't return any per-gift array, default to reporting reserved gifts.
+            let messageBotText;
+            if (successSlugs.length > 0) {
+                const listText = successSlugs.join(', ');
+                messageBotText = (lang === 'ru')
+                    ? `Успешный вывод подарков: ${listText}.`
+                    : `Successful withdrawal of gifts: ${listText}.`;
+            } else {
+                // No successful gifts — report failure
+                messageBotText = (lang === 'ru')
+                    ? `Не удалось вывести подарки. Пожалуйста, проверьте инвентарь — подарки возвращены.`
+                    : `Could not withdraw gifts. Please check your inventory — gifts have been returned.`;
+            }
+
+            if (!chatId) {
+                console.warn('withdraw-gifts: no chat id to notify (recipient missing)');
+            } else if (typeof bot === 'undefined' || !bot?.telegram?.sendMessage) {
+                console.warn('withdraw-gifts: bot instance unavailable, skipping Telegram notification');
+            } else {
+                try {
+                    // send plain text to avoid HTML escaping issues
+                    await bot.telegram.sendMessage(chatId, messageBotText, {
+                        disable_web_page_preview: true
+                    });
+                    console.log(`withdraw-gifts: telegram notification sent to ${chatId}`);
+                } catch (tgErr) {
+                    console.warn('withdraw-gifts: telegram send error', tgErr?.message ?? tgErr);
+                    // intentionally ignore — do not fail the endpoint because of notification errors
+                }
+            }
+        } catch (notifyErr) {
+            console.warn('withdraw-gifts: unexpected error while notifying user', notifyErr?.message ?? notifyErr);
+            // ignore and continue
+        }
+
+        // Insert transaction row(s) (record all the gifts withdrawn)
+        try {
+            const now = new Date().toISOString();
+
+            // Reuse successIds computed earlier; if worker didn't return per-gift results, assume all reserved succeeded
+            // (we already built successIds above in the notification block)
+            const successItems = matchedInventoryItems.filter(mi => {
+                const id = String(mi.uuid ?? mi.telegram_message_id ?? mi.gift_id_long ?? '');
+                // if worker returned explicit results, only include those marked ok
+                if (successIds.size > 0) return successIds.has(id);
+                // otherwise assume reservation = success
+                return true;
+            });
+
+            if (successItems.length === 0) {
+                console.log('withdraw-gifts: no successful gifts to record in transactions (none succeeded)');
+            } else {
+                // Helper: safe slug -> url component
+                const makeUrlSafe = (s) => {
+                    if (!s) return '';
+                    // remove newlines and trim, keep ascii-ish characters (basic)
+                    return encodeURIComponent(String(s).replace(/[\r\n]+/g, ' ').trim());
+                };
+
+                // Build transaction rows
+                const txRows = successItems.map((it) => {
+                    const txUuid = uuidv4();
+                    const slug = it.slug ?? it.name ?? '';
+                    // sanitize slug for url; fallback to name without spaces if slug missing
+                    const slugSafe = makeUrlSafe(slug);
+                    const giftUrl = `https://nft.fragment.com/gift/${slugSafe}.small.jpg`;
+                    const amountTon = Number(isFinite(Number(it.value)) ? Number(it.value) : (it.amount ?? 0));
+
+                    return {
+                        uuid: txUuid,
+                        user_id: Number(userRow?.telegram ?? recipient), // owner who withdrew
+                        amount: amountTon,
+                        status: "Вывод подарка",
+                        created_at: now,
+                        withdrawal_pending: false,
+                        withdrawal_address: null,
+                        deposit_address: null,
+                        type: "Gift",
+                        gift_url: giftUrl,
+                        handled: true,
+                        processed_at: now,
+                        onchain_hash: null,
+                        onchain_amount: null,
+                        sender_wallet: null,
+                    };
+                });
+
+                // Bulk insert all transaction rows
+                const { data: txDataAll, error: txErrAll } = await supabaseAdmin
+                    .from("transactions")
+                    .insert(txRows)
+                    .select();
+
+                if (txErrAll) {
+                    // Log and continue — we don't want to fail the whole withdraw because of a logging/transaction insert error.
+                    console.error("withdraw-gifts: transactions bulk insert error", txErrAll);
+                    // include the error information in response if you want, but still return ok
+                    console.warn("withdraw-gifts: continuing despite transaction insert failure; gifts were transferred but DB row insert failed.");
+                    // Optionally: you could attempt retries here; for now we log and move on.
+                } else {
+                    console.log(`withdraw-gifts: inserted ${Array.isArray(txDataAll) ? txDataAll.length : txRows.length} transaction rows for withdrawn gifts.`);
+                }
+            }
+        } catch (err) {
+            // Log error but don't block the user flow
+            console.error("withdraw-gifts: transaction insertion internal error", err);
+            // we intentionally won't return 500 here — gift transfer already performed by worker; transaction logging failure can be investigated
+        }
+
         // Worker processed the request (it is responsible for calling /api/giftFailed for any gift-level failures).
         // Return the worker's result to the client. Do NOT re-add failed gifts here — worker will call /api/giftFailed as needed.
         return res.json({ ok: true, result: workerResult });
@@ -877,7 +1251,6 @@ app.post("/api/withdraw-gifts", async (req, res) => {
         return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
     }
 });
-
 
 // POST /api/giftHandle
 app.post("/api/giftHandle", async (req, res) => {
@@ -1023,6 +1396,8 @@ app.post("/api/giftHandle", async (req, res) => {
             return res.status(500).json({ error: "internal_error", details: err.message });
         }
 
+        const giftThumbUrl = `https://nft.fragment.com/gift/${slug}.small.jpg`
+
         // 7) Insert transaction row (record the deposit)
         try {
             const now = new Date().toISOString();
@@ -1037,6 +1412,7 @@ app.post("/api/giftHandle", async (req, res) => {
                 withdrawal_address: null,
                 deposit_address: null,
                 type: "Gift",
+                gift_url: giftThumbUrl,
                 handled: true,
                 processed_at: now,
                 onchain_hash: null,

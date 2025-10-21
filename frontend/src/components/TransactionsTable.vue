@@ -15,7 +15,7 @@
             <ul class="transactions-list">
                 <li v-for="tx in group" :key="tx.uuid" class="transaction-item">
                     <!-- Icon based on type -->
-                    <img :src="getIcon(tx.type)" alt="transaction icon" class="transaction-icon" />
+                    <img :src="getIcon(tx)" alt="transaction icon" class="transaction-icon" />
 
                     <!-- Details: status/name and time -->
                     <div class="transaction-details">
@@ -23,9 +23,11 @@
                         <div class="transaction-time">{{ formatTime(tx.created_at) }}</div>
                     </div>
 
-                    <!-- Amount with sign -->
-                    <div class="transaction-amount">
-                        {{ tx.type === 'Withdrawal' ? '-' : '+' }}{{ Math.abs(tx.amount) }} TON
+                    <!-- Amount with sign and colored -->
+                    <div class="transaction-amount" :class="isWithdrawal(tx) ? 'amount-negative' : 'amount-positive'"
+                        :aria-label="isWithdrawal(tx) ? 'negative amount' : 'positive amount'">
+                        <span class="amount-sign">{{ isWithdrawal(tx) ? '-' : '+' }}</span>
+                        <span class="amount-value">{{ formatAmount(tx.amount) }}</span>&nbsp;TON
                     </div>
                 </li>
             </ul>
@@ -56,6 +58,22 @@ const app = useAppStore()
 
 const svgContainer = ref(null);
 
+function isWithdrawal(tx) {
+    if (!tx) return false;
+    const s1 = String(tx.type ?? '').toLowerCase();
+    const s2 = String(tx.status ?? '').toLowerCase();
+    if (!s1 && !s2) return false;
+    return s1.includes('withdraw') || s1.includes('вывод') || s2.includes('withdraw') || s2.includes('вывод');
+}
+
+function formatAmount(val) {
+    const n = Number(val ?? 0);
+    if (Number.isNaN(n)) return '0';
+    // show up to 2 decimals but strip trailing zeros
+    const str = (Math.abs(n) % 1 === 0) ? String(Math.round(Math.abs(n))) : String(Number(Math.abs(n).toFixed(2)));
+    return str;
+}
+
 function translateStatus(status) {
     if (status === 'Незавершённое пополнение' || status === 'Незавершенное пополнение' || status === 'незавершенное пополнение' || status === 'Ожидание пополнения') {
         return app.language === 'ru' ? 'Незавершённое пополнение' : 'Unfinished deposit'
@@ -77,8 +95,10 @@ function translateStatus(status) {
         return app.language === 'ru' ? 'Обработка вывода' : 'Withdrawal processing'
     } else if (status === 'Completed') {
         return app.language === 'ru' ? 'Успешный вывод' : 'Successful Withdrawal'
-    } else if(status === 'Handpicking') {
+    } else if (status === 'Handpicking') {
         return app.language === 'ru' ? 'Вывод рассматривается' : 'Withdrawal is in work'
+    } else if (status === 'Вывод подарка') {
+        return app.language === 'ru' ? 'Вывод подарка' : 'Gift Withdrawal'
     }
 }
 
@@ -188,12 +208,16 @@ function formatTime(iso) {
 }
 
 // Return icon path based on transaction type
-function getIcon(type) {
-    if (type === 'Deposit') {
+function getIcon(txObj) {
+    console.log(txObj)
+    if (txObj.type === 'Deposit') {
         return depositImg
-    } else if (type === 'Withdrawal') {
+    } else if (txObj.type === 'Withdrawal') {
         return withdrawalImg
-    } else if (type === 'Gift' || type === 'gift') {
+    } else if (txObj.type === 'Gift' || txObj.type === 'gift') {
+        if (txObj.gift_url !== undefined && txObj.gift_url !== null) {
+            return txObj.gift_url
+        }
         return giftImg
     }
     return depositImg
@@ -298,9 +322,25 @@ onMounted(async () => {
 
 .transaction-amount {
     font-size: 1rem;
-    font-family: Inter;
-    font-weight: 400;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    /* default color neutral — overridden by positive/negative classes */
     color: white;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+/* Positive - green with plus */
+.amount-positive {
+    color: #2ecc71;
+    /* green */
+}
+
+/* Negative - red with minus */
+.amount-negative {
+    color: #ff6b6b;
+    /* red */
 }
 
 .empty-transactions {

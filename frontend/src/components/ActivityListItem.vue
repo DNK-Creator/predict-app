@@ -31,9 +31,9 @@
         <!-- BOTTOM WINNINGS ROW -->
         <div class="bottom-winnings" v-if="displayGifts.length > 0">
             <div class="gifts-row" v-if="displayGifts.length">
-                <div v-for="(g, idx) in displayGifts" :key="g.gift_url + '-' + idx" class="gift"
+                <div v-for="(g, idx) in displayGifts" :key="g.uuid" class="gift"
                     :aria-hidden="(isOverflowed && idx === 6) ? 'false' : 'true'">
-                    <img :src="g.gift_url" :alt="g.gift_name || 'gift'" />
+                    <img :src="createGiftUrl(g)" :alt="g.gift_name || 'gift'" />
                     <!-- overlay for 7th item when there are more than 7 gifts -->
                     <div v-if="isOverflowed && idx === 6" class="gift-overlay">
                         <span class="more-text">+{{ remainingCount }}</span>
@@ -80,6 +80,15 @@ const betNameDisplay = computed(() => {
     }
     return props.bet_name
 })
+
+function createGiftUrl(giftObj) {
+    if (giftObj.slug) {
+        return `https://nft.fragment.com/gift/${giftObj.slug}.small.jpg`
+    }
+    const urlSafeName = String(giftObj.name.replace(/[ -]/g, '')).toLowerCase()
+    const newSlug = urlSafeName + "-" + (giftObj.num ?? giftObj.number)
+    return `https://nft.fragment.com/gift/${newSlug}.small.jpg`
+}
 
 const isLose = () => {
     return props.status === 'lose'
@@ -322,8 +331,6 @@ const displayGifts = computed(() => {
     align-items: center;
     width: 100%;
     gap: 12px;
-    margin-top: 8px;
-    padding-top: 8px;
     box-sizing: border-box;
 }
 
@@ -334,17 +341,17 @@ const displayGifts = computed(() => {
     gap: 8px;
     flex-wrap: nowrap;
     overflow: hidden;
-    min-height: 40px;
+    min-height: 38px;
 }
 
 /* single gift */
 .gift {
-    width: 40px;
-    height: 40px;
+    width: 38px;
+    height: 38px;
     border-radius: 12px;
     position: relative;
     overflow: hidden;
-    flex: 0 0 40px;
+    flex: 0 0 38px;
     background: rgba(255, 255, 255, 0.03);
 }
 
@@ -386,7 +393,7 @@ const displayGifts = computed(() => {
 }
 
 /* responsive adjustments */
-@media (max-width: 400px) {
+@media (max-width: 360px) {
     .history-item {
         padding: 8px;
         height: auto;

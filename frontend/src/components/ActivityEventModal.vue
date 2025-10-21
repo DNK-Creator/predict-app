@@ -29,18 +29,28 @@
                     </div>
                 </div>
 
-                <!-- BIGGER GIFTS GRID (inserted into modal) -->
-                <div v-if="displayGifts.length > 0" class="modal-gifts-section" role="region" aria-label="Winnings">
-                    <div class="modal-gifts-list" :class="{ passthrough: passThrough }" role="list" tabindex="0"
-                        aria-live="polite">
-                        <div v-for="(g, idx) in displayGifts" :key="(g.gift_url || '') + '-' + idx"
-                            class="modal-gift-card" role="listitem" :aria-label="g.gift_name || 'gift'">
-                            <div class="modal-gift-image-wrap">
-                                <img :src="g.gift_url" :alt="g.gift_name || 'gift'" />
-                            </div>
-                            <div class="modal-gift-meta">
-                                <div class="modal-gift-name">{{ g.gift_name || '' }}</div>
-                                <div class="modal-gift-count" v-if="g.count">x{{ g.count }}</div>
+                <div v-if="displayGifts.length > 0" class="gifts-list" v-bind="containerProps" role="list" tabindex="0"
+                    aria-live="polite">
+                    <div class="gifts-wrapper" v-bind="wrapperProps">
+                        <!-- each virtual item is a row (data === array of up to COLUMNS gifts) -->
+                        <div v-for="{ index, data: row } in list" :key="index" class="gift-row"
+                            :style="{ height: rowHeight + 'px' }" role="listitem">
+                            <!-- Render up to COLUMNS items per row; fill blanks if last row isn't full -->
+                            <div v-for="(item, colIdx) in row" class="gift-card" :key="item?.uuid ?? `${index}-${colIdx}`">
+                                <div class="gift-image-wrap">
+                                    <img :src="createGiftUrl(item)" draggable="false" loading="lazy" />
+                                </div>
+
+                                <div class="gift-below-img">
+                                    <div class="gift-meta">
+                                        <span v-if="item?.name.length < 12" class="gift-name">{{ item?.name }}</span>
+                                        <span v-else class="gift-name-small">{{ item?.name }}</span>
+                                        <div class="price-container">
+                                            <img class="price-icon" :src="tonBlueIcon" alt="TON_ICON" loading="lazy" />
+                                            <span class="gift-count">{{ item?.value }} TON</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -48,7 +58,7 @@
                 <!-- ACTION BUTTON (24px gap to gifts above) -->
                 <div class="action-row">
                     <button class="action-btn" @click="onOpenBetPage" aria-label="Open bet">{{ $t('open-event')
-                        }}</button>
+                    }}</button>
                 </div>
             </div>
         </transition>
@@ -58,6 +68,9 @@
 <script setup>
 import { useAppStore } from '@/stores/appStore'
 import { computed, ref, watch } from 'vue'
+import { useVirtualList } from '@vueuse/core'
+import tonBlueIcon from '@/assets/icons/TON_Icon.png'
+import plusImg from '@/assets/icons/Transparent_Plus_Icon.png'
 
 // get props as an object so we can watch props.show cleanly
 const props = defineProps({
@@ -87,6 +100,37 @@ watch(() => props.show, (newVal, oldVal) => {
         passThrough.value = true
     }
 })
+
+/* ---------- GRID / VIRTUAL CONFIG ---------- */
+const COLUMNS = 3
+const CARD_HEIGHT = 160
+const ROW_GAP = 18
+const rowHeight = CARD_HEIGHT + ROW_GAP
+
+/* group gifts into rows of 3 */
+const source = computed(() => {
+    const arr = props.gifts_bet || []
+    const rows = []
+    for (let i = 0; i < arr.length; i += COLUMNS) {
+        rows.push(arr.slice(i, i + COLUMNS))
+    }
+    return rows
+})
+
+/* virtualize by rows (each item is a row) */
+const { list, containerProps, wrapperProps } = useVirtualList(source, {
+    itemHeight: rowHeight,
+    overscan: 1, // render a few rows above/below for smoother scrolling
+})
+
+function createGiftUrl(giftObj) {
+    if (giftObj.slug) {
+        return `https://nft.fragment.com/gift/${giftObj.slug}.small.jpg`
+    }
+    const urlSafeName = String(giftObj.name.replace(/[ -]/g, '')).toLowerCase()
+    const newSlug = urlSafeName + "-" + (giftObj.num ?? giftObj.number)
+    return `https://nft.fragment.com/gift/${newSlug}.small.jpg`
+}
 
 function onAfterLeave() {
     passThrough.value = false
@@ -353,6 +397,7 @@ const displayGifts = computed(() => giftsArray.value || [])
     flex: 1;
     display: flex;
     flex-direction: column;
+    margin-bottom: 1rem;
 }
 
 .top {
@@ -439,118 +484,143 @@ const displayGifts = computed(() => giftsArray.value || [])
     transform: translateY(0%);
 }
 
-/* -------- Modal gifts section (scaled x2) -------- */
-.modal-gifts-section {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
+.gifts-list {
     width: 100%;
-    box-sizing: border-box;
-    margin-top: 24px;
-    height: 320px;
-}
-
-/* Scrollable grid: 3 columns, doubled height (600px) */
-.modal-gifts-list {
-    width: 100%;
-    height: 320px;
-    /* doubled from 300px */
+    height: min(350px, 35vh);
     box-sizing: border-box;
     overflow-y: auto;
+    /* must be scrollable */
     -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.gifts-wrapper {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0;
+}
+
+.gift-row {
+    box-sizing: border-box;
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     gap: 18px;
     padding: 12px;
-    align-content: start;
-    overscroll-behavior: contain;
-    touch-action: pan-y;
-    -webkit-touch-callout: none;
-    -webkit-tap-highlight-color: transparent;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
+    align-items: start;
 }
 
-.modal-gifts-list.passthrough {
-    overscroll-behavior: disabled;
-}
-
-.modal-gifts-list::-webkit-scrollbar {
+.gifts-list::-webkit-scrollbar {
     display: none;
 }
 
-.modal-gift-card {
-    background: rgba(255, 255, 255, 0.02);
+.gift-card {
+    background: rgba(95, 95, 95, 0.2);
+    cursor: pointer;
     border-radius: 12px;
-    /* card outer radius (keeps a subtle card corner) */
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    /* make children (image) take full card width */
+    align-self: center;
+    justify-self: center;
     overflow: hidden;
-    /* clip image and content inside rounded card */
     box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22);
     user-select: none;
     padding: 0;
-    /* remove internal padding so image touches card edges */
-    height: 145px;
+    height: 160px;
+    min-width: 70px;
     max-width: 110px;
+    position: relative;
+    transform: translateY(0);
+    /* base transform */
+    transition: transform 180ms cubic-bezier(.2, .9, .2, 1), box-shadow 180ms cubic-bezier(.2, .9, .2, 1), border-color 180ms cubic-bezier(.2, .9, .2, 1);
+    will-change: transform, box-shadow;
 }
 
-/* Image wrapper: square by aspect-ratio, fills card width */
-.modal-gift-image-wrap {
+.gift-image-wrap {
     width: 100%;
     aspect-ratio: 1 / 1;
-    /* forces a square region */
     overflow: hidden;
     background: rgba(255, 255, 255, 0.01);
     border-radius: 8px;
-    /* smooth image corner radius (your request) */
     flex: 0 0 auto;
-    /* ensure image sits at the top of the card visually */
     display: block;
 }
 
-/* The image itself covers the square (fills full width & height) */
-.modal-gift-image-wrap img {
+.gift-image-wrap img {
     width: 100%;
     height: 100%;
     object-fit: cover;
-    /* crop to fill without letterboxing */
     display: block;
     border-radius: 8px;
-    /* match wrapper radius so corners are smooth */
+}
+
+.select-gift-button {
+    position: absolute;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    height: 35%;
+    width: 40%;
+    right: 0px;
+    top: 0px;
+}
+
+.select-icon {
+    width: 18px;
+    height: 18px;
+    padding: 6px;
+}
+
+.gift-below-img {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 0px;
 }
 
 /* Meta (name / count) sits below the square image and has its own padding */
-.modal-gift-meta {
-    padding: 10px 12px;
+.gift-meta {
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
-    gap: 8px;
+    gap: 4px;
     background: transparent;
     flex: 0 0 auto;
 }
 
-/* Name: allow up to two lines, centered, ellipsed if too long */
-.modal-gift-name {
-    font-size: 0.85rem;
-    color: #e6e6e6;
-    text-align: center;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    line-height: 1.1;
-    max-height: 2.2em;
-    white-space: normal;
+/* Count stays to the right (or next to name) and remains prominent */
+.gift-count {
+    font-size: 0.8rem;
+    color: white;
+    font-weight: 800;
 }
 
-/* Count stays to the right (or next to name) and remains prominent */
-.modal-gift-count {
-    font-size: 0.95rem;
-    color: #bdbdbd;
-    font-weight: 800;
+.price-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.price-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.gift-name-small,
+.gift-name {
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+.gift-name-small {
+    font-size: 0.6rem;
 }
 
 /* arrow at the right of the gifts area */

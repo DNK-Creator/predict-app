@@ -29,17 +29,29 @@
 
                     <div class="meta-information">
                         <span class="attribute-name">Model</span>
-                        <span>{{ model }}</span>
+                        <div>
+                            <span>{{ model }}</span>
+                            <span> • </span>
+                            <span :class="getRarityColor(modelRarity)">{{ modelRarity }}%</span>
+                        </div>
                     </div>
                     <div class="spacer"></div>
                     <div class="meta-information">
                         <span class="attribute-name">Backdrop</span>
-                        <span>{{ backdrop }}</span>
+                        <div>
+                            <span>{{ backdrop }}</span>
+                            <span> • </span>
+                            <span :class="getRarityColor(backdropRarity)">{{ backdropRarity }}%</span>
+                        </div>
                     </div>
                     <div class="spacer"></div>
                     <div class="meta-information">
                         <span class="attribute-name">Symbol</span>
-                        <span>{{ symbol }}</span>
+                        <div>
+                            <span>{{ symbol }}</span>
+                            <span> • </span>
+                            <span :class="getRarityColor(symbolRarity)">{{ symbolRarity }}%</span>
+                        </div>
                     </div>
 
                     <div class="id-information" @click="copyGiftID">
@@ -80,6 +92,10 @@ const model = ref('Model')
 const backdrop = ref('Backdrop')
 const symbol = ref('Symbol')
 
+const modelRarity = ref(1.5)
+const backdropRarity = ref(1.5)
+const symbolRarity = ref(1.5)
+
 async function getTelegramGift() {
     if (props.gift == null || props.gift == undefined) return null
 
@@ -108,6 +124,13 @@ let currentTgsUrl = null
 let loadToken = 0 // simple token to ignore stale loads
 
 const activeCopyImg = ref(copyIcon)
+
+function getRarityColor(percent) {
+    if (percent >= 2) return 'rarity-silver'
+    if (percent > 1) return 'rarity-blue'
+    if (percent > 0.5) return 'rarity-purple'
+    return 'rarity-golden'
+}
 
 function copyGiftID() {
     activeCopyImg.value = okayIcon
@@ -205,6 +228,9 @@ watch(
                 model.value = data.model
                 backdrop.value = data.backdrop
                 symbol.value = data.symbol
+                modelRarity.value = data.modelRarity
+                backdropRarity.value = data.backdropRarity
+                symbolRarity.value = data.symbolRarity
             })
         } else {
             // hide -> destroy animation for performance
@@ -337,6 +363,8 @@ function close() {
     cursor: pointer;
     justify-content: center;
     margin: 1rem;
+    margin-top: 1.5rem;
+    margin-bottom: 0;
     gap: 8px;
 }
 
@@ -420,6 +448,27 @@ function close() {
     background-color: #3b3c3c;
     color: white;
 }
+
+.rarity-blue {
+    color: #4872e6;
+}
+
+/* Dark Blue */
+.rarity-silver {
+    color: #c1c1c1e8;
+}
+
+/* Yellow */
+.rarity-purple {
+    color: #8b5cf6;
+}
+
+/* Purple */
+.rarity-golden {
+    color: #fbbf24;
+}
+
+/* Golden */
 
 /* FADE TRANSITION FOR OVERLAY OPACITY */
 .fade-enter-active,
