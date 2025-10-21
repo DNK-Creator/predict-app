@@ -1097,17 +1097,6 @@ app.post("/api/withdraw-gifts", async (req, res) => {
             return res.status(500).json({ ok: false, error: "worker_ipc_error", details: err.message ?? String(err) });
         }
 
-        // Build set of successful gift identifiers (the worker uses g.uuid or g.telegram_message_id as `gift`)
-        const successIds = new Set();
-        if (Array.isArray(resultsArr)) {
-            for (const r of resultsArr) {
-                if (r && (r.ok === true || r.ok === 'true')) {
-                    // r.gift might be number or string; normalize to String
-                    successIds.add(String(r.gift));
-                }
-            }
-        }
-
         // send message using your Telegraf bot instance (don't block endpoint on failure)
         try {
             const chatId = recipient;
@@ -1117,6 +1106,17 @@ app.post("/api/withdraw-gifts", async (req, res) => {
             // workerResult expected shape: { ok: true, results: [ { gift: <id>, ok: true/false, error? } ] }
             // Normalize results array
             const resultsArr = (workerResult && Array.isArray(workerResult.results)) ? workerResult.results : (workerResult && workerResult.results ? workerResult.results : []);
+
+            // Build set of successful gift identifiers (the worker uses g.uuid or g.telegram_message_id as `gift`)
+            const successIds = new Set();
+            if (Array.isArray(resultsArr)) {
+                for (const r of resultsArr) {
+                    if (r && (r.ok === true || r.ok === 'true')) {
+                        // r.gift might be number or string; normalize to String
+                        successIds.add(String(r.gift));
+                    }
+                }
+            }
 
             // Map matchedInventoryItems to their identifier (uuid/telegram_message_id/gift_id_long)
             function itemIdentifier(it) {
@@ -1172,12 +1172,26 @@ app.post("/api/withdraw-gifts", async (req, res) => {
         try {
             const now = new Date().toISOString();
 
+            // Normalize results array
+            const resultsArrTwo = (workerResult && Array.isArray(workerResult.results)) ? workerResult.results : (workerResult && workerResult.results ? workerResult.results : []);
+
+            // Build set of successful gift identifiers (the worker uses g.uuid or g.telegram_message_id as `gift`)
+            const successIdsTwo = new Set();
+            if (Array.isArray(resultsArrTwo)) {
+                for (const r of resultsArrTwo) {
+                    if (r && (r.ok === true || r.ok === 'true')) {
+                        // r.gift might be number or string; normalize to String
+                        successIdsTwo.add(String(r.gift));
+                    }
+                }
+            }
+
             // Reuse successIds computed earlier; if worker didn't return per-gift results, assume all reserved succeeded
             // (we already built successIds above in the notification block)
             const successItems = matchedInventoryItems.filter(mi => {
                 const id = String(mi.uuid ?? mi.telegram_message_id ?? mi.gift_id_long ?? '');
                 // if worker returned explicit results, only include those marked ok
-                if (successIds.size > 0) return successIds.has(id);
+                if (successIdsTwo.size > 0) return successIdsTwo.has(id);
                 // otherwise assume reservation = success
                 return true;
             });
@@ -1396,6 +1410,22 @@ app.post("/api/giftHandle", async (req, res) => {
             return res.status(500).json({ error: "internal_error", details: err.message });
         }
 
+        // telegram notif
+        try {
+            const chatId = telegramSender;
+            const messageText = `Gift: ${slug} was added to your inventory!`
+            if (!chatId) {
+                console.error('gift handle: no chat id configured');
+            }
+
+            const sent = await bot.telegram.sendMessage(chatId, messageText, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+            });
+        } catch (tgErr) {
+            console.error('gift handle: telegram send error', tgErr);
+        }
+
         const giftThumbUrl = `https://nft.fragment.com/gift/${slug}.small.jpg`
 
         // 7) Insert transaction row (record the deposit)
@@ -1438,6 +1468,7 @@ app.post("/api/giftHandle", async (req, res) => {
             console.error("giftHandle: transaction insertion internal error", err);
             return res.status(500).json({ error: "internal_error", details: err.message });
         }
+
     } catch (err) {
         console.error("giftHandle: unexpected error", err);
         return res.status(500).json({ error: "unexpected_error", details: err.message });
