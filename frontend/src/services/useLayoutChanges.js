@@ -20,10 +20,7 @@ function setCssVar(name, value) {
     try { document.documentElement.style.setProperty(name, value) } catch (e) { /* ignore */ }
 }
 
-/**
- * Apply telegram-provided safe area insets (if present) into CSS variables.
- * If telegram does not provide them, use conservative fallbacks.
- */
+// --- REPLACEMENT: applyTelegramInsets (reads visualViewport and returns effective top) ---
 function applyTelegramInsets(tg) {
     // fallbacks (px)
     const DEFAULT_TOP = 8
@@ -33,9 +30,24 @@ function applyTelegramInsets(tg) {
     const safe = (tg && tg.safeAreaInset) ? tg.safeAreaInset : {}
     const contentSafe = (tg && tg.contentSafeAreaInset) ? tg.contentSafeAreaInset : {}
 
-    const top = (typeof contentSafe.top === 'number') ? Math.round(contentSafe.top)
-        : (typeof safe.top === 'number') ? Math.round(safe.top)
-            : DEFAULT_TOP
+    // visual viewport offset (some Telegram clients shift the webview down; use as fallback)
+    let visualTop = 0
+    try {
+        if (typeof window !== 'undefined' && window.visualViewport && typeof window.visualViewport.offsetTop === 'number') {
+            visualTop = Math.round(window.visualViewport.offsetTop || 0)
+        }
+    } catch (e) { visualTop = 0 }
+
+    // prefer contentSafe (it excludes Telegram chrome). If contentSafe.top is 0 but visualTop > 0,
+    // use the visualTop to avoid leaving a gap between Telegram chrome and our content.
+    const top = (typeof contentSafe.top === 'number')
+        ? Math.round(contentSafe.top)
+        : (typeof safe.top === 'number' ? Math.round(safe.top) : undefined)
+
+    // final effective top: prefer explicit content/safe; else fallback to visualTop or DEFAULT_TOP
+    const effectiveTop = (typeof top === 'number' && top >= 0)
+        ? Math.max(top, visualTop)         // use the larger one -> avoids leaving visual gap
+        : Math.max(visualTop || 0, DEFAULT_TOP)
 
     const bottom = (typeof contentSafe.bottom === 'number') ? Math.round(contentSafe.bottom)
         : (typeof safe.bottom === 'number') ? Math.round(safe.bottom)
@@ -49,14 +61,18 @@ function applyTelegramInsets(tg) {
         : (typeof safe.right === 'number') ? Math.round(safe.right)
             : DEFAULT_SIDE
 
-    setCssVar('--tg-safe-area-top', `${top}px`)
+    setCssVar('--tg-safe-area-top', `${effectiveTop}px`)
     setCssVar('--tg-safe-area-bottom', `${bottom}px`)
     setCssVar('--tg-safe-area-left', `${left}px`)
     setCssVar('--tg-safe-area-right', `${right}px`)
 
     // Keep app-top-offset in sync for backward compatibility with existing code
-    setCssVar('--app-top-offset', `${top}px`)
+    setCssVar('--app-top-offset', `${effectiveTop}px`)
+
+    // return info for callers if they need to make decisions
+    return { effectiveTop, contentTop: contentSafe.top, safeTop: safe.top, visualTop }
 }
+
 
 /**
  * updateLayoutVars — computes keyboard height, bottom space, header height, and viewport stable height
@@ -74,16 +90,31 @@ export function updateLayoutVars(
         const headerH = headerEl ? Math.round(headerEl.offsetHeight) : 56
         setCssVar('--app-header-height', `${headerH}px`)
 
+        let computedTopExtra = 20
         const tg = tgInstance ?? _tgInstance
-        if (tg) applyTelegramInsets(tg)
-        else {
-            // no tg: conservative small fallback
-            setCssVar('--app-top-offset', `8px`)
-            setCssVar('--tg-safe-area-top', `8px`)
-            setCssVar('--tg-safe-area-bottom', `8px`)
+        try {
+            if (tg) {
+                // call applyTelegramInsets (it will set --app-top-offset and related vars and return effective top info)
+                const insetInfo = applyTelegramInsets(tg)
+
+                // smaller extra if Telegram environment or WebApp provides non-zero top/visual offset
+                // - if content safe or visual top exists -> small gap (8px)
+                // - otherwise in Telegram but no offsets -> medium (12px)
+                const anyTop = (insetInfo && (insetInfo.effectiveTop > 0 || (typeof tg.isExpanded !== 'undefined' && tg.isExpanded)))
+                if (anyTop) {
+                    computedTopExtra = 8
+                } else {
+                    computedTopExtra = 12
+                }
+            } else {
+                // no Telegram: keep a larger default so browser chrome has some space
+                computedTopExtra = 20
+            }
+        } catch (e) {
+            computedTopExtra = 20
         }
 
-        setCssVar('--app-top-extra', `20px`)
+        setCssVar('--app-top-extra', `${computedTopExtra}px`)
 
         const visual = window.visualViewport
         let keyboardHeight = 0
