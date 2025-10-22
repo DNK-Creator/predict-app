@@ -73,7 +73,6 @@ function applyTelegramInsets(tg) {
     return { effectiveTop, contentTop: contentSafe.top, safeTop: safe.top, visualTop }
 }
 
-
 /**
  * updateLayoutVars — computes keyboard height, bottom space, header height, and viewport stable height
  */
@@ -159,6 +158,22 @@ export function updateLayoutVars(
 
         // after everything set, apply toast positioning
         applyToastTopInset()
+
+        try {
+            const scrollEl = document.querySelector('.app-scroll-container')
+            if (scrollEl) {
+                // clear inline style if present
+                scrollEl.style.paddingTop = '' // remove inline style so CSS rule (0 !important) wins
+                // double-ensure computed result: set 0 if computed still non-zero (very defensive)
+                const computed = getComputedStyle(scrollEl).paddingTop
+                if (computed && computed !== '0px') {
+                    // apply inline 0 (only if something else in the cascade still gives non-zero)
+                    scrollEl.style.paddingTop = '0px'
+                }
+            }
+        } catch (e) {
+            // non-fatal; ignore
+        }
 
         return {
             headerH,
