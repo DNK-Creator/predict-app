@@ -142,6 +142,35 @@ export function updateLayoutVars(
             setCssVar('--app-bottom-space', bottomSpaceValue)
         }
 
+        // compute app-bottom-extra (adaptive extra spacing)
+        // rationale:
+        // - when Telegram expands/fullscreen we want more extra bottom padding to avoid UI hitting Telegram chrome
+        // - when not expanded (fullsize / desktop) we prefer less extra so layout feels tighter
+        let computedBottomExtra = 12; // default small extra for fullsize browser views
+
+        try {
+            // if inside Telegram, prefer Telegram-provided state
+            if (tg) {
+                const isExpanded = Boolean(tg.isExpanded) || Boolean(tg.isFullscreen)
+                // start with baseline: expanded -> more extra; not expanded -> small extra
+                computedBottomExtra = isExpanded ? 40 : 12
+
+                // if keyboard present, increase extra a bit so input area has breathing room
+                if (keyboardHeight && keyboardHeight > 0) {
+                    // add 10-20px buffer when keyboard is open (you can tune this)
+                    computedBottomExtra = Math.max(computedBottomExtra, 20)
+                }
+            } else {
+                // not inside Telegram (regular browser): minimal default
+                computedBottomExtra = (keyboardHeight && keyboardHeight > 0) ? 20 : 8
+            }
+        } catch (e) {
+            computedBottomExtra = 12
+        }
+
+        // set CSS var (JS writes var; CSS uses it)
+        setCssVar('--app-bottom-extra', `${computedBottomExtra}px`)
+
         // prefer Telegram-provided viewportStableHeight
         try {
             const stableFromTg =

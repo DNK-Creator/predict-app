@@ -44,8 +44,8 @@ body,
 
   /* keyboard / bottom space computed by JS */
   --keyboard-height: 0px;
-  --app-bottom-space: calc(env(safe-area-inset-bottom, 0px) + 32px);
-  /* default fallback */
+  --app-bottom-space: 0px;
+  /* dynamic runtime-updated by JS */
 
   /* viewport stable: set by JS */
   --tg-viewport-stable-height: 100vh;
@@ -108,7 +108,7 @@ body,
 
   padding-top: 0;
   /* padding-bottom must account for floating UI + keyboard */
-  padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
+  padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px) + var(--app-bottom-extra, 0px));
 
   box-sizing: border-box;
 }
