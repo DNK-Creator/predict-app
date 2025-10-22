@@ -335,218 +335,59 @@ app.get('/api/telegram/nft/:slug', async (req, res) => {
     }
 })
 
-// POST /api/bet-placed
-app.post('/api/bet-placed', async (req, res) => {
-    try {
-        const { telegram, bet_id, side, stake, placed_gifts, chat_id } = req.body || {};
-        if (!telegram || !bet_id || !side || (stake === undefined || stake === null)) {
-            return res.status(400).json({ error: 'telegram, bet_id, side, stake required' });
-        }
-
-        // fetch user row (get username)
-        const { data: userRow, error: userErr } = await supabaseAdmin
-            .from('users')
-            .select('id, username, telegram')
-            .eq('telegram', Number(telegram))
-            .maybeSingle();
-
-        if (userErr) {
-            console.error('bet-placed: supabase users select error', userErr);
-            return res.status(500).json({ error: 'db_error' });
-        }
-        if (!userRow) {
-            return res.status(404).json({ error: 'user_not_found' });
-        }
-
-        // fetch event row (get event name + volume)
-        const { data: eventRow, error: eventErr } = await supabaseAdmin
-            .from('bets')
-            .select('id, name_en, volume')
-            .eq('id', Number(bet_id))
-            .maybeSingle();
-
-        if (eventErr) {
-            console.error('bet-placed: supabase bets row select error', eventErr);
-            return res.status(500).json({ error: 'db_error' });
-        }
-        if (!eventRow) {
-            return res.status(404).json({ error: 'bet_not_found' });
-        }
-
-        const betNameEn = eventRow.name_en || 'Unknown event';
-
-        // compute totalPool from volume JSONB (handle object or JSON-string)
-        const rawVolume = eventRow.volume;
-        let volumeObj = {};
-        try {
-            if (!rawVolume) {
-                volumeObj = {};
-            } else if (typeof rawVolume === 'string') {
-                // sometimes Supabase returns jsonb as parsed object, but just in case it's a string
-                volumeObj = JSON.parse(rawVolume);
-            } else if (typeof rawVolume === 'object') {
-                volumeObj = rawVolume;
-            } else {
-                volumeObj = {};
-            }
-        } catch (e) {
-            console.warn('bet-placed: failed to parse volume json, treating as empty', e);
-            volumeObj = {};
-        }
-
-        // Sum numeric values in the object (case-insensitive keys not required for summation)
-        const totalPool = Object.values(volumeObj).reduce((acc, v) => {
-            const n = Number(v ?? 0);
-            return acc + (Number.isFinite(n) ? n : 0);
-        }, 0);
-
-        // prepare message (escape username & values for HTML mode)
-        const escapeHtml = (s = '') =>
-            String(s)
-                .replace(/&/g, '&amp;')
-                .replace(/</g, '&lt;')
-                .replace(/>/g, '&gt;');
-
-        // Build clickable username link: prefer https://t.me/<username> if available
-        const rawUsername = userRow.username ? String(userRow.username).replace(/^@/, '') : null;
-        let userLinkHref, userLinkText;
-        if (rawUsername) {
-            userLinkHref = `https://t.me/${encodeURIComponent(rawUsername)}`;
-            userLinkText = `@${rawUsername}`;
-        } else {
-            // fallback to tg://user?id=<telegram>
-            userLinkHref = `tg://user?id=${encodeURIComponent(String(userRow.telegram))}`;
-            userLinkText = `telegram:${userRow.telegram}`;
-        }
-
-        const stakeNumber = Number(stake);
-        const stakeFormatted = Number.isFinite(stakeNumber) ? stakeNumber : stake;
-
-        // Safely parse placed_gifts (may be array or JSON string).
-        let giftsArray = [];
-        try {
-            if (Array.isArray(placed_gifts)) {
-                giftsArray = placed_gifts;
-            } else if (placed_gifts) {
-                // if it's a stringified JSON, try parse; otherwise treat as empty
-                giftsArray = typeof placed_gifts === 'string' ? JSON.parse(placed_gifts) : [];
-            }
-        } catch (e) {
-            console.warn('bet-placed: failed to parse placed_gifts, ignoring gifts', e);
-            giftsArray = [];
-        }
-        if (!Array.isArray(giftsArray)) giftsArray = [];
-
-        const lines = [];
-        if (Number(stake) > 15) {
-            lines.push('<b>Whale Alert 🐳</b>');
-        }
-
-        // The clickable display: use HTML <a href="...">display</a> and escape display text
-        const clickable = `<a href="${userLinkHref}">${escapeHtml(userLinkText)}</a>`;
-        const sideEscaped = escapeHtml(String(side));
-        const betNameEscaped = escapeHtml(String(betNameEn));
-
-        const giftsList = giftsArray
-            .map(g => {
-                const gName = escapeHtml(String(g?.name ?? 'Gift'));
-                const gNumber = escapeHtml(String(g?.number ?? ''));
-                return `${gName}-${gNumber}`;
-            })
-            .filter(Boolean)
-            .join(', '); // join with comma and space
-
-        // Construct the single-line primary sentence
-        let primaryLine = '';
-        if (giftsList.length > 0) {
-            // gifts present
-            if (stakeNumber > 0) {
-                // include stake, then comma, then gifts, then on "side"
-                primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON, ${giftsList} on "${sideEscaped}"`;
-            } else {
-                // no stake: omit stake, show gifts only
-                primaryLine = `${clickable} just placed ${giftsList} on "${sideEscaped}"`;
-            }
-        } else {
-            // no gifts: keep previous single-line format with stake (even if 0 it will show 0)
-            primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`;
-        }
-
-        lines.push(primaryLine);
-
-        lines.push(`Event: ${betNameEscaped} ⭐`);
-
-        // Optionally log totalPool for debugging/metrics
-        console.log(`bet-placed: totalPool for bet ${bet_id} = ${totalPool}`);
-
-        // fetch user's giveaway tickets for this bet
-        let ticketsCount = 0;
-        try {
-            const { data: bhRow, error: bhErr } = await supabaseAdmin
-                .from('bets_holders')
-                .select('giveaway_tickets')
-                .eq('user_id', Number(telegram))
-                .eq('bet_id', Number(bet_id))
-                .maybeSingle();
-
-            if (bhErr) {
-                console.warn('bet-placed: bets_holders select error (non-fatal)', bhErr);
-            } else if (bhRow) {
-                ticketsCount = Number(bhRow.giveaway_tickets ?? 0);
-            }
-        } catch (e) {
-            console.warn('bet-placed: unexpected error querying bets_holders (non-fatal):', e);
-        }
-
-        // if user has tickets, add a blank line and then the tickets line
-        if (ticketsCount > 0) {
-            lines.push(''); // blank line separator
-            lines.push(`User now has ${ticketsCount} tickets for the giveaway 🎁`);
-        }
-
-        const messageText = lines.join('\n');
-
-        // send message using your Telegraf bot instance
-        try {
-            const chatId = chat_id || process.env.ANNOUNCE_CHAT_ID;
-            if (!chatId) {
-                console.error('bet-placed: no chat id configured (pass chat_id in body or set ANNOUNCE_CHAT_ID env)');
-                return res.status(500).json({ error: 'server_not_configured' });
-            }
-
-            const sent = await bot.telegram.sendMessage(chatId, messageText, {
-                parse_mode: 'HTML',
-                disable_web_page_preview: true
-            });
-
-            return res.json({ ok: true, result: sent, totalPool });
-        } catch (tgErr) {
-            console.error('bet-placed: telegram send error', tgErr);
-            return res.status(502).json({ error: 'telegram_error', details: String(tgErr), totalPool });
-        }
-    } catch (err) {
-        console.error('bet-placed unexpected error', err);
-        return res.status(500).json({ error: 'internal_error', details: String(err) });
-    }
-});
-
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
     try {
         const chat_id = '-1002951097413'
-        const { telegram, name, description, side, stake } = req.body || {};
-        if (!telegram || !name || !description || !side || (stake === undefined || stake === null)) {
+        const { telegram, name, descriptionCondition, descriptionPeriod, descriptionContext, side, stake, gifts_bet } = req.body || {};
+        if (!telegram || !name || !descriptionCondition || !descriptionPeriod || !side || (stake === undefined || stake === null)) {
             return res.status(400).json({
                 ok: false,
                 error: 'validation_error',
-                message: 'telegram, name, description, side, stake required'
+                message: 'telegram, name, descriptionCondition, descriptionPeriod, side, stake required'
             });
         }
 
-        // fetch user row (get username and placed_bets)
+        // Helper: capitalize first letter (Unicode aware) and keep leading punctuation/quotes
+        const capitalizeFirstLetter = (s = '') => {
+            return String(s).replace(/(^\s*["'«“‘]?)(\p{L})/u, (m, p1, p2) => p1 + p2.toUpperCase());
+        };
+
+        // Helper: format a core sentence: trim, capitalize first letter, ensure ending dot.
+        const formatCoreSentence = (raw = '') => {
+            let s = String(raw || '').trim();
+            if (!s) return null;
+            s = capitalizeFirstLetter(s);
+            if (!s.endsWith('.')) s += '.';
+            return s;
+        };
+
+        // Build description from the three pieces
+        const condSentence = formatCoreSentence(descriptionCondition);
+        const periodSentence = formatCoreSentence(descriptionPeriod);
+
+        // context is optional — only include if present and length > 0 after trim
+        let contextSentence = null;
+        if (descriptionContext && String(descriptionContext).trim().length > 0) {
+            const core = formatCoreSentence(descriptionContext);
+            if (core) {
+                contextSentence = `Context: ${core.replace(/^\s+/, '')}`;
+            }
+        }
+
+        // collect non-null sentences in order
+        const parts = [];
+        if (condSentence) parts.push(condSentence);
+        if (periodSentence) parts.push(periodSentence);
+        if (contextSentence) parts.push(contextSentence);
+
+        // join with a space (each part already ends with a dot)
+        const assembledDescription = parts.join(' ');
+
+        // fetch user row (get username and placed_bets and inventory)
         const { data: userRow, error: userErr } = await supabaseAdmin
             .from('users')
-            .select('id, username, telegram, points, placed_bets')
+            .select('id, username, telegram, points, placed_bets, inventory')
             .eq('telegram', Number(telegram))
             .maybeSingle();
 
@@ -559,12 +400,42 @@ app.post('/api/create-event', async (req, res) => {
             return res.status(404).json({ ok: false, error: 'user_not_found', message: 'user not found' });
         }
 
-        const stakeNum = Math.round(Number(stake) * 100) / 100
+        // Validate stake
+        const stakeNum = Math.round(Number(stake) * 100) / 100;
         if (!Number.isFinite(stakeNum) || stakeNum < 0) {
             return res.status(400).json({ ok: false, error: 'validation_error', message: 'invalid stake' });
         }
 
-        const totalEventPrice = stakeNum + 0.1 // stake user is initially betting and also 0.1 price for creation
+        // Normalize gifts array and sanitize items early
+        const gifts = Array.isArray(gifts_bet) ? gifts_bet : [];
+        const placedGifts = (Array.isArray(gifts) ? gifts : []).map(g => ({
+            name: g?.name ?? null,
+            uuid: g?.uuid ?? null,
+            model: g?.model ?? null,
+            value: (g && g.value !== undefined ? g.value : null),
+            number: g?.number ?? null
+        }));
+
+        // Validate gifts_bet (if present) against user's inventory
+        if (placedGifts.length > 0) {
+            const inventory = Array.isArray(userRow.inventory) ? userRow.inventory : [];
+
+            // Collect missing uuids
+            const missing = placedGifts
+                .filter(g => !g || g.uuid === undefined || !inventory.some(i => String(i.uuid) === String(g.uuid)))
+                .map(g => (g && g.uuid) ? String(g.uuid) : '(missing-uuid)');
+
+            if (missing.length > 0) {
+                return res.status(400).json({
+                    ok: false,
+                    error: 'invalid_gifts',
+                    message: 'Some gifts are not found in user inventory',
+                    missing_uuids: missing
+                });
+            }
+        }
+
+        const totalEventPrice = stakeNum + 0.1; // stake user is initially betting and also 0.1 price for creation
 
         if (totalEventPrice > Number(userRow.points)) {
             return res.status(400).json({ ok: false, error: 'insufficient_funds', message: 'not enough points to create the event' });
@@ -574,49 +445,72 @@ app.post('/api/create-event', async (req, res) => {
         if (String(side).toLowerCase() === 'yes') sideFormatted = 'yes';
         else if (String(side).toLowerCase() === 'no') sideFormatted = 'no';
 
-        // insert potential created event row
+        // insert new event row, include creator_gifts_bet (sanitized)
         const { data: newEventRow, error: insertErr } = await supabaseAdmin
             .from('bets')
             .insert([
                 {
-                    name: String(name).trim(), description: String(description).trim(), creator_first_stake: stakeNum, creator_side: sideFormatted,
-                    is_approved: false, result: 'undefined', prizes_given: false, creator_telegram: telegram, status: 'Waiting'
+                    name: String(name).trim(),
+                    description: String(assembledDescription).trim(),
+                    creator_first_stake: stakeNum,
+                    creator_side: sideFormatted,
+                    is_approved: false,
+                    result: 'undefined',
+                    prizes_given: false,
+                    creator_telegram: telegram,
+                    status: 'Waiting',
+                    creator_gifts_bet: placedGifts // <-- added creator_gifts_bet column
                 }
             ])
-            .select()
+            .select();
 
         if (insertErr) {
             console.error('create-event: supabase insert error', insertErr);
             return res.status(500).json({ ok: false, error: 'db_error', message: 'could not create event' });
         }
 
-        const newEventId = Array.isArray(newEventRow) ? newEventRow[0]?.id : newEventRow?.id
+        const newEventId = Array.isArray(newEventRow) ? newEventRow[0]?.id : newEventRow?.id;
         if (!newEventId) {
-            console.error('create-event: could not find new event id', newEventRow)
+            console.error('create-event: could not find new event id', newEventRow);
             return res.status(500).json({ ok: false, error: 'db_error', message: 'could not determine new event id' });
         }
 
         // quick fix: round to 2 decimals before updating DB
         const rawNewPoints = Number(userRow.points) - totalEventPrice;
         const newPoints = Math.round(rawNewPoints * 100) / 100; // number with 2 decimal precision
-        const updatePayload = { points: newPoints };
 
-        // Only add to placed_bets if stake > 0
-        if (stakeNum > 0) {
-            const existingPlaced = Array.isArray(userRow.placed_bets) ? userRow.placed_bets.slice() : []
+        // Build new inventory by removing placed gift uuids
+        const currentInventory = Array.isArray(userRow.inventory) ? userRow.inventory.slice() : [];
+        const giftUuidsSet = new Set(placedGifts.map(g => String(g.uuid)));
+        const newInventory = currentInventory.filter(item => {
+            // keep if item.uuid is undefined or not in gift set
+            try {
+                return !giftUuidsSet.has(String(item.uuid));
+            } catch (e) {
+                return true; // keep if any weirdness
+            }
+        });
+
+        // prepare placed_bets update (only add if stake>0 or gifts present)
+        const updatePayload = { points: newPoints };
+        if (stakeNum > 0 || (placedGifts && placedGifts.length > 0)) {
+            const existingPlaced = Array.isArray(userRow.placed_bets) ? userRow.placed_bets.slice() : [];
 
             const newPlacedBet = {
                 side: sideFormatted,
                 stake: stakeNum,
                 bet_id: newEventId,
-                placed_at: new Date().toISOString() // using current server time
-            }
+                placed_at: new Date().toISOString(),
+                placed_gifts: placedGifts
+            };
 
-            existingPlaced.push(newPlacedBet)
-            updatePayload.placed_bets = existingPlaced
+            existingPlaced.push(newPlacedBet);
+            updatePayload.placed_bets = existingPlaced;
         }
 
-        // update users row (deduct points, upsert to placed_bets)
+        // update users row: points, placed_bets, inventory
+        updatePayload.inventory = newInventory;
+
         const { data: newUserRow, error: updateUserErr } = await supabaseAdmin
             .from('users')
             .update(updatePayload)
@@ -626,7 +520,14 @@ app.post('/api/create-event', async (req, res) => {
 
         if (updateUserErr) {
             console.error('create-event: supabase update users record error', updateUserErr);
-            // NOTE: newEvent was created but user update failed — consider a compensating action or audit
+
+            // Attempt to roll back the created bet to avoid orphaned event
+            try {
+                await supabaseAdmin.from('bets').delete().eq('id', newEventId);
+            } catch (delErr) {
+                console.error('create-event: failed to delete orphaned bet after user update failure', delErr);
+            }
+
             return res.status(500).json({ ok: false, error: 'db_error', message: 'could not update user' });
         }
 
@@ -668,9 +569,20 @@ app.post('/api/create-event', async (req, res) => {
 
         const sideEscaped = escapeHtml(String(sideFormatted));
 
-        lines.push(`${clickable} just requested to create an event named: ${escapeHtml(String(name))}. The description is: "${description}"`);
+        // Use assembledDescription for the message shown to moderators/admins
+        lines.push(`${clickable} just requested to create an event named: ${escapeHtml(String(name))}. The description is: "${escapeHtml(assembledDescription)}"`);
 
         lines.push(`Initial choice: ${stakeFormatted} TON on ${sideEscaped} ⭐`);
+
+        // If gifts were placed, include them in the Telegram message using name and number fields
+        if (Array.isArray(placedGifts) && placedGifts.length > 0) {
+            const giftsText = placedGifts.map(g => {
+                const gName = g.name ? escapeHtml(String(g.name)) : '(unknown)';
+                const gNumber = (g.number !== undefined && g.number !== null) ? escapeHtml(String(g.number)) : '(no-number)';
+                return `${gName} x${gNumber}`;
+            }).join(', ');
+            lines.push(`Placed gifts: ${giftsText}`);
+        }
 
         const messageText = lines.join('\n');
 
@@ -685,7 +597,7 @@ app.post('/api/create-event', async (req, res) => {
             }
         } catch (tgErr) {
             console.error('create-event: telegram send error', tgErr);
-            return res.status(502).json({ ok: false, error: 'telegram_error', message: 'notification_failed' });
+            // Telegram failure doesn't change the main success response; log and continue
         }
     } catch (err) {
         console.error('create-event unexpected error', err);

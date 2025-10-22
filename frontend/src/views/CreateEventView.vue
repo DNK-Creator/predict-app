@@ -7,7 +7,7 @@
                     <button :class="['type-btn', { active: eventType === 'prediction' }]" @click="openHistoryCreated"
                         role="tab" :aria-selected="eventType === 'prediction'">
                         <img class="history-icon" :src="PastIcon">
-                        {{ t('created-events-history') }}
+                        {{ $t('created-events-history') }}
                     </button>
                 </div>
             </div>
@@ -15,49 +15,71 @@
             <div class="card form-card">
                 <label class="input-label" for="ev-name">{{ $t('event-name') }}</label>
                 <textarea id="ev-name" ref="nameEl" v-model="form.name" class="text-input name-input" :maxlength="100"
-                    :placeholder="$t('title-placeholder')" @input="autoSizeTextarea($event, 'name')"
-                    @focus="onNameFocus" @blur="onNameBlur" rows="1" aria-describedby="name-help"></textarea>
+                    :placeholder="$t('title-placeholder')" @input="autoSizeTextarea($event)" @focus="onNameFocus"
+                    @blur="onNameBlur" rows="1" aria-describedby="name-help"></textarea>
                 <div id="name-help" class="muted-hint">
                     {{ form.name.length }} / 100
                 </div>
 
-                <label class="input-label" for="ev-desc">{{ $t('description') }}</label>
-                <textarea id="ev-desc" ref="descEl" v-model="form.description" class="text-input desc-input"
-                    :maxlength="650" :placeholder="$t('describe-event-input')" @input="autoSizeTextarea($event, 'desc')"
-                    @focus="onDescriptionFocus" @blur="onDescriptionBlur" rows="3"
+                <label class="input-label" for="ev-desc">{{ $t('description-condition') }}</label>
+                <textarea id="ev-desc-condition" ref="descConditionEl" v-model="form.descriptionCondition"
+                    class="text-input desc-input" :maxlength="250" :placeholder="$t('describe-event-condition')"
+                    @input="autoSizeTextarea($event)" @focus="onDescriptionFocus" @blur="onDescriptionBlur" rows="3"
                     aria-describedby="desc-hint"></textarea>
 
-                <div id="desc-hint" class="muted-hint type-hint">
-                    <template v-if="eventType === 'prediction'">
-                        {{ $t('description-hint-prediction') }}
-                    </template>
-                    <template v-else>
-                        {{ $t('describe-deal-input') }}
-                    </template>
-                </div>
+                <label class="input-label" for="ev-desc">{{ $t('description-period') }}</label>
+                <textarea id="ev-desc-period" ref="descPeriodEl" v-model="form.descriptionPeriod"
+                    class="text-input desc-input" :maxlength="250" :placeholder="$t('describe-event-period')"
+                    @input="autoSizeTextarea($event)" @focus="onDescriptionFocus" @blur="onDescriptionBlur" rows="3"
+                    aria-describedby="desc-hint"></textarea>
 
-                <div class="input-label"> {{ $t('you-are-giving') }} </div>
+                <label class="input-label" for="ev-desc">{{ $t('description-context') }}</label>
+                <textarea id="ev-desc-context" ref="descContextEl" v-model="form.descriptionContext"
+                    class="text-input desc-input" :maxlength="250" :placeholder="$t('describe-event-context')"
+                    @input="autoSizeTextarea($event)" @focus="onDescriptionFocus" @blur="onDescriptionBlur" rows="3"
+                    aria-describedby="desc-hint"></textarea>
+
+                <div class="input-label"> {{ $t('you-are-giving') }}: {{ totalBetText }} </div>
 
                 <div class="row amount-row" role="group" aria-label="Amount">
                     <input ref="amountInput" id="amount" v-model="amount" @input="onAmountInput" @focus="onAmountFocus"
                         @blur="onAmountBlur" class="amount-input" type="text" inputmode="decimal" autocomplete="off"
-                        pattern="^\\d*(\\.\\d{0,2})?$" placeholder="0.00" aria-describedby="amount-help" />
+                        pattern="^\\d*(\\.\\d{0,2})?$" placeholder="1.00" aria-describedby="amount-help" />
                     <img class="amount-icon" :src="TonIcon">
                 </div>
 
-                <!-- <div class="input-label-and"> {{ $t('and') }}: {{ selectedItemsText }}</div> -->
+                <!-- Virtualized rows -->
+                <div class="gifts-list" v-bind="containerProps" role="list" tabindex="0" aria-live="polite">
+                    <div class="gifts-wrapper" v-bind="wrapperProps">
+                        <!-- each virtual item is a row (data === array of up to COLUMNS gifts) -->
+                        <div v-for="{ index, data: row } in list" :key="index" class="gift-row"
+                            :style="{ height: rowHeight + 'px' }" role="listitem">
+                            <!-- Render up to COLUMNS items per row; fill blanks if last row isn't full -->
+                            <div v-for="(item, colIdx) in row" :key="item?.uuid ?? `${index}-${colIdx}`"
+                                :class="['gift-card', { selected: isSelected(item?.uuid) }]"
+                                @click="toggleSelect(item)">
+                                <div class="gift-image-wrap">
+                                    <img :src="createGiftUrl(item)" draggable="false" loading="lazy" />
+                                </div>
 
-                <!-- Inventory grid: 3 columns x 2 rows visible -->
-                <!-- <div id="inventory" class="inventory-container" role="list"
-                    aria-label="Inventory items (tap to select)">
-                    <div v-for="(cell, idx) in inventoryCells" :key="cell.id"
-                        :class="['inv-cell', { selected: isSelected(cell.id) }]" role="listitem" tabindex="0"
-                        @click="toggleSelect(cell.id)" @keydown.enter.prevent="toggleSelect(cell.id)"
-                        @keydown.space.prevent="toggleSelect(cell.id)" :aria-pressed="isSelected(cell.id)">
-                        <div class="inv-placeholder"></div>
-                        <div class="inv-label">Item {{ idx + 1 }}</div>
+                                <div class="select-gift-button">
+                                    <img class="select-icon" :src="plusImg" draggable="false" alt="SELECT" />
+                                </div>
+
+                                <div class="gift-below-img">
+                                    <div class="gift-meta">
+                                        <span v-if="item?.name.length < 12" class="gift-name">{{ item?.name }}</span>
+                                        <span v-else class="gift-name-small">{{ item?.name }}</span>
+                                        <div class="price-container">
+                                            <img class="price-icon" :src="tonBlueIcon" alt="TON_ICON" loading="lazy" />
+                                            <span class="gift-count">{{ item?.value }} TON</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div> -->
+                </div>
 
                 <!-- TYPE-SPECIFIC BLOCKS -->
                 <div v-if="eventType === 'prediction' && showPickingSides" class="prediction-block">
@@ -73,33 +95,6 @@
                         </button>
                     </div>
                 </div>
-
-                <!-- <div v-else class="deal-block">
-                    <label class="input-label">{{ t('you-are-getting') }}</label>
-                    <div class="row amount-row">
-                        <input class="other-payment-input" v-model="form.otherPaymentDisplay"
-                            @input="onOtherPaymentInput" placeholder="0.00" inputmode="decimal"
-                            aria-describedby="other-payment-help" />
-                        <img class="amount-icon" :src="TonIcon">
-                    </div>
-
-                    <div class="gifts-toggle-row">
-                        <div class="input-label small">{{ t('i-will-get-certain-gifts') }}:</div>
-                        <div class="toggle-wrap" role="switch" :aria-checked="form.giftsEnabled" tabindex="0"
-                            @click="form.giftsEnabled = !form.giftsEnabled"
-                            @keydown.space.prevent="form.giftsEnabled = !form.giftsEnabled">
-                            <div class="toggle-rail" :class="{ on: form.giftsEnabled }">
-                                <div class="toggle-knob" :class="{ on: form.giftsEnabled }"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <transition name="fade">
-                        <textarea v-if="form.giftsEnabled" class="text-input gifts-descr" v-model="form.giftsText"
-                            :placeholder="$t('getting-gifts-hint')" @input="autoSizeTextarea($event, 'gifts')"
-                            rows="2"></textarea>
-                    </transition>
-                </div> -->
             </div>
             <!-- Half-visible policy hint above the forms -->
             <div class="hint-clip" aria-hidden="false">
@@ -110,7 +105,7 @@
             <!-- footer with CREATE button -->
             <div class="footer-create">
                 <button class="footer-create__yes create-btn" @click="onCreate" :disabled="isCreating">
-                    {{ $t('create-for') }} 0.1 TON
+                    {{ $t('create-for') }}
                 </button>
             </div>
         </div>
@@ -118,87 +113,186 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, nextTick } from 'vue'
-import { useI18n } from 'vue-i18n'
+import { ref, reactive, computed, onMounted, watch, onActivated, nextTick } from 'vue'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/appStore'
+import { useTelegram } from '@/services/telegram'
+import { useVirtualList } from '@vueuse/core'
 import { requestCreateBet } from '@/services/bets-requests'
+import supabase from '@/services/supabase'
 import TonIcon from '@/assets/icons/TON_White_Icon.png'
 import PastIcon from '@/assets/icons/Past_Icon.png'
+import tonBlueIcon from '@/assets/icons/TON_Icon.png'
+import plusImg from '@/assets/icons/Transparent_Plus_Icon.png'
 
 const app = useAppStore()
+const { user } = useTelegram()
 
-const { t } = useI18n()
 const router = useRouter()
 
 const root = ref(null)
 const nameEl = ref(null)
-const descEl = ref(null)
+const descConditionEl = ref(null)
+const descPeriodEl = ref(null)
+const descContextEl = ref(null)
 
 const isCreating = ref(false)
 
 const eventType = ref('prediction') // 'prediction' | 'deal'
-const showPickingSides = ref(false)
+const showPickingSides = ref(true)
+
+/* ---------- GRID / VIRTUAL CONFIG ---------- */
+const COLUMNS = 3
+const CARD_HEIGHT = 160
+const ROW_GAP = 18
+const rowHeight = CARD_HEIGHT + ROW_GAP
+
+const selectedOrder = ref([])
+const selectedGifts = ref([])
+const selectedGift = ref(null)
+const isSelected = (id) => selectedOrder.value.indexOf(id) !== -1
+
+const displayedGifts = ref([])
+
+// ——— Load gifts from Supabase ———
+async function loadGifts() {
+    try {
+        const { data, error } = await supabase
+            .from('users')
+            .select('inventory')
+            .eq('telegram', user?.id ?? 99)
+            .single()
+
+        if (error) {
+            console.error('Error loading gifts:', error)
+            displayedGifts.value = []
+            return
+        }
+
+        displayedGifts.value = data.inventory
+    } catch (err) {
+        console.error('Unexpected error in loadGifts:', err)
+        displayedGifts.value = []
+    }
+}
+
+const totalBettingValue = computed(() => {
+    const amt = Number(String((amount.value ?? '0')).replace(',', '.')) || 0
+    const giftsSum = selectedGifts.value.reduce((acc, g) => {
+        const vRaw = g?.value ?? g?.price ?? 0
+        const vNum = Number(String(vRaw).replace(',', '.')) || 0
+        return acc + vNum
+    }, 0)
+    return Math.max(0, amt + giftsSum)
+})
+
+// Nicely format TON numbers (integers as ints, otherwise up to 2 decimals)
+function formatTonValue(n) {
+    if (!isFinite(n)) return '0'
+    const num = Number(n)
+    if (Math.abs(Math.round(num) - num) < 1e-9) return String(Math.round(num))
+    return Number(num.toFixed(2)).toString()
+}
+
+const totalBetText = computed(() => {
+    const tonAmount = Number(String((amount.value ?? '0')).replace(',', '.')) || 0
+
+    const giftParts = selectedGifts.value.map(g => {
+        const name = (g?.name ?? 'Gift').toString()
+        const number = g?.number ?? (g?.id ?? '')
+        return `${name} #${number}`
+    })
+
+    const infoParts = []
+    if (tonAmount > 0) {
+        infoParts.push(`${formatTonValue(tonAmount)} TON`)
+        if (giftParts.length) infoParts.push(...giftParts)
+    } else {
+        if (giftParts.length) infoParts.push(...giftParts)
+        else infoParts.push(`0 TON`)
+    }
+
+    if (giftParts.length) {
+        const total = totalBettingValue.value
+        const lang = (typeof app !== 'undefined' && app?.language) ? app.language : 'en'
+        const suffix = lang === 'ru'
+            ? `- на сумму ${formatTonValue(total)} TON.`
+            : `- amounting to ${formatTonValue(total)} TON.`
+
+        return `${infoParts.join(', ')} ${suffix}`
+    }
+    return tonAmount > 0 ? `${infoParts.join(', ')}` : ''
+})
+
+function toggleSelect(giftObj) {
+    if (!giftObj.uuid) return
+    const idx = selectedOrder.value.indexOf(giftObj.uuid)
+    if (idx >= 0) {
+        selectedOrder.value.splice(idx, 1)
+        selectedGifts.value.splice(idx, 1)
+    } else {
+        if (selectedOrder.value.length >= 10) {
+            maxGiftsWarnShow.value = true
+            setTimeout(() => {
+                maxGiftsWarnShow.value = false
+            }, 2000);
+            return
+        }
+        selectedOrder.value.push(giftObj.uuid)
+        selectedGifts.value.push(giftObj)
+    }
+}
+
+function createGiftUrl(giftObj) {
+    if (giftObj.slug) {
+        return `https://nft.fragment.com/gift/${giftObj.slug}.small.jpg`
+    }
+    const urlSafeName = String(giftObj.name.replace(/[ -]/g, '')).toLowerCase()
+    const newSlug = urlSafeName + "-" + (giftObj.num ?? giftObj.number)
+    return `https://nft.fragment.com/gift/${newSlug}.small.jpg`
+}
+
+onMounted(async () => {
+    await loadGifts()
+})
+
+/* group gifts into rows of 3 */
+const source = computed(() => {
+    const arr = displayedGifts.value || []
+    const rows = []
+    for (let i = 0; i < arr.length; i += COLUMNS) {
+        rows.push(arr.slice(i, i + COLUMNS))
+    }
+    return rows
+})
+
+/* virtualize by rows (each item is a row) */
+const { list, containerProps, wrapperProps } = useVirtualList(source, {
+    itemHeight: rowHeight,
+    overscan: 1, // render a few rows above/below for smoother scrolling
+})
+
+/* ---------- UI state ---------- */
 
 // simple form model
 const form = reactive({
     name: '',
-    description: '',
+    descriptionCondition: '',
+    descriptionPeriod: '',
+    descriptionContext: '',
     predictionSide: 'yes'
 })
 
 form.otherPaymentDisplay = ''
 
-// inventory placeholder cells (empty). We show 3x2 visible rows; provide more to allow scroll.
-const inventoryCells = Array.from({ length: 18 }).map((_, i) => ({ id: `cell-${i + 1}` }))
-
 function openHistoryCreated() {
     router.push({ name: 'created-history' })
 }
 
-// selection set
-const selectedIds = ref(new Set())
-
-/**
- * Maintain selection **order** so the textual listing follows the order user selected.
- * selectedOrder is an array of IDs in selection order.
- */
-const selectedOrder = ref([])
-
-function isSelected(id) {
-    return selectedOrder.value.indexOf(id) !== -1
-}
-
-function toggleSelect(id) {
-    const idx = selectedOrder.value.indexOf(id)
-    if (idx >= 0) {
-        // deselect
-        selectedOrder.value.splice(idx, 1)
-    } else {
-        // select (append to end)
-        selectedOrder.value.push(id)
-    }
-}
-
-const selectedItemsText = computed(() => {
-    if (!selectedOrder.value || selectedOrder.value.length === 0) return ''
-    // map ids -> labels based on inventoryCells order (or selection order)
-    const names = selectedOrder.value.map(id => {
-        const idx = inventoryCells.findIndex(c => c.id === id)
-        const label = idx >= 0 ? `Item ${idx + 1}` : id
-        return label
-    })
-
-    if (names.length === 1) {
-        return `${names[0]}.`
-    }
-    return `${names.join(', ')}.`
-})
-
 // autosize textareas
-function autoSizeTextarea(e, which) {
+function autoSizeTextarea(e) {
     const el = e.target
     el.style.height = 'auto'
     const newH = Math.max(48, Math.min(600, el.scrollHeight))
@@ -206,47 +300,67 @@ function autoSizeTextarea(e, which) {
 }
 
 const lastInputtedNumber = ref('')
-const amount = ref('')
+const amount = ref('1.00')
 const amountInput = ref(null)
 
-function onAmountInput(e) {
-    let v = e.target.value.replace(/,/g, '.')
-        .replace(/[^\d.]/g, '')
-        .replace(/^0(\d)/, '0')
-        .replace(/(\..*)\./g, '$1')
+const AMOUNT_MIN = 0
+const AMOUNT_MAX = 99999
 
+function clampNumber(n, min, max) {
+    if (Number.isNaN(n)) return min
+    return Math.max(min, Math.min(max, n))
+}
+
+function sanitizeAndLimitDecimals(raw) {
+    // replace commas, keep only digits and dot, prevent multiple dots
+    let v = String(raw || '').replace(/,/g, '.').replace(/[^\d.]/g, '')
+    v = v.replace(/^0+(\d)/, '$1') // reduce leading zeros but keep "0" alone if typed
+    v = v.replace(/(\..*)\./g, '$1') // only one dot
     if (v.includes('.')) {
         const [i, d] = v.split('.')
-        v = i + '.' + d.slice(0, 2)
+        v = i + '.' + (d || '').slice(0, 2)
+    }
+    return v
+}
+
+function onAmountInput(e) {
+    let v = sanitizeAndLimitDecimals(e.target.value)
+
+    // If empty or just '.' allow user to continue typing but show minimum internally when determining state
+    if (v === '' || v === '.') {
+        // don't overwrite while typing; just reflect the partial input
+        amount.value = v === '.' ? '0.' : ''
+        lastInputtedNumber.value = amount.value
+        return
     }
 
-    if (v === '0' && lastInputtedNumber.value !== '0.') {
-        v = '0.'
-    } else if (lastInputtedNumber.value === '0.' && v === '0') {
-        v = ''
-    }
-
-    if (v === '.') {
-        v = '0.'
-    }
-
-    if (v === '0.00') {
-        v = '0.01'
-    }
-
+    // parse numeric value
     const num = parseFloat(v)
-    if (!isNaN(num) && num > 99999) {
-        v = '99999'
+    if (Number.isFinite(num)) {
+        // clamp to allowed range immediately so user can't put <1 or >99999
+        const clamped = clampNumber(num, AMOUNT_MIN, AMOUNT_MAX)
+
+        // If the parsed numeric differs (i.e. user typed 0.5 -> we clamp to 1),
+        // reflect clamped value. Keep up to 2 decimals if user entered decimals.
+        // If user typed an integer, keep integer display; we'll format to 2 decimals on blur.
+        const hasDecimal = v.includes('.')
+        if (num !== clamped) {
+            // clamp happened
+            v = hasDecimal ? String(clamped.toFixed(2)) : String(clamped)
+        } else {
+            // keep the user's decimal precision (max 2 decimals from sanitizer)
+            v = String(v)
+        }
+
+    } else {
+        // non-numeric fallback to minimum
+        v = String(AMOUNT_MIN)
     }
 
-    if (v > 0) {
-        showPickingSides.value = true
-    } else {
-        showPickingSides.value = false
-    }
+    // prevent values longer than required (avoid weird huge strings)
+    if (v.length > 12) v = v.slice(0, 12)
 
     amount.value = v
-
     lastInputtedNumber.value = v
 }
 
@@ -278,8 +392,9 @@ function onAmountFocus() {
 
 function onAmountBlur() {
     setTimeout(() => {
-        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
-            && document.activeElement !== nameEl.value) {
+        if (document.activeElement !== amountInput.value && document.activeElement !== descConditionEl.value
+            && document.activeElement !== descPeriodEl.value && document.activeElement !== descContextEl.value &&
+            document.activeElement !== nameEl.value) {
 
             document.body.classList.remove('keyboard-open')
             if (window.visualViewport && vvState.listener) {
@@ -318,8 +433,9 @@ function onNameFocus() {
 
 function onNameBlur() {
     setTimeout(() => {
-        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
-            && document.activeElement !== nameEl.value) {
+        if (document.activeElement !== amountInput.value && document.activeElement !== descConditionEl.value
+            && document.activeElement !== descPeriodEl.value && document.activeElement !== descContextEl.value &&
+            document.activeElement !== nameEl.value) {
 
             document.body.classList.remove('keyboard-open')
             if (window.visualViewport && vvState.listener) {
@@ -332,12 +448,12 @@ function onNameBlur() {
     }, 100);
 }
 
-function onDescriptionFocus() {
+function onDescriptionFocus(descriptionElement) {
     document.body.classList.add('keyboard-open')
 
     // prefer immediate (no-smooth) scrollIntoView to avoid jitter when vp changes
     setTimeout(() => {
-        try { descEl.value?.scrollIntoView({ behavior: 'auto', block: 'nearest' }) } catch (_) { }
+        try { descriptionElement.value?.scrollIntoView({ behavior: 'auto', block: 'nearest' }) } catch (_) { }
     }, 80)
 
     if (window.visualViewport) {
@@ -358,7 +474,8 @@ function onDescriptionFocus() {
 
 function onDescriptionBlur() {
     setTimeout(() => {
-        if (document.activeElement !== amountInput.value && document.activeElement !== descEl.value
+        if (document.activeElement !== amountInput.value && document.activeElement !== descConditionEl.value
+            && document.activeElement !== descPeriodEl.value && document.activeElement !== descContextEl.value
             && document.activeElement !== nameEl.value) {
 
             document.body.classList.remove('keyboard-open')
@@ -422,8 +539,26 @@ function addTemporaryOutline(el, duration = 2800) {
 }
 
 async function onCreate() {
-    const rawTotalCreationPrice = Number(amount.value) + 0.1
-    const totalCreationPrice = Math.round(rawTotalCreationPrice * 100) / 100; // number with 2 decimal precision
+    // Ensure amount is normalized to number and in range
+    let stakeNum = parseFloat(String(amount.value).replace(',', '.'))
+    if (!Number.isFinite(stakeNum)) stakeNum = 0
+    stakeNum = clampNumber(stakeNum, AMOUNT_MIN, AMOUNT_MAX)
+
+    // Check totalBettingValue (amount + gifts) must be > 1 TON
+    const total = totalBettingValue.value
+    if (!(total >= 1)) {
+        const msg = app.language === 'ru'
+            ? 'Общая ставка с подарками должна быть больше 1 TON.'
+            : 'Total stake with gifts must be more than 1 TON.'
+        toast.warn(msg)
+        // highlight amount input so user notices where to fix (could also highlight gift area)
+        addTemporaryOutline(amountInput.value)
+        return
+    }
+
+    // ensure creator can pay creation fee + stake
+    const rawTotalCreationPrice = stakeNum
+    const totalCreationPrice = Math.round(rawTotalCreationPrice * 100) / 100
     if (app.points < totalCreationPrice) {
         let messageText = app.language === 'ru' ? 'Недостаточно средств для создания события.' : 'Not enough funds to create an event.'
         toast.error(messageText)
@@ -431,19 +566,27 @@ async function onCreate() {
     }
 
     const nameTrimmed = String(form.name || '').trim()
-    const descTrimmed = String(form.description || '').trim()
+    const descConditionTrimmed = String(form.descriptionCondition || '').trim()
+    const descPeriodTrimmed = String(form.descriptionPeriod || '').trim()
+    const descContextTrimmed = String(form.descriptionContext || '').trim()
+
     const nameLen = nameTrimmed.length
-    const descLen = descTrimmed.length
+    const descConditionLen = descConditionTrimmed.length
+    const descPeriodLen = descPeriodTrimmed.length
+
     const MAX_NAME = 100
-    const MAX_DESC = 650
+    const MAX_DESC = 250
 
     const invalidEls = []
 
     if (nameLen === 0 || nameLen > MAX_NAME) {
         invalidEls.push({ el: nameEl.value, reason: nameLen === 0 ? 'empty' : 'toolong' })
     }
-    if (descLen === 0 || descLen > MAX_DESC) {
-        invalidEls.push({ el: descEl.value, reason: descLen === 0 ? 'empty' : 'toolong' })
+    if (descConditionLen === 0 || descConditionLen > MAX_DESC) {
+        invalidEls.push({ el: descConditionEl.value, reason: descConditionLen === 0 ? 'empty' : 'toolong' })
+    }
+    if (descPeriodLen === 0 || descPeriodLen > MAX_DESC) {
+        invalidEls.push({ el: descPeriodEl.value, reason: descPeriodLen === 0 ? 'empty' : 'toolong' })
     }
 
     if (invalidEls.length > 0) {
@@ -457,9 +600,12 @@ async function onCreate() {
 
     const payload = {
         name: nameTrimmed,
-        description: descTrimmed,
+        descriptionCondition: descConditionTrimmed,
+        descriptionPeriod: descPeriodTrimmed,
+        descriptionContext: descContextTrimmed,
         stake: Number.isFinite(Number(amount.value)) ? Number(amount.value) : 0,
-        side: form.predictionSide
+        side: form.predictionSide,
+        gifts_bet: selectedGifts.value
     }
 
     isCreating.value = true
@@ -525,7 +671,7 @@ onMounted(() => {
 .create-container {
     max-width: 720px;
     margin: 0 auto;
-    padding: 16px;
+    padding: 8px;
     padding-bottom: 8px;
     box-sizing: border-box;
     display: flex;
@@ -608,7 +754,7 @@ onMounted(() => {
     width: 95%;
     overflow: hidden;
     text-justify: start;
-    height: 50px;
+    height: 60px;
     margin-top: 4px;
     margin-bottom: 4px;
     position: relative;
@@ -1099,5 +1245,158 @@ textarea {
 
 .input-error {
     animation: inputErrorPulse 520ms ease;
+}
+
+
+.gifts-list {
+    width: 100%;
+    height: min(250px, 30vh);
+    box-sizing: border-box;
+    overflow-y: auto;
+    /* must be scrollable */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+.gifts-wrapper {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0;
+}
+
+.gift-row {
+    box-sizing: border-box;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    padding: 12px;
+    align-items: start;
+}
+
+.gifts-list::-webkit-scrollbar {
+    display: none;
+}
+
+.gift-card {
+    background: rgba(95, 95, 95, 0.2);
+    cursor: pointer;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    align-self: center;
+    justify-self: center;
+    overflow: hidden;
+    box-shadow: 0 6px 14px rgba(0, 0, 0, 0.22);
+    user-select: none;
+    padding: 0;
+    height: 160px;
+    min-width: 70px;
+    max-width: 110px;
+    position: relative;
+    transform: translateY(0);
+    /* base transform */
+    transition: transform 180ms cubic-bezier(.2, .9, .2, 1), box-shadow 180ms cubic-bezier(.2, .9, .2, 1), border-color 180ms cubic-bezier(.2, .9, .2, 1);
+    will-change: transform, box-shadow;
+}
+
+.gift-card.selected {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 1),
+        /* white halo */
+        0 10px 20px rgba(0, 0, 0, 0.22);
+    transform: translateY(-6px);
+    z-index: 2;
+}
+
+.gift-card.selected .select-icon {
+    opacity: 0;
+}
+
+.gift-image-wrap {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    overflow: hidden;
+    background: rgba(255, 255, 255, 0.01);
+    border-radius: 8px;
+    flex: 0 0 auto;
+    display: block;
+}
+
+.gift-image-wrap img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: 8px;
+}
+
+.select-gift-button {
+    position: absolute;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    height: 35%;
+    width: 40%;
+    right: 0px;
+    top: 0px;
+}
+
+.select-icon {
+    width: 18px;
+    height: 18px;
+    padding: 6px;
+}
+
+.gift-below-img {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px 0px;
+}
+
+/* Meta (name / count) sits below the square image and has its own padding */
+.gift-meta {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    flex: 0 0 auto;
+}
+
+/* Count stays to the right (or next to name) and remains prominent */
+.gift-count {
+    font-size: 0.8rem;
+    color: white;
+    font-weight: 800;
+}
+
+
+.price-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.price-icon {
+    width: 12px;
+    height: 12px;
+}
+
+.gift-name-small,
+.gift-name {
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 0.75rem;
+    margin-top: 2px;
+}
+
+.gift-name-small {
+    font-size: 0.7rem;
 }
 </style>

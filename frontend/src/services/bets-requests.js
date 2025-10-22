@@ -11,6 +11,8 @@ export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
 
+    console.log(eventObj.gifts_bet)
+
     try {
         const resp = await fetch('https://api.giftspredict.ru/api/create-event', {
             method: 'POST',
@@ -19,9 +21,12 @@ export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
             body: JSON.stringify({
                 telegram: Number(user?.id ?? 99),
                 name: String(eventObj.name),
-                description: String(eventObj.description),
+                descriptionCondition: String(eventObj.descriptionCondition),
+                descriptionPeriod: String(eventObj.descriptionPeriod),
+                descriptionContext: String(eventObj.descriptionContext),
                 side: String(eventObj.side),
-                stake: String(Number(eventObj.stake).toFixed(2))
+                stake: String(Number(eventObj.stake).toFixed(2)),
+                gifts_bet: eventObj.gifts_bet
             })
         });
 

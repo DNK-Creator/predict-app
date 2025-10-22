@@ -129,6 +129,7 @@ function toggleCardAction(gift, id) {
     }
     else openGiftModal(gift)
 }
+
 function toggleSelect(giftObj) {
     if (!giftObj.uuid) return
     const idx = selectedOrder.value.indexOf(giftObj.uuid)
@@ -147,6 +148,7 @@ function toggleSelect(giftObj) {
         selectedGifts.value.push(giftObj)
     }
 }
+
 function createGiftUrl(giftObj) {
     if (!giftObj) return giftImg
     const urlSafeName = String(giftObj.name.replace(/[ -]/g, '')).toLowerCase()
