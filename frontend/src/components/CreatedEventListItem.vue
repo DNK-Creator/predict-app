@@ -77,8 +77,7 @@ function noTranslated() {
 }
 
 function showSide() {
-    if (props.stake == undefined || props.stake == null || props.stake <= 0 ||
-        props.side == undefined || props.side == null || props.side.length <= 0) {
+    if (props.side == undefined || props.side == null || props.side.length <= 0) {
         return false
     }
     return true

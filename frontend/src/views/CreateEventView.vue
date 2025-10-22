@@ -49,7 +49,7 @@
                 </div>
 
                 <!-- Virtualized rows -->
-                <div class="gifts-list" v-bind="containerProps" role="list" tabindex="0" aria-live="polite">
+                <div v-if="source.length > 0" class="gifts-list" v-bind="containerProps" role="list" tabindex="0" aria-live="polite">
                     <div class="gifts-wrapper" v-bind="wrapperProps">
                         <!-- each virtual item is a row (data === array of up to COLUMNS gifts) -->
                         <div v-for="{ index, data: row } in list" :key="index" class="gift-row"
