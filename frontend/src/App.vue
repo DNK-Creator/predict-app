@@ -21,7 +21,7 @@
 
     <Navbar v-if="!outsideTelegram" />
 
-    <DevSafeDebug v-if="showDevSafeDebug" />
+    <!-- <DevSafeDebug v-if="showDevSafeDebug" /> -->
   </div>
 
   <transition v-if="!outsideTelegram" name="overlay-fade" @after-leave="onOverlayHidden">
@@ -62,7 +62,7 @@ import TutorialOverlay from './components/TutorialOverlay.vue'
 import ChannelFollowModal from './components/ChannelFollowModal.vue'
 import DevSafeDebug from '@/components/DebugArea.vue'
 
-const showDevSafeDebug = ref(true)
+const showDevSafeDebug = ref(false)
 
 const appDataLoading = ref(true)
 const loadingStage = ref(0)
