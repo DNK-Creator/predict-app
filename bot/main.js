@@ -340,11 +340,22 @@ app.post('/api/create-event', async (req, res) => {
     try {
         const chat_id = '-1002951097413'
         const { telegram, name, descriptionCondition, descriptionPeriod, descriptionContext, side, stake, gifts_bet } = req.body || {};
-        if (!telegram || !name || !descriptionCondition || !descriptionPeriod || !side || (stake === undefined || stake === null)) {
+
+        // Normalize gifts array early and sanitize items early
+        const gifts = Array.isArray(gifts_bet) ? gifts_bet : [];
+
+        if (
+            !telegram || !name || !descriptionCondition || !descriptionPeriod || !side ||
+            (
+                // stake is "missing" if undefined, null or empty string
+                (stake === undefined || stake === null || String(stake).trim() === '') &&
+                gifts.length === 0
+            )
+        ) {
             return res.status(400).json({
                 ok: false,
                 error: 'validation_error',
-                message: 'telegram, name, descriptionCondition, descriptionPeriod, side, stake required'
+                message: 'telegram, name, descriptionCondition, descriptionPeriod, side, stake required (stake may be omitted if gifts_bet provided)'
             });
         }
 
@@ -362,8 +373,22 @@ app.post('/api/create-event', async (req, res) => {
             return s;
         };
 
+        // New helper: sanitize the descriptionCondition by removing ALL dots ('.'),
+        // collapse whitespace, and return a clean string. We'll then run formatCoreSentence
+        // so it ends with exactly one dot and is capitalized.
+        const sanitizeDescriptionCondition = (raw = '') => {
+            let s = String(raw || '').trim();
+            if (!s) return null;
+            // remove all literal dot characters
+            s = s.replace(/\./g, '');
+            // collapse multiple spaces to one, trim edges
+            s = s.replace(/\s+/g, ' ').trim();
+            return s;
+        };
+
         // Build description from the three pieces
-        const condSentence = formatCoreSentence(descriptionCondition);
+        const condSanitized = sanitizeDescriptionCondition(descriptionCondition);
+        const condSentence = formatCoreSentence(condSanitized);
         const periodSentence = formatCoreSentence(descriptionPeriod);
 
         // context is optional — only include if present and length > 0 after trim
@@ -400,14 +425,18 @@ app.post('/api/create-event', async (req, res) => {
             return res.status(404).json({ ok: false, error: 'user_not_found', message: 'user not found' });
         }
 
-        // Validate stake
-        const stakeNum = Math.round(Number(stake) * 100) / 100;
+        let stakeNum;
+        if (stake === undefined || stake === null || String(stake).trim() === '') {
+            stakeNum = (gifts.length > 0) ? 0 : NaN; // NaN will be caught below (shouldn't happen due to earlier check)
+        } else {
+            // parse numeric stake (round to 2 decimals)
+            stakeNum = Math.round(Number(stake) * 100) / 100;
+        }
+
         if (!Number.isFinite(stakeNum) || stakeNum < 0) {
             return res.status(400).json({ ok: false, error: 'validation_error', message: 'invalid stake' });
         }
 
-        // Normalize gifts array and sanitize items early
-        const gifts = Array.isArray(gifts_bet) ? gifts_bet : [];
         const placedGifts = (Array.isArray(gifts) ? gifts : []).map(g => ({
             name: g?.name ?? null,
             uuid: g?.uuid ?? null,
@@ -435,7 +464,7 @@ app.post('/api/create-event', async (req, res) => {
             }
         }
 
-        const totalEventPrice = stakeNum + 0.1; // stake user is initially betting and also 0.1 price for creation
+        const totalEventPrice = stakeNum; // stake user is initially betting
 
         if (totalEventPrice > Number(userRow.points)) {
             return res.status(400).json({ ok: false, error: 'insufficient_funds', message: 'not enough points to create the event' });
