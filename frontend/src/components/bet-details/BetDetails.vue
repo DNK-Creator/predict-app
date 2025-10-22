@@ -95,7 +95,8 @@
                     </div>
                 </div>
 
-                <section v-if="userBetAmount.stake > 0 || userBetAmount.placed_gifts.length > 0" class="placed-bet-container">
+                <section v-if="userBetAmount.stake > 0 || userBetAmount.placed_gifts.length > 0"
+                    class="placed-bet-container">
                     <div v-if="showCelebration === false" class="placed-bet-object">
                         <span>
                             {{ $t('potential-win') }}:
@@ -2328,7 +2329,7 @@ const potentialWinningsForUser = computed(() => {
     padding: 12px;
     border: none;
     border-radius: 8px 0 0 8px;
-    font-size: 0.95rem;
+    font-size: 0.85rem;
     font-family: "Inter", sans-serif;
     font-weight: 400;
     resize: none;
@@ -2347,8 +2348,20 @@ const potentialWinningsForUser = computed(() => {
     outline: none;
     display: block;
     touch-action: manipulation;
+    /* hide native scrollbars but keep scroll behavior */
+    -ms-overflow-style: none;
+    /* IE and Edge */
+    scrollbar-width: none;
+    /* Firefox */
     /* improve touch responsiveness */
 }
+
+/* WebKit browsers (Chrome, Safari) — hide the scrollbar track/thumb */
+.comments__input::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+}
+
 
 /* Post button: always fills the input row height */
 .comments__post {
@@ -2359,13 +2372,13 @@ const potentialWinningsForUser = computed(() => {
     /* ensure it stretches with row */
     height: auto;
     /* don't rely on percentage; allow align-self to stretch */
-    padding: 0 16px;
+    padding: 0 8px;
     background: #3b82f6;
     color: #fff;
     border: none;
     border-radius: 0 8px 8px 0;
     cursor: pointer;
-    font-weight: 700;
+    font-weight: 600;
     box-sizing: border-box;
     -webkit-tap-highlight-color: transparent;
 }
@@ -2577,7 +2590,7 @@ const potentialWinningsForUser = computed(() => {
 .celebration-banner h2 {
     margin: 0;
     font-size: 1.25rem;
-    font-weight: 700;
+    font-weight: 600;
 }
 
 .celebration-banner p {
@@ -2655,7 +2668,7 @@ const potentialWinningsForUser = computed(() => {
 /* left text */
 .giveaway-top__text {
     font-family: "Inter", sans-serif;
-    font-weight: 700;
+    font-weight: 600;
     font-size: 0.95rem;
     color: #F7F9FB;
     flex: 1 1 auto;
@@ -2665,7 +2678,7 @@ const potentialWinningsForUser = computed(() => {
 /* prize name highlight inside text */
 .giveaway-prize-name {
     color: #ffd88a;
-    font-weight: 900;
+    font-weight: 600;
 }
 
 
@@ -2696,7 +2709,7 @@ const potentialWinningsForUser = computed(() => {
 
 /* prize value below image */
 .giveaway-prize-value {
-    font-weight: 800;
+    font-weight: 600;
     color: #ffebc2;
     font-size: 0.95rem;
     line-height: 1;
@@ -2784,7 +2797,7 @@ const potentialWinningsForUser = computed(() => {
 .giveaway-hint {
     font-size: 0.85rem;
     color: rgba(255, 255, 255, 0.92);
-    font-weight: 700;
+    font-weight: 600;
     transform: translateY(45%);
     /* show roughly the top half of the label */
     text-align: center;

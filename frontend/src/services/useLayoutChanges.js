@@ -227,29 +227,44 @@ export function updateLayoutVars(
 
 let _toastObserver = null
 function applyToastTopInset() {
-    const docEl = document.documentElement;
-    const top = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px';
-    const header = getComputedStyle(docEl).getPropertyValue('--app-header-height').trim() || '56px';
-    const extra = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '20px';
+    const docEl = document.documentElement
 
-    let topPx = 0;
+    // Try to read actual .app padding-top (this is the parent that already includes safe-area + extra)
+    let appPaddingTop = '0px'
     try {
-        const pxTop = parseInt(top, 10) || 0;
-        const pxHeader = parseInt(header, 10) || 56;
-        const pxExtra = parseInt(extra, 10) || 20;
-        topPx = pxTop + pxHeader + pxExtra + 8;
+        const appEl = document.querySelector('.app') || document.querySelector('#app') || document.documentElement
+        const cs = getComputedStyle(appEl)
+        appPaddingTop = (cs && cs.paddingTop) ? cs.paddingTop : ''
     } catch (e) {
-        topPx = 56 + 20 + 8;
+        appPaddingTop = ''
     }
 
-    const containers = Array.from(document.querySelectorAll('.Toastify__toast-container'));
+    // Fallback: compute using CSS vars if reading computed style failed
+    if (!appPaddingTop) {
+        try {
+            const topVar = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px'
+            const extraVar = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '0px'
+            // parse ints defensively
+            const pxTop = parseInt(topVar, 10) || 0
+            const pxExtra = parseInt(extraVar, 10) || 0
+            appPaddingTop = `${pxTop + pxExtra}px`
+        } catch (e) {
+            appPaddingTop = '0px'
+        }
+    }
+
+    // Apply to existing toast containers
+    const containers = Array.from(document.querySelectorAll('.Toastify__toast-container'))
     if (containers.length) {
         containers.forEach(el => {
-            el.style.top = `${topPx}px`;
-            el.style.zIndex = '1200';
-        });
+            try {
+                el.style.top = appPaddingTop
+                el.style.zIndex = '1200'
+            } catch (e) { /* ignore per-element errors */ }
+        })
     }
 
+    // If none yet, observe and style when they appear
     if (!containers.length) {
         try {
             if (!_toastObserver) {
@@ -257,27 +272,37 @@ function applyToastTopInset() {
                     for (const m of mutations) {
                         for (const node of m.addedNodes) {
                             try {
-                                if (node && node.nodeType === 1) {
-                                    if (node.matches && node.matches('.Toastify__toast-container')) {
-                                        node.style.top = `${topPx}px`;
-                                        node.style.zIndex = '1200';
-                                    } else {
-                                        const found = node.querySelector && node.querySelector('.Toastify__toast-container');
-                                        if (found) {
-                                            found.style.top = `${topPx}px`;
-                                            found.style.zIndex = '1200';
-                                        }
+                                if (!node || node.nodeType !== 1) continue
+                                // direct match
+                                if (node.matches && node.matches('.Toastify__toast-container')) {
+                                    node.style.top = appPaddingTop
+                                    node.style.zIndex = '1200'
+                                } else {
+                                    // check descendants
+                                    const found = node.querySelector && node.querySelector('.Toastify__toast-container')
+                                    if (found) {
+                                        found.style.top = appPaddingTop
+                                        found.style.zIndex = '1200'
                                     }
                                 }
-                            } catch (inner) { }
+                            } catch (inner) { /* ignore element errors */ }
                         }
                     }
-                });
-                _toastObserver.observe(document.body, { childList: true, subtree: true });
+                })
+                _toastObserver.observe(document.body, { childList: true, subtree: true })
+            } else {
+                // If observer exists, still update it's known containers (defensive)
+                const existing = Array.from(document.querySelectorAll('.Toastify__toast-container'))
+                existing.forEach(el => {
+                    try { el.style.top = appPaddingTop; el.style.zIndex = '1200' } catch (e) { }
+                })
             }
-        } catch (e) { }
+        } catch (e) {
+            // finally ignore observer failures (CSS fallback remains)
+        }
     }
 }
+
 
 export function setKeyboardHeight(px) {
     setCssVar('--keyboard-height', `${px}px`)

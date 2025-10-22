@@ -106,7 +106,7 @@ onMounted(() => {
 }
 
 .overlay--visible {
-    background-color: rgba(0, 0, 0, 0.2);
+    background-color: rgba(0, 0, 0, 0.5);
 }
 
 /* Modal container, 45vh tall, pinned bottom */
@@ -187,7 +187,7 @@ onMounted(() => {
 
 .buttons-group {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     width: 100%;
     margin: auto auto;
     margin-top: 2.5rem;
@@ -203,11 +203,11 @@ onMounted(() => {
     cursor: pointer;
     border: none;
     border-radius: 16px;
-    padding: 15px;
+    padding: 12px;
 }
 
 .action-btn-two span {
-    font-size: 1.25rem;
+    font-size: 1.1rem;
     color: black;
     font-weight: 600;
     font-family: "Inter", sans-serif;
@@ -408,8 +408,8 @@ onMounted(() => {
     cursor: pointer;
     border: none;
     border-radius: 16px;
-    font-size: 1.25rem;
-    padding: 16px 24px;
+    font-size: 1.1rem;
+    padding: 12px 20px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
     text-align: center;

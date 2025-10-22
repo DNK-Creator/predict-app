@@ -841,18 +841,18 @@ watch(
     width: 2px;
     height: 32px;
     background-color: #242b36;
-    margin: 0 16px;
+    margin: 0 12px;
     align-self: center;
 }
 
 .stat-item+.stat-item {
-    margin-left: 16px;
+    margin-left: 12px;
 }
 
 .stat-value {
     display: flex;
     align-items: center;
-    font-size: 1.3rem;
+    font-size: 1.15rem;
     font-family: "Inter", sans-serif;
     font-weight: 600;
     gap: 0.25rem;
@@ -866,7 +866,7 @@ watch(
 
 .stat-label {
     margin-top: 4px;
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-family: "Inter", sans-serif;
     font-weight: 600;
     color: #9ca3af;

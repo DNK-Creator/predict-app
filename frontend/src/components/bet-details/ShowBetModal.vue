@@ -1897,9 +1897,17 @@ onBeforeUnmount(() => {
         max-height: 18px;
     }
 
+    .winnings-hint {
+        font-size: 0.7rem;
+    }
+
+    .gift-layer {
+        border-radius: 12px;
+    }
+
     .visual-winnings {
-        height: 4.5rem;
-        width: 4.5rem;
+        height: 3rem;
+        width: 3rem;
     }
 
     .spacer {

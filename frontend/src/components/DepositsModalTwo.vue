@@ -38,7 +38,7 @@
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
                                 <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect')
-                                    }}</span>
+                                }}</span>
                                 <span v-else="!address" class="deposit-text-info-two">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
@@ -1071,6 +1071,21 @@ function connectNewWallet() {
     flex: 0 0 auto;
     min-width: 3ch;
     max-width: 70vw;
+}
+
+@media (max-height: 700px) {
+    .settings-modal {
+        height: max(350px, 95vh);
+    }
+
+    .media-method {
+        width: 100px;
+        height: 100px;
+    }
+
+    .list-button {
+        font-size: 0.75rem;
+    }
 }
 
 @media (max-width: 420px) {

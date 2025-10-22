@@ -252,7 +252,7 @@ function onClose() {
 
 .buttons-group {
     display: flex;
-    gap: 0.75rem;
+    gap: 0.5rem;
     width: 100%;
     margin: auto auto;
     margin-top: 2.5rem;
@@ -266,8 +266,8 @@ function onClose() {
     cursor: pointer;
     border: none;
     border-radius: 16px;
-    font-size: 1.25rem;
-    padding: 15px;
+    font-size: 1.15rem;
+    padding: 12px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
 }
@@ -275,7 +275,7 @@ function onClose() {
 .action-btn-one {
     flex: 0 0 auto;
     /* do NOT grow or shrink; width = content */
-    gap: 5px;
+    gap: 4px;
     background-color: #3b3c3c;
     color: white;
 }

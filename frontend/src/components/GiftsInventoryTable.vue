@@ -595,11 +595,11 @@ async function withdrawGifts() {
 
 @media (max-height: 830px) {
     .footer {
-        margin-top: 0.25rem;
+        margin-top: 1rem;
     }
 
     .gifts-list {
-        height: min(350px, 38vh);
+        height: min(450px, 48vh);
     }
 }
 </style>
