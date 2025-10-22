@@ -216,12 +216,24 @@ async function withdrawGifts() {
         if (!resp.ok) {
             const text = await resp.text().catch(() => null);
             toast.error((app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: ") + (text || `Status ${resp.status}`));
+            timerCleanup = setTimeout(() => {
+                isWithdrawing.value = false
+                if (timerCleanup) {
+                    clearTimeout(timerCleanup); timerCleanup = null
+                }
+            }, 650)
             return;
         }
 
         const body = await resp.json().catch(() => null);
         if (!body || !body.link) {
             toast.error(app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server.");
+            timerCleanup = setTimeout(() => {
+                isWithdrawing.value = false
+                if (timerCleanup) {
+                    clearTimeout(timerCleanup); timerCleanup = null
+                }
+            }, 650)
             return;
         }
 
@@ -286,18 +298,36 @@ async function withdrawGifts() {
                     // statuses: 'cancelled', 'failed' etc. — do nothing, just notify user
                     const canceledText = app.language === 'ru' ? "Вывод подарков отменён." : "Gifts withdrawal canceled.";
                     toast.warn(canceledText);
-                    console.debug('invoice status', status);
+                    // short delay so UI doesn't flash; ensures user sees the button state change 
+                    timerCleanup = setTimeout(() => {
+                        isWithdrawing.value = false
+                        if (timerCleanup) {
+                            clearTimeout(timerCleanup); timerCleanup = null
+                        }
+                    }, 650)
                 }
             } catch (innerErr) {
                 console.error('Error handling paid callback', innerErr)
                 let messageToast = appStoreObj.language === 'ru' ? 'Ошибка при подтверждении оплаты.' : 'Error confirming payment.'
                 toast.error(messageToast)
+                timerCleanup = setTimeout(() => {
+                    isWithdrawing.value = false
+                    if (timerCleanup) {
+                        clearTimeout(timerCleanup); timerCleanup = null
+                    }
+                }, 650)
             }
         })
     } catch (unexpectedErr) {
         console.error('Error handling paid callback', innerErr)
         let messageToast = appStoreObj.language === 'ru' ? 'Неожиданный ответ от сервера.' : 'Unexpected server return.'
         toast.error(messageToast)
+        timerCleanup = setTimeout(() => {
+            isWithdrawing.value = false
+            if (timerCleanup) {
+                clearTimeout(timerCleanup); timerCleanup = null
+            }
+        }, 650)
     }
 }
 </script>
