@@ -1,6 +1,4 @@
 // src/composables/useLayoutChanges.js
-// lightweight composable — no Vue reactivity required here (pure DOM + CSS var helpers)
-
 let _vvResize = null
 let _vvScroll = null
 let _windowResize = null
@@ -8,17 +6,60 @@ let _mutationObserver = null
 let _tgListener = null
 let _initialized = false
 let _tgInstance = null
+let _tgEventNames = [
+    'viewportChanged',
+    'safeAreaChanged',
+    'contentSafeAreaChanged',
+    'fullscreenChanged',
+    'fullscreenFailed',
+    'activated',
+    'deactivated'
+]
+
+function setCssVar(name, value) {
+    try { document.documentElement.style.setProperty(name, value) } catch (e) { /* ignore */ }
+}
 
 /**
- * Robust layout var updater for Telegram WebApp + keyboard handling.
- *
- * @param {Object} opts
- * @param {string} opts.appSelector
- * @param {string} opts.headerSelector
- * @param {string} opts.menuSelector
- * @param {number} opts.safety  extra px of safety padding to add to bottom space
- * @param {object} [tgInstance] optional Telegram webapp instance (used to read viewportStableHeight)
- * @returns {Object} measured values (useful for debugging)
+ * Apply telegram-provided safe area insets (if present) into CSS variables.
+ * If telegram does not provide them, use conservative fallbacks.
+ */
+function applyTelegramInsets(tg) {
+    // fallbacks (px)
+    const DEFAULT_TOP = 8
+    const DEFAULT_BOTTOM = 8
+    const DEFAULT_SIDE = 0
+
+    const safe = (tg && tg.safeAreaInset) ? tg.safeAreaInset : {}
+    const contentSafe = (tg && tg.contentSafeAreaInset) ? tg.contentSafeAreaInset : {}
+
+    const top = (typeof contentSafe.top === 'number') ? Math.round(contentSafe.top)
+        : (typeof safe.top === 'number') ? Math.round(safe.top)
+            : DEFAULT_TOP
+
+    const bottom = (typeof contentSafe.bottom === 'number') ? Math.round(contentSafe.bottom)
+        : (typeof safe.bottom === 'number') ? Math.round(safe.bottom)
+            : DEFAULT_BOTTOM
+
+    const left = (typeof contentSafe.left === 'number') ? Math.round(contentSafe.left)
+        : (typeof safe.left === 'number') ? Math.round(safe.left)
+            : DEFAULT_SIDE
+
+    const right = (typeof contentSafe.right === 'number') ? Math.round(contentSafe.right)
+        : (typeof safe.right === 'number') ? Math.round(safe.right)
+            : DEFAULT_SIDE
+
+    setCssVar('--tg-safe-area-top', `${top}px`)
+    setCssVar('--tg-safe-area-bottom', `${bottom}px`)
+    setCssVar('--tg-safe-area-left', `${left}px`)
+    setCssVar('--tg-safe-area-right', `${right}px`)
+
+    // Keep app-top-offset in sync for backward compatibility with existing code
+    setCssVar('--app-top-offset', `${top}px`)
+}
+
+/**
+ * updateLayoutVars — computes keyboard height, bottom space, header height, and viewport stable height
  */
 export function updateLayoutVars(
     { appSelector = '.app', headerSelector = '.app-header', menuSelector = '.menu', safety = 8 } = {},
@@ -30,109 +71,92 @@ export function updateLayoutVars(
         const headerEl = document.querySelector(headerSelector)
         const menuEl = document.querySelector(menuSelector)
 
-        // --- header height (keep previous fallback of 56) ---
         const headerH = headerEl ? Math.round(headerEl.offsetHeight) : 56
-        docEl.style.setProperty('--app-header-height', `${headerH}px`)
+        setCssVar('--app-header-height', `${headerH}px`)
 
-        // --- visual viewport & insets ---
+        const tg = tgInstance ?? _tgInstance
+        if (tg) applyTelegramInsets(tg)
+        else {
+            // no tg: conservative small fallback
+            setCssVar('--app-top-offset', `8px`)
+            setCssVar('--tg-safe-area-top', `8px`)
+            setCssVar('--tg-safe-area-bottom', `8px`)
+        }
+
+        setCssVar('--app-top-extra', `20px`)
+
         const visual = window.visualViewport
-        const topInset = (visual && typeof visual.offsetTop === 'number') ? Math.round(visual.offsetTop) : 0
-        docEl.style.setProperty('--app-top-offset', `${topInset}px`)
-
-        // expose a configurable extra top offset so we can add +20px globally (defaults to 20)
-        docEl.style.setProperty('--app-top-extra', `20px`) // change value if you want a different default
-
-        // --- keyboard height (when visualViewport exists, this is the simplest reliable calc) ---
-        // keyboardHeight = window.innerHeight - visualViewport.height - visualViewport.offsetTop (if any)
         let keyboardHeight = 0
         if (visual && typeof visual.height === 'number') {
             keyboardHeight = Math.max(0, Math.round(window.innerHeight - visual.height - (visual.offsetTop || 0)))
         }
-        // expose keyboard height as CSS var (default 0)
-        docEl.style.setProperty('--keyboard-height', `${keyboardHeight}px`)
+        setCssVar('--keyboard-height', `${keyboardHeight}px`)
 
-        // --- compute bottom space required (account for menu + keyboard) ---
+        // compute bottom space required (menu + keyboard)
         let bottomSpaceValue = null
-
         if (menuEl && appEl) {
             const menuRect = menuEl.getBoundingClientRect()
-
-            // space from menu top to bottom of viewport
-            // (use window.innerHeight so this reflects the actual visible chrome; visualViewport.height is used for keyboard)
             let requiredBottom = Math.max(0, Math.round(window.innerHeight - menuRect.top))
 
-            // if keyboard open (based on body class), ensure keyboardHeight is respected
-            // otherwise prefer the measured requiredBottom (menu) but include keyboard height if larger
             if (document.body.classList.contains('keyboard-open')) {
-                // when keyboard is open we want to ensure content can scroll above it:
-                // prefer keyboardHeight when it's available, else fallback to requiredBottom
                 requiredBottom = Math.max(requiredBottom, keyboardHeight)
             } else {
-                // keyboard not reported open: still ensure bottom padding covers keyboard if it's unexpectedly present
                 requiredBottom = Math.max(requiredBottom, keyboardHeight)
             }
 
             requiredBottom = Math.max(0, requiredBottom + Math.round(safety))
             bottomSpaceValue = `calc(${requiredBottom}px + 20px)`
-            docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
+            setCssVar('--app-bottom-space', bottomSpaceValue)
         } else {
-            // no floating menu visible — reserve just the device safe-area bottom + a tiny safety margin
             bottomSpaceValue = `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px + 20px)`
-            docEl.style.setProperty('--app-bottom-space', bottomSpaceValue)
+            setCssVar('--app-bottom-space', bottomSpaceValue)
         }
 
-        // --- try to set Telegram viewport var too (non-fatal) ---
-        // prefer explicit Telegram-provided value, then visualViewport.height, then window.innerHeight
+        // prefer Telegram-provided viewportStableHeight
         try {
             const stableFromTg =
-                (tgInstance && (typeof tgInstance.viewportStableHeight === 'number' ? tgInstance.viewportStableHeight : undefined)) ??
-                (tgInstance && (typeof tgInstance.viewportHeight === 'number' ? tgInstance.viewportHeight : undefined))
+                (tg && (typeof tg.viewportStableHeight === 'number' ? tg.viewportStableHeight : undefined)) ??
+                (tg && (typeof tg.viewportHeight === 'number' ? tg.viewportHeight : undefined))
             const stable = (typeof stableFromTg === 'number') ? Math.round(stableFromTg)
                 : (visual && typeof visual.height === 'number') ? Math.round(visual.height)
                     : Math.round(window.innerHeight)
 
-            docEl.style.setProperty('--tg-viewport-stable-height', `${stable}px`)
+            setCssVar('--tg-viewport-stable-height', `${stable}px`)
         } catch (e) {
-            // fallback if something inside tgInstance threw
-            docEl.style.setProperty('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
+            setCssVar('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
         }
 
-        // at the end of updateLayoutVars()
+        // after everything set, apply toast positioning
         applyToastTopInset()
 
-        // return useful values for debugging/testing
         return {
             headerH,
-            topInset,
             keyboardHeight,
             bottomSpace: bottomSpaceValue,
-            tgViewportStable: getComputedStyle(docEl).getPropertyValue('--tg-viewport-stable-height')?.trim()
+            tgViewportStable: getComputedStyle(docEl).getPropertyValue('--tg-viewport-stable-height')?.trim(),
+            topInset: getComputedStyle(docEl).getPropertyValue('--app-top-offset')?.trim()
         }
     } catch (err) {
-        // safe fallback in case of unexpected DOM errors
+        // fallback safe defaults
         try {
-            document.documentElement.style.setProperty('--app-bottom-space', `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(safety)}px)`)
-            document.documentElement.style.setProperty('--app-header-height', `56px`)
-            document.documentElement.style.setProperty('--app-top-offset', `0px`)
-            document.documentElement.style.setProperty('--keyboard-height', `0px`)
-            document.documentElement.style.setProperty('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
-            // inside the catch fallback
-            document.documentElement.style.setProperty('--app-top-extra', '20px')
-
+            setCssVar('--app-bottom-space', `calc(env(safe-area-inset-bottom, 0px) + ${Math.round(8)}px)`)
+            setCssVar('--app-header-height', `56px`)
+            setCssVar('--app-top-offset', `8px`)
+            setCssVar('--keyboard-height', `0px`)
+            setCssVar('--tg-viewport-stable-height', `${Math.round(window.innerHeight)}px`)
+            setCssVar('--app-top-extra', '20px')
         } catch (e) { /* ignore */ }
         return null
     }
 }
 
 let _toastObserver = null
-
 function applyToastTopInset() {
     const docEl = document.documentElement;
     const top = getComputedStyle(docEl).getPropertyValue('--app-top-offset').trim() || '0px';
     const header = getComputedStyle(docEl).getPropertyValue('--app-header-height').trim() || '56px';
     const extra = getComputedStyle(docEl).getPropertyValue('--app-top-extra').trim() || '20px';
 
-    // compute px robustly
     let topPx = 0;
     try {
         const pxTop = parseInt(top, 10) || 0;
@@ -140,10 +164,9 @@ function applyToastTopInset() {
         const pxExtra = parseInt(extra, 10) || 20;
         topPx = pxTop + pxHeader + pxExtra + 8;
     } catch (e) {
-        topPx = 56 + 20 + 8; // safe fallback
+        topPx = 56 + 20 + 8;
     }
 
-    // Apply inline styles to any existing containers
     const containers = Array.from(document.querySelectorAll('.Toastify__toast-container'));
     if (containers.length) {
         containers.forEach(el => {
@@ -152,23 +175,18 @@ function applyToastTopInset() {
         });
     }
 
-    // If no container exists yet, observe the DOM and style container(s) as soon as they appear.
-    // This handles the lazy-creation case (first toast).
     if (!containers.length) {
         try {
-            // create observer once
             if (!_toastObserver) {
                 _toastObserver = new MutationObserver((mutations) => {
                     for (const m of mutations) {
                         for (const node of m.addedNodes) {
                             try {
                                 if (node && node.nodeType === 1) {
-                                    // the toast container might be added directly or inside a wrapper
                                     if (node.matches && node.matches('.Toastify__toast-container')) {
                                         node.style.top = `${topPx}px`;
                                         node.style.zIndex = '1200';
                                     } else {
-                                        // also check descendants
                                         const found = node.querySelector && node.querySelector('.Toastify__toast-container');
                                         if (found) {
                                             found.style.top = `${topPx}px`;
@@ -176,39 +194,30 @@ function applyToastTopInset() {
                                         }
                                     }
                                 }
-                            } catch (inner) {
-                                // ignore any match errors for exotic nodes
-                            }
+                            } catch (inner) { }
                         }
                     }
                 });
                 _toastObserver.observe(document.body, { childList: true, subtree: true });
             }
-        } catch (e) {
-            // final fallback: do nothing (CSS override will still help)
-        }
+        } catch (e) { }
     }
 }
 
-// optionally expose simple setter for keyboard height CSS var
 export function setKeyboardHeight(px) {
-    document.documentElement.style.setProperty('--keyboard-height', `${px}px`)
+    setCssVar('--keyboard-height', `${px}px`)
 }
 
-// init listeners (call once in App.vue onMounted). Returns nothing; use disposeLayout to cleanup.
 export function initLayout({ telegram = null, appSelector = '.app', headerSelector = '.app-header', menuSelector = '.menu' } = {}) {
     if (_initialized) return
     _initialized = true
     _tgInstance = telegram ?? null
 
-    // window resize
     _windowResize = () => updateLayoutVars({ appSelector, headerSelector, menuSelector })
     window.addEventListener('resize', _windowResize)
 
-    // visualViewport (soft keyboard / pinch)
     if (window.visualViewport) {
         _vvResize = () => {
-            // set keyboard height var
             const kv = Math.max(0, window.innerHeight - window.visualViewport.height)
             setKeyboardHeight(kv)
             updateLayoutVars({ appSelector, headerSelector, menuSelector })
@@ -222,7 +231,6 @@ export function initLayout({ telegram = null, appSelector = '.app', headerSelect
         window.visualViewport.addEventListener('scroll', _vvScroll)
     }
 
-    // DOM mutation observer on body.class to react to keyboard-open toggles
     _mutationObserver = new MutationObserver((mutations) => {
         for (const m of mutations) {
             if (m.attributeName === 'class') {
@@ -232,24 +240,45 @@ export function initLayout({ telegram = null, appSelector = '.app', headerSelect
     })
     _mutationObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] })
 
-    // Telegram SDK event wiring (defensive)
     try {
-        if (_tgInstance && typeof _tgInstance.onEvent === 'function') {
-            _tgListener = () => updateLayoutVars({ appSelector, headerSelector, menuSelector })
-            _tgInstance.onEvent('viewportChanged', _tgListener)
-        } else if (_tgInstance && typeof _tgInstance.on === 'function') {
-            _tgListener = () => updateLayoutVars({ appSelector, headerSelector, menuSelector })
-            _tgInstance.on('viewportChanged', _tgListener)
+        if (_tgInstance) {
+            _tgListener = function (eventType, eventParams) {
+                try {
+                    if (eventType === 'viewportChanged') {
+                        if (eventParams && eventParams.isStateStable) {
+                            try {
+                                const stable = (typeof this.viewportStableHeight === 'number') ? Math.round(this.viewportStableHeight) : undefined
+                                if (stable) setCssVar('--tg-viewport-stable-height', `${stable}px`)
+                            } catch (e) { /* ignore */ }
+                        }
+                    } else if (eventType === 'safeAreaChanged' || eventType === 'contentSafeAreaChanged') {
+                        try { applyTelegramInsets(this) } catch (e) { /* ignore */ }
+                    } else if (eventType === 'fullscreenChanged') {
+                        try { setCssVar('--tg-is-fullscreen', this.isFullscreen ? '1' : '0') } catch (e) { }
+                    } else if (eventType === 'fullscreenFailed') {
+                        try {
+                            const err = (eventParams && eventParams.error) ? String(eventParams.error) : 'UNKNOWN'
+                            setCssVar('--tg-fullscreen-failed', err)
+                        } catch (e) { }
+                    }
+                } finally {
+                    updateLayoutVars({ appSelector, headerSelector, menuSelector }, this)
+                }
+            }.bind(_tgInstance)
+
+            if (typeof _tgInstance.onEvent === 'function') {
+                for (const ev of _tgEventNames) _tgInstance.onEvent(ev, _tgListener)
+            } else if (typeof _tgInstance.on === 'function') {
+                for (const ev of _tgEventNames) _tgInstance.on(ev, _tgListener)
+            }
         }
     } catch (e) {
         _tgListener = null
     }
 
-    // initial run
-    updateLayoutVars({ appSelector, headerSelector, menuSelector })
+    updateLayoutVars({ appSelector, headerSelector, menuSelector }, _tgInstance)
 }
 
-// cleanup function — call in onBeforeUnmount of App.vue
 export function disposeLayout() {
     if (!_initialized) return
     _initialized = false
@@ -259,19 +288,21 @@ export function disposeLayout() {
     try { if (window.visualViewport && _vvScroll) window.visualViewport.removeEventListener('scroll', _vvScroll) } catch (e) { }
     try { if (_mutationObserver) _mutationObserver.disconnect() } catch (e) { }
 
-
     if (_toastObserver) {
         try { _toastObserver.disconnect() } catch (e) { /* ignore */ }
         _toastObserver = null;
     }
-    
+
     try {
         if (_tgInstance && _tgListener) {
-            if (typeof _tgInstance.offEvent === 'function') _tgInstance.offEvent('viewportChanged', _tgListener)
-            if (typeof _tgInstance.off === 'function') _tgInstance.off('viewportChanged', _tgListener)
+            if (typeof _tgInstance.offEvent === 'function') {
+                for (const ev of _tgEventNames) _tgInstance.offEvent(ev, _tgListener)
+            }
+            if (typeof _tgInstance.off === 'function') {
+                for (const ev of _tgEventNames) _tgInstance.off(ev, _tgListener)
+            }
         }
     } catch (e) { }
 
-    // reset refs
     _vvResize = null; _vvScroll = null; _windowResize = null; _mutationObserver = null; _tgListener = null; _tgInstance = null
 }

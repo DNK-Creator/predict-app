@@ -24,17 +24,58 @@ body,
   touch-action: pan-y;
 }
 
+/* expose header height + safe area at the top so content isn't under Telegram header */
+/* Ensure toasts sit below your app header and safe-area inset */
+:root {
+  /* dynamic runtime-updated vars (JS will write these) */
+  --tg-safe-area-top: 0px;
+  /* Telegram content safe top (preferred) */
+  --tg-safe-area-bottom: 0px;
+  /* Telegram content safe bottom (preferred) */
+  --tg-safe-area-left: 0px;
+  --tg-safe-area-right: 0px;
+
+  /* legacy/app offset alias (JS may also set this) */
+  --app-top-offset: var(--tg-safe-area-top, env(safe-area-inset-top, 0px));
+
+  /* header height / extras */
+  --app-header-height: 56px;
+  --app-top-extra: 20px;
+
+  /* keyboard / bottom space computed by JS */
+  --keyboard-height: 0px;
+  --app-bottom-space: calc(env(safe-area-inset-bottom, 0px) + 32px);
+  /* default fallback */
+
+  /* viewport stable: set by JS */
+  --tg-viewport-stable-height: 100vh;
+
+  /* Toastify vars */
+  --toastify-toast-offset: 12px;
+  --toastify-toast-top: max(var(--toastify-toast-offset),
+      calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 40px));
+  --toastify-toast-zindex: 1100;
+
+  --orb-size: 200px;
+  --img-inside-scale: 1.55;
+
+  --halo-color-1: 224, 224, 224;
+  --halo-color-2: 229, 233, 245;
+}
+
 /* ---------- App shell — full width but center the column ---------- */
 /* #app / .app should stay full-bleed so background spans the screen */
 #app,
 .app {
   width: 100%;
   min-height: var(--tg-viewport-stable-height, 100vh);
+  height: var(--tg-viewport-stable-height, 100vh);
   display: flex;
   flex-direction: column;
   align-items: center;
   /* center the inner app column horizontally */
   overflow: hidden;
+  box-sizing: border-box;
   /* prevent #app itself from creating nested scrollbars */
   padding-top: calc(var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
 }
@@ -69,9 +110,11 @@ body,
   margin: 0 auto;
   /* center when max-width applies */
 
-  /* space under the header so first content is not underneath it */
-  padding-top: calc(var(--app-header-height, 56px) + var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
+  /* IMPORTANT: use Telegram content-safe-top so header + safe area won't overlap content */
+  padding-top: calc(var(--app-top-offset, env(safe-area-inset-top, 0px)) + 0px);
+  /* padding-bottom must account for floating UI + keyboard */
   padding-bottom: calc(var(--app-bottom-space, 140px) + var(--keyboard-height, 0px));
+
   box-sizing: border-box;
 }
 
@@ -96,55 +139,9 @@ body.keyboard-open .modal-container {
   /* tweak 1vh as needed so input isn't behind browser chrome */
 }
 
-/* Give the app the real visible height the WebApp exposes (fallback to 100vh) */
-#app,
-.app {
-  height: var(--tg-viewport-stable-height, 100vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  /* include the extra top offset here */
-  padding-top: calc(var(--app-top-offset, env(safe-area-inset-top, 0px)) + var(--app-top-extra, 20px));
-  box-sizing: border-box;
-}
-
-/* expose header height + safe area at the top so content isn't under Telegram header */
-/* Ensure toasts sit below your app header and safe-area inset */
-:root {
-  /* dynamically set by JS at runtime */
-  --app-header-height: 56px;
-  /* fallback */
-
-  /* extra top spacing applied globally (default 20px) */
-  --app-top-extra: 20px;
-
-  /* keep the lib's default offset var */
-  --toastify-toast-offset: 12px;
-
-  /* make top use your app vars so toast sits below native chrome + header */
-  --toastify-toast-top: max(var(--toastify-toast-offset),
-      calc(var(--app-top-offset, 0px) + var(--app-header-height, 56px) + 40px));
-
-  /* optionally increase z-index so toasts appear above your header/modal */
-  --toastify-toast-zindex: 1100;
-
-  --orb-size: 200px;
-  --img-inside-scale: 1.55;
-
-  --halo-color-1: 224, 224, 224;
-  --halo-color-2: 229, 233, 245;
-}
-
-/* make sure the container uses our z-index override (library uses vars internally,
-   but some builds set z-index on the class — keep both to be safe) */
-.Toastify__toast-container {
-  z-index: var(--toastify-toast-zindex, 1100) !important;
-}
-
-/* Ensure toast container always respects our safe top offset */
+/* Ensure toast container uses our safe top offset and z-index */
 .Toastify__toast-container {
   top: var(--toastify-toast-top, 12px) !important;
-  z-index: var(--toastify-toast-zindex, 1200) !important;
+  z-index: var(--toastify-toast-zindex, 1100) !important;
   transition: top 160ms ease;
-  /* keep horizontal positioning untouched (library defaults) */
 }

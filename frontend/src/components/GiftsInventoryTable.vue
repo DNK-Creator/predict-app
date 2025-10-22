@@ -84,7 +84,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['open-relayer', 'withdraw-complete'])
 
-const { user } = useTelegram()
+const { user, tg } = useTelegram()
 const app = useAppStore()
 
 /* ---------- GRID / VIRTUAL CONFIG ---------- */
@@ -169,83 +169,135 @@ function closeGiftModal() { showItemModal.value = false; setTimeout(() => (selec
 async function withdrawGifts() {
     // quick guard
     if (!selectedGifts.value || selectedGifts.value.length < 1) {
-        const messageText = app.language === 'ru' ? "Подарки не выбраны." : "No gifts selected."
-        toast.info(messageText)
-        return
+        const messageText = app.language === 'ru' ? "Подарки не выбраны." : "No gifts selected.";
+        toast.info(messageText);
+        return;
     }
 
-    // find recipient - adjust to your auth flow. If missing, prompt user (or abort)
-    const recipientId = user?.id
+    const recipientId = user?.id;
     if (!recipientId) {
-        const messageText = app.language === 'ru' ? "Телеграм айди получателя не найден." : "Recipient Telegram ID not found."
-
-        toast.error(messageText)
-        return
+        const messageText = app.language === 'ru' ? "Телеграм айди получателя не найден." : "Recipient Telegram ID not found.";
+        toast.error(messageText);
+        return;
     }
 
-    // build payload (compact gift shape)
+    // build compact payload
+    const giftsPayload = selectedGifts.value.map(g => ({
+        uuid: g.uuid ?? null,
+        telegram_message_id: g.telegram_message_id ?? g.telegramMessageId ?? null,
+        gift_id_long: g.gift_id_long ?? g.giftId ?? null,
+        saved_id: g.saved_id ?? null,
+        slug: g.slug ?? null
+    }));
+
     const payload = {
         recipient: recipientId,
-        gifts: selectedGifts.value.map(g => ({
-            uuid: g.uuid ?? null,
-            telegram_message_id: g.telegram_message_id ?? g.telegramMessageId ?? null,
-            gift_id_long: g.gift_id_long ?? g.giftId ?? null,
-            saved_id: g.saved_id ?? null,
-            slug: g.slug ?? null
-        }))
+        gifts: giftsPayload
     }
 
-    isWithdrawing.value = true
-    // disable button automatically via binding
-    let timerCleanup = null
+    // compute amount: each gift costs 25 stars
+    const giftsCount = giftsPayload.length;
+    // arithmetic done explicitly: multiply digits (guard against NaN)
+    const amountStars = Number((giftsCount * 25).toFixed(2)); // e.g. 3 * 25 = 75.00
+
+    const payStarsPayload = { gifts: giftsPayload, amountStars };
+
+    isWithdrawing.value = true;
+    let timerCleanup = null;
+
     try {
-        const resp = await fetch('https://api.giftspredict.ru/api/withdraw-gifts', {
+        // 1) Request invoice link + orderId (server should embed orderId into invoice payload)
+        const resp = await fetch('https://api.giftspredict.ru/api/pay-withdraw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        })
+            body: JSON.stringify(payStarsPayload)
+        });
 
         if (!resp.ok) {
-            // try parse error body
-            const text = await resp.text().catch(() => null)
-            const msg = text || `Server returned ${resp.status}`
-            const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
-            toast.error(serverText + msg)
-            return
+            const text = await resp.text().catch(() => null);
+            toast.error((app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: ") + (text || `Status ${resp.status}`));
+            return;
         }
 
-        const body = await resp.json().catch(() => null)
-        if (!body) {
-            const invalidText = app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server."
-            toast.error(invalidText)
-            return
+        const body = await resp.json().catch(() => null);
+        if (!body || !body.link) {
+            toast.error(app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server.");
+            return;
         }
 
-        if (body.ok) {
-            // success — show success toast and clear selection
-            const successText = app.language === 'ru' ? "Гифты успешно выведены." : "Gifts were withdrawn successfully."
-            toast.success(successText)
-            // emit result so parent can update inventory (remove transferred gifts)
-            emit('withdraw-complete', { payload, result: body.result ?? body })
-            // clear local selections
-            selectedOrder.value = []
-            selectedGifts.value = []
-        } else {
-            // server returned ok=false
-            const err = (body.error || (body.result && body.result.error) || JSON.stringify(body))
-            const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
-            toast.error(serverText + err)
-        }
-    } catch (err) {
-        const funcErrText = app.language === 'ru' ? "Ошибка сети или неожиданный ответ: " : "Network or unexpected error: "
-        console.error('Error with the withdrawing function: ', err)
-        toast.error(funcErrText + (err?.message ?? String(err)))
-    } finally {
-        // short delay so UI doesn't flash; ensures user sees the button state change
-        timerCleanup = setTimeout(() => {
-            isWithdrawing.value = false
-            if (timerCleanup) { clearTimeout(timerCleanup); timerCleanup = null }
-        }, 650)
+        // 2) Open invoice in Mini App (status callback triggered by Telegram client)
+        const invoiceLink = body.link;
+
+        // 2. open invoice in the Mini App; status callback invoked on change
+        tg.openInvoice(invoiceLink, async (status) => {
+            try {
+                if (status === 'paid') {
+                    // user successfully withdrawn gifts
+                    try {
+                        const resp = await fetch('https://api.giftspredict.ru/api/withdraw-gifts', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(payload),
+                        })
+
+                        if (!resp.ok) {
+                            // try parse error body
+                            const text = await resp.text().catch(() => null)
+                            const msg = text || `Server returned ${resp.status}`
+                            const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
+                            toast.error(serverText + msg)
+                            return
+                        }
+
+                        const body = await resp.json().catch(() => null)
+                        if (!body) {
+                            const invalidText = app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server."
+                            toast.error(invalidText)
+                            return
+                        }
+
+                        if (body.ok) {
+                            // success — show success toast and clear selection
+                            const successText = app.language === 'ru' ? "Гифты успешно выведены." : "Gifts were withdrawn successfully."
+                            toast.success(successText)
+                            // emit result so parent can update inventory (remove transferred gifts)
+                            emit('withdraw-complete', { payload, result: body.result ?? body })
+                            // clear local selections
+                            selectedOrder.value = []
+                            selectedGifts.value = []
+                        } else {
+                            // server returned ok=false
+                            const err = (body.error || (body.result && body.result.error) || JSON.stringify(body))
+                            const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
+                            toast.error(serverText + err)
+                        }
+                    } catch (err) {
+                        const funcErrText = app.language === 'ru' ? "Ошибка сети или неожиданный ответ: " : "Network or unexpected error: "
+                        console.error('Error with the withdrawing function: ', err)
+                        toast.error(funcErrText + (err?.message ?? String(err)))
+                    } finally {
+                        // short delay so UI doesn't flash; ensures user sees the button state change
+                        timerCleanup = setTimeout(() => {
+                            isWithdrawing.value = false
+                            if (timerCleanup) { clearTimeout(timerCleanup); timerCleanup = null }
+                        }, 650)
+                    }
+                } else {
+                    // statuses: 'cancelled', 'failed' etc. — do nothing, just notify user
+                    const canceledText = app.language === 'ru' ? "Вывод подарков отменён." : "Gifts withdrawal canceled.";
+                    toast.warn(canceledText);
+                    console.debug('invoice status', status);
+                }
+            } catch (innerErr) {
+                console.error('Error handling paid callback', innerErr)
+                let messageToast = appStoreObj.language === 'ru' ? 'Ошибка при подтверждении оплаты.' : 'Error confirming payment.'
+                toast.error(messageToast)
+            }
+        })
+    } catch (unexpectedErr) {
+        console.error('Error handling paid callback', innerErr)
+        let messageToast = appStoreObj.language === 'ru' ? 'Неожиданный ответ от сервера.' : 'Unexpected server return.'
+        toast.error(messageToast)
     }
 }
 </script>

@@ -864,8 +864,8 @@ app.post("/api/giftFailed", async (req, res) => {
 
                 // message text (plain text to avoid HTML injection)
                 const messageBotText = (lang === 'ru')
-                    ? `Не удалось вывести подарок: ${slugSafe}. Подарок возвращён в инвентарь.`
-                    : `Could not withdraw the gift: ${slugSafe}. The gift has been returned to your inventory.`;
+                    ? `Не удалось вывести подарок: ${slugSafe}. ❌ Подарок возвращён в инвентарь. 📥`
+                    : `Could not withdraw the gift: ${slugSafe}. ❌ The gift has been returned to your inventory. 📥`;
 
                 if (!chatId) {
                     console.warn('giftFailed: no chat id to notify (ownerTelegram missing)');
@@ -899,6 +899,39 @@ app.post("/api/giftFailed", async (req, res) => {
     }
 });
 
+app.post("/api/pay-withdraw", async (req, res) => {
+    console.log('Hit /api/pay-withdraw')
+    const { gifts, amountStars } = req.body;
+    if (!Array.isArray(gifts) || gifts.length === 0) return res.status(400).json({ error: 'no_gifts' });
+
+    const giftsCount = gifts.length;
+    const expectedAmount = Number((giftsCount * 25).toFixed(2));
+
+    if (typeof amountStars === 'number' && amountStars !== expectedAmount) {
+        return res.status(400).json({ error: 'amount_mismatch', expectedAmount });
+    }
+    try {
+        const link = await payForWithdrawals(gifts);
+        res.json({ link });
+    } catch (err) {
+        console.log('FAIL STARS LINK FOR WITHDRAWALS: ' + err)
+        res.status(500).json({ error: "failed to create invoice" });
+    }
+});
+
+export async function payForWithdrawals(gifts) {
+    const giftsCount = Array.isArray(gifts)
+    return bot.telegram.createInvoiceLink(
+        {
+            title: `Withdraw unique gifts from inventory.`,
+            description: "Pay for the auto-withdrawal of gifts from inventory.",
+            payload: "{}",
+            provider_token: "",
+            currency: "XTR",
+            prices: [{ amount: giftsCount * 25, label: `Withdraw ${giftsCount} gifts!` }]
+        }
+    );
+}
 
 // POST /api/withdraw-gifts
 app.post("/api/withdraw-gifts", async (req, res) => {
@@ -1138,8 +1171,8 @@ app.post("/api/withdraw-gifts", async (req, res) => {
             if (successSlugs.length > 0) {
                 const listText = successSlugs.join(', ');
                 messageBotText = (lang === 'ru')
-                    ? `Успешный вывод подарков: ${listText}.`
-                    : `Successful withdrawal of gifts: ${listText}.`;
+                    ? `Успешный вывод подарков: ${listText}. 🎁`
+                    : `Successful withdrawal of gifts: ${listText}. 🎁`;
             } else {
                 // No successful gifts — report failure
                 messageBotText = (lang === 'ru')

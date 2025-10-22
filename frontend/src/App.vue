@@ -20,6 +20,8 @@
       @open-support="openSupport" />
 
     <Navbar v-if="!outsideTelegram" />
+
+    <DevSafeDebug v-if="showDevSafeDebug" />
   </div>
 
   <transition v-if="!outsideTelegram" name="overlay-fade" @after-leave="onOverlayHidden">
@@ -58,6 +60,9 @@ import SettingsModal from './components/SettingsModal.vue'
 import AppLoader from './components/AppLoader.vue'
 import TutorialOverlay from './components/TutorialOverlay.vue'
 import ChannelFollowModal from './components/ChannelFollowModal.vue'
+import DevSafeDebug from '@/components/DebugArea.vue'
+
+const showDevSafeDebug = ref(true)
 
 const appDataLoading = ref(true)
 const loadingStage = ref(0)
@@ -564,12 +569,33 @@ onMounted(async () => {
   loadingStage.value = 1
 
   try {
-    debug('[App] waiting for tg.expand() (if available)')
-    await (tg?.expand?.() ?? Promise.resolve())
-    info('[App] tg.expand() resolved')
+    const env = detectTelegramEnvironment(tg)
+    debug('[App] TG env', env)
+
+    // Skip attempts on desktop unless you explicitly want to expand there
+    if (env.isDesktop) {
+      info('[App] detected desktop — skipping auto expand/fullscreen')
+    } else {
+      // mobile-first: prefer requestFullscreen if supported
+      if (env.fullscreenSupported) {
+        try {
+          debug('[App] attempting tg.requestFullscreen()')
+          await tg.requestFullscreen()
+          info('[App] tg.requestFullscreen resolved')
+        } catch (err) {
+          console.warn('[App] tg.requestFullscreen failed, fallback to expand()', err)
+          if (env.expandSupported) await tg.expand()
+        }
+      } else if (env.expandSupported) {
+        debug('[App] tg.requestFullscreen not available, calling tg.expand()')
+        await tg.expand()
+        info('[App] tg.expand resolved')
+      } else {
+        debug('[App] no fullscreen/expand support detected — skipping')
+      }
+    }
   } catch (e) {
-    console.warn('[App] tg.expand() failed or threw', { err: e?.message ?? e, stack: e?.stack })
-    return
+    console.warn('[App] expand/fullscreen attempt failed (non-fatal)', e)
   }
 
   loadingStage.value = 2
@@ -751,6 +777,49 @@ onBeforeUnmount(() => {
     __menuMo = null
   } catch (e) { }
 })
+
+// utils/tgEnv.js
+function detectTelegramEnvironment(tg = window?.Telegram?.WebApp) {
+  const ua = (navigator.userAgent || '').toLowerCase()
+  const platformRaw = (tg && typeof tg.platform === 'string') ? tg.platform.toLowerCase() : ''
+
+  // Known platform tokens seen in docs / implementations:
+  // mobile: 'android', 'ios', 'iphone', 'ipad'
+  // desktop: 'tdesktop', 'macos', 'windows', 'linux'
+  // web clients: 'weba', 'webk', 'web'
+  const platform = platformRaw || ''
+
+  // simple token checks on platform string
+  const platformIsDesktopToken = /tdesktop|desktop|macos|windows|linux/.test(platform)
+  const platformIsWebToken = /weba|webk|web/.test(platform)
+  const platformIsMobileToken = /android|ios|iphone|ipad/.test(platform)
+
+  // feature-detection: what the Telegram WebApp exposes
+  const fullscreenSupported = !!(tg && typeof tg.requestFullscreen === 'function')
+  const expandSupported = !!(tg && typeof tg.expand === 'function')
+  const hasIsFullscreenFlag = !!(tg && typeof tg.isFullscreen !== 'undefined')
+  const hasIsExpandedFlag = !!(tg && typeof tg.isExpanded !== 'undefined')
+
+  // userAgent heuristics as last resort
+  const uaIsMobile = /mobi|android|iphone|ipad/.test(ua)
+  const uaIsDesktop = /windows|macintosh|linux|cros|x11/.test(ua)
+
+  // Final resolution (prefer Telegram platform token > feature detection > UA)
+  const isDesktop = platformIsDesktopToken || (platformIsWebToken && !platformIsMobileToken) || (!platform && uaIsDesktop)
+  const isMobile = platformIsMobileToken || (!platform && uaIsMobile)
+
+  return {
+    platform,               // raw platform string from Telegram (may be '')
+    isDesktop,
+    isMobile,
+    fullscreenSupported,    // tg.requestFullscreen exists
+    expandSupported,        // tg.expand exists
+    hasIsFullscreenFlag,
+    hasIsExpandedFlag,
+    ua // raw ua for debugging if needed
+  }
+}
+
 </script>
 
 <style lang="css" scoped>
