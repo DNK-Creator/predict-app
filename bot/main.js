@@ -1521,7 +1521,7 @@ app.post("/api/botmessage", async (req, res) => {
             parse_mode: 'HTML', // optionally; or 'MarkdownV2' / omit
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Open profile", url: "https://t.me/giftspredict_bot?startapp" }]
+                    [{ text: "Open profile", url: "https://t.me/myoracle_robot?startapp" }]
                 ]
             }
         };
@@ -1923,7 +1923,7 @@ async function handleStart(ctx) {
         const replyOptions = {
             parse_mode: "HTML",
             ...Markup.inlineKeyboard([
-                [Markup.button.url("🕹️ Open App", `https://t.me/giftspredict_bot${startAppQuery}`)],
+                [Markup.button.url("🕹️ Open App", `https://t.me/myoracle_robot${startAppQuery}`)],
                 [Markup.button.url("📢 Community", `https://t.me/giftspredict`)]
             ]),
             message_effect_id: effectIdTwo
