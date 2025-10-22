@@ -9,8 +9,11 @@
         <transition name="slide-up">
             <div v-if="show" class="wallet-info-modal">
                 <div class="referral-card">
-                    <div class="ref-header-image">
-                        <img :src="ShareIcon">
+                    <div class="header">
+                        <div class="ref-header-image">
+                            <img :src="ShareIcon">
+                        </div>
+                        <button class="close-btn" @click="close" :disabled="saving">✖</button>
                     </div>
                     <h1 class="card-title">
                         {{ $t('invite-friends') }}
@@ -109,13 +112,24 @@ onMounted(() => {
     background-color: rgba(0, 0, 0, 0.5);
 }
 
+.close-btn {
+    position: absolute;
+    right: 30px;
+    top: 30px;
+    background: transparent;
+    border: none;
+    font-size: 1.75rem;
+    cursor: pointer;
+    color: white;
+}
+
 /* Modal container, 45vh tall, pinned bottom */
 .wallet-info-modal {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
-    height: 58vh;
+    height: 72vh;
     background: #292a2a;
     color: White;
     border-top-left-radius: 20px;
@@ -126,6 +140,9 @@ onMounted(() => {
     font-weight: 600;
     font-family: "Inter", sans-serif;
     user-select: none;
+    max-width: 480px;
+    margin: auto auto;
+    align-self: center;
 }
 
 .wallet-info-modal h2 {
@@ -457,5 +474,32 @@ onMounted(() => {
     text-align: center;
     padding: 20px;
     margin-top: 0.6rem;
+}
+
+@media (max-height: 700px) {
+    .wallet-info-modal {
+        height: max(450px, 85vh);
+    }
+
+    .card-title {
+        font-size: 0.85rem;
+    }
+
+    .large-link-show {
+        padding: 8px;
+        font-size: 0.8rem;
+    }
+
+    .ref-description {
+        font-size: 0.8rem;
+    }
+
+    .action-btn-one {
+        font-size: 0.85rem;
+    }
+
+    .action-btn-two {
+        font-size: 0.75rem;
+    }
 }
 </style>
