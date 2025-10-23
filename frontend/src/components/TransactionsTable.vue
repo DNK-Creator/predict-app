@@ -209,7 +209,6 @@ function formatTime(iso) {
 
 // Return icon path based on transaction type
 function getIcon(txObj) {
-    console.log(txObj)
     if (txObj.type === 'Deposit') {
         return depositImg
     } else if (txObj.type === 'Withdrawal') {

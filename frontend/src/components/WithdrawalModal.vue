@@ -36,19 +36,11 @@
                             {{ $t('withdrawal-limit') }}
                         </span>
 
-                        <!-- Commission hint: now part of document flow, below the amount input,
-                             visible only when no 2000 TON warning and amount > 0.3 -->
-                        <!-- <div v-if="showCutHint" class="cut-wrapper" role="alert" aria-live="polite">
-                            <span v-if="cutPercentDisplay <= 9" :class="['cut-text', { 'warning-high': isHighCut }]">
-                                {{ $t('withdraw-okay') }} {{ cutPercentDisplay }}%
-                            </span>
-                            <span v-else :class="['cut-text', { 'warning-high': isHighCut }]">
-                                {{ $t('withdraw-high') }} {{ cutPercentDisplay }}%
-                            </span>
-                            <span class="cut-net-text">
-                                ~ {{ netAmountFormatted }} TON
-                            </span>
-                        </div> -->
+                        <!-- MINIMUM AMOUNT WARNING -->
+                        <span v-if="showMinWarning" class="warning-text" role="alert" aria-live="polite">
+                            <!-- use translation key 'withdrawal-min' if present, fallback literal -->
+                            {{ $t('withdrawal-min') || 'Minimum withdrawal: 0.1 TON' }}
+                        </span>
                     </div>
                 </div>
 
@@ -75,20 +67,21 @@
 import { ref, computed } from 'vue'
 
 // defineProps exposes modelValue, address, etc directly
-const { modelValue, address, balance, transactionLimit, dailyLimit, dailyUsed, house_cut } = defineProps({
+const { modelValue, address, balance, transactionLimit, dailyLimit, dailyUsed } = defineProps({
     modelValue: Boolean,
     address: String,
     balance: [Number, String],
     transactionLimit: { type: Number, default: 1500 },
     dailyLimit: { type: Number, default: 7500 },
-    dailyUsed: { type: Number, default: 0 },
-    house_cut: { type: Number, default: 0 }
+    dailyUsed: { type: Number, default: 0 }
 })
 // defineEmits returns the emit function
 const emit = defineEmits(['update:modelValue', 'withdraw'])
 
 // Local state for user input
 const amount = ref('')
+const minWithdraw = 0.1
+const showMinWarning = ref(false)
 
 const lastInputtedNumber = ref('')
 
@@ -137,7 +130,6 @@ function onAmountBlur() {
     }
 }
 
-// sanitize + format input
 function onAmountInput(e) {
     let v = e.target.value.replace(/,/g, '.')
         .replace(/[^\d.]/g, '')
@@ -159,8 +151,9 @@ function onAmountInput(e) {
         v = '0.'
     }
 
-    if (v === '0.00') {
-        v = '0.01'
+    if (v === '0.0') {
+        // avoid user getting stuck with 0.0 — adjust to min if they intended 0
+        v = '0.1'
     }
 
     const num = parseFloat(v)
@@ -170,6 +163,9 @@ function onAmountInput(e) {
     } else {
         showWarning.value = false
     }
+
+    // set min warning flag if below min (but allow typing so user can reach min)
+    showMinWarning.value = !isNaN(num) ? (num < minWithdraw) : false
 
     amount.value = v
 
@@ -186,19 +182,31 @@ function close() {
     emit('update:modelValue', false)
     amount.value = ''
     showWarning.value = false
+    showMinWarning.value = false
 }
 
 function onWithdraw() {
-    // pass amount back to parent
-    emit('withdraw', amount.value, netAmountFormatted.value)
+    // prevent emitting less than minWithdraw
+    const n = parseFloat(amount.value)
+    if (isNaN(n) || n < minWithdraw) {
+        showMinWarning.value = true
+        return
+    }
+
+    // emit numeric value (not string)
+    emit('withdraw', Number(Math.round(n * 100) / 100))
     close()
 }
 
 function onMax() {
-    amount.value = balance.toString()
+    // set maximum allowed value (balance may be string or number)
+    const bal = Number(balance ?? 0)
+    // if balance is less than minWithdraw, still set it (parent will show insufficient); keep UX predictable
+    amount.value = (Number.isFinite(bal) ? String(Math.min(bal, 2000)) : String(2000))
+    // update flags
+    showWarning.value = Number(amount.value) > 2000
+    showMinWarning.value = Number(amount.value) < minWithdraw
 }
-
-/* --- Commission hint logic --- */
 
 // numeric value of input (NaN if empty/invalid)
 const amountNumber = computed(() => {
@@ -206,33 +214,10 @@ const amountNumber = computed(() => {
     return Number.isFinite(n) ? n : NaN
 })
 
-// whether to show the commission hint: amount > 0.3 and the 2000 TON warning is not shown
-const showCutHint = computed(() => {
-    return !showWarning.value && Number.isFinite(amountNumber.value) && amountNumber.value > 0.3
-})
-
-// numeric house cut (prop may be string/number, ensure Number)
-const cutPercent = computed(() => {
-    const n = Number(house_cut)
-    return Number.isFinite(n) ? n : 0
-})
-
-// display percent without unnecessary decimals (7 -> "7", 7.5 -> "7.5")
-const cutPercentDisplay = computed(() => {
-    const n = cutPercent.value
-    return Math.round(n) === n ? String(n) : String(Number(n).toFixed(1))
-})
-
-// whether cut is considered "high" (> 9%)
-const isHighCut = computed(() => {
-    return cutPercent.value > 9
-})
-
-// net amount after cut (rounded to 2 decimals)
 const netAmount = computed(() => {
     const a = amountNumber.value
     if (!Number.isFinite(a)) return 0
-    const net = a * (1 - cutPercent.value / 100)
+    const net = a
     // don't show negative
     return Math.max(0, Math.round((net + Number.EPSILON) * 100) / 100)
 })
@@ -520,6 +505,11 @@ const netAmountFormatted = computed(() => {
 .limit-description-item-one {
     color: rgb(217, 217, 217);
     opacity: 0.5;
+}
+
+.limit-description-item-two {
+    text-align: center;
+    text-justify: center;
 }
 
 .modal-footer {

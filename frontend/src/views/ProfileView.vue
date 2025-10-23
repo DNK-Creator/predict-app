@@ -5,7 +5,7 @@
     <transition name="profile-fade" appear>
         <div v-show="showProfile" class="profile-view-container">
             <ReferalShareModal :show="showReferalModal" @close="closeReferalModal" />
-            <ProfileCard :user="user" :totalVolume="volume" :betsMade="betsMade" :betsWon="betsWon"
+            <ProfileCard :user="user" :parentShow="showProfile" :totalVolume="volume" :betsMade="betsMade" :betsWon="betsWon"
                 @view-previous-bets="previousBetsHistory" @view-won-bets="wonBetsHistory" />
             <ActiveBetsList />
             <ReferalCard @open-referal-modal="openReferalModal" />

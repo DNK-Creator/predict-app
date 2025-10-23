@@ -2,7 +2,7 @@
     <!-- animated wrapper -->
 
     <ActivityEventModal :show="activityModalShow" :name="selected ? selected.bet_name : ''"
-        :side="selected ? selected.side : null" :stake="selected ? selected.stake : null"
+        :side="selected ? selected.side : null" :stake="selected ? selected.stake_with_gifts : null"
         :multiplier="selected ? selected.multiplier : null" :username="selected ? selected.username : ''"
         :photo_url="selected ? selected.photo_url : null" :gifts_bet="selected ? selected.gifts_bet : null"
         :name_en="selected ? selected.bet_name_en : ''" @close="closeActivityModal"
@@ -26,7 +26,7 @@
             <!-- list -->
             <div v-else class="history-list">
                 <transition-group name="list-fade" tag="div">
-                    <ActivityListItem v-for="tx in displayedTransactions" :key="tx.id" :stake="tx.stake"
+                    <ActivityListItem v-for="tx in displayedTransactions" :key="tx.id" :stake="tx.stake_with_gifts"
                         :multiplier="tx.multiplier" :gifts_bet="tx.gifts_bet" :bet_name="tx.bet_name || ''"
                         :username="tx.username" :side="tx.side" :created_at="tx.created_at" :photo_url="tx.photo_url"
                         :bet_name_en="tx.bet_name_en" :status="tx.bet_status" @click="openActivityModal(tx)" />
@@ -95,7 +95,7 @@ async function fetchActivityPage(pageIndex) {
     const { from, to } = formatRangeForPage(pageIndex)
     const { data, error } = await supabase
         .from('bets_holders')
-        .select('id, stake, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
+        .select('id, stake_with_gifts, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
         .eq('dont_show', false)
         .order('created_at', { ascending: false })
         .range(from, to)

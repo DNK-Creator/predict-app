@@ -95,7 +95,7 @@
                     </div>
                 </div>
 
-                <section v-if="userBetAmount.stake > 0 || userBetAmount.placed_gifts.length > 0"
+                <section v-if="userBetAmount?.stake > 0 || userBetAmount?.placed_gifts?.length > 0"
                     class="placed-bet-container">
                     <div v-if="showCelebration === false" class="placed-bet-object">
                         <span>
@@ -652,8 +652,9 @@ function startCooldownFromTimestamp(lastIso) {
 
 // fetch user's last comment time (call during loadData and after posting)
 async function refreshUserLastCommentTime() {
+    if (!user) return
     try {
-        const last = await getUserLastCommentTime(user?.id ?? 99)
+        const last = await getUserLastCommentTime(user?.id)
         lastCommentAt.value = last ?? null
         startCooldownFromTimestamp(lastCommentAt.value)
     } catch (err) {
@@ -752,9 +753,9 @@ function onEnterKey(e) {
 }
 
 function formatMultiplier(n) {
-    if (!isFinite(n) || n <= 0) return '0x';
+    if (!isFinite(n) || n <= 0) return '1x';
     // Round to 2 decimals
-    const rounded = Math.round(n * 100) / 100;
+    let rounded = Math.round(n * 100) / 100;
     // If integer, show without decimals
     if (Number.isInteger(rounded)) return `${rounded}x`;
     // Otherwise show up to 2 decimals, strip trailing zeros
@@ -765,7 +766,7 @@ const multiplierYes = computed(() => {
     const yes = Number(volParts.value.yes) || 0;
     const no = Number(volParts.value.no) || 0;
     const total = yes + no;
-    if (total <= 0) return '0x';
+    if (total <= 0) return '1x';
 
     // Typical payout multiplier when you bet on Yes = total / yes
     // If yes is 0 (no liquidity on that side), we treat it as a very large payout = total
@@ -777,7 +778,7 @@ const multiplierNo = computed(() => {
     const yes = Number(volParts.value.yes) || 0;
     const no = Number(volParts.value.no) || 0;
     const total = yes + no;
-    if (total <= 0) return '0x';
+    if (total <= 0) return '1x';
 
     const m = no > 0 ? total / no : total;
     return formatMultiplier(m);
@@ -835,6 +836,12 @@ const calculatedOdds = computed(() => {
         if (!isFinite(p)) return 0;
         // if p is 0..1 treat as fraction, if 1..100 treat as already-percent
         pct = p <= 1 ? p * 100 : p;
+    }
+
+    if (pct <= 0) {
+        pct += 1
+    } else if (pct >= 1) {
+        pct -= 1
     }
 
     // clamp to 0..100 and round to nearest integer
@@ -978,6 +985,11 @@ async function loadData(idToLoad) {
 
     try {
         bet.value = await getBetById(id)
+        if (bet.value.current_odds <= 0) {
+            bet.value.current_odds += 0.01
+        } else if (bet.value.current_odds >= 1) {
+            bet.value.current_odds -= 0.01
+        }
         volume.value = bet.value.volume_with_gifts
         userBetAmount.value = await getUserBetAmount(id)
         comments.value = await getComments(id, commentsPage)
@@ -1018,6 +1030,11 @@ async function onBetPlaced() {
     canComment.value = true
     // refresh bet and user amounts after placing
     bet.value = await getBetById(betId.value)
+    if (bet.value.current_odds <= 0) {
+        bet.value.current_odds += 0.01
+    } else if (bet.value.current_odds >= 1) {
+        bet.value.current_odds -= 0.01
+    }
     volume.value = bet.value.volume_with_gifts
     userBetAmount.value = await getUserBetAmount(betId.value)
 }
@@ -1051,11 +1068,11 @@ async function loadRoughPrices() {
 }
 
 async function loadGifts() {
-    // if (!user) return
+    if (!user) return []
     const { data, error } = await supabase
         .from('users')
         .select('inventory')
-        .eq('telegram', user?.id ?? 99)
+        .eq('telegram', user?.id)
         .single()
 
     if (error) {
@@ -1243,7 +1260,7 @@ function sumUpBetGifts(arr) {
 
 // updated postComment - handles server-side cooldown response
 async function postComment() {
-    if (!newComment.value) return
+    if (!newComment.value || !user) return
     manuallyDisabled.value = true
 
     const commentId = uuidv4()
@@ -1264,7 +1281,7 @@ async function postComment() {
             text: newComment.value,
             created_at: new Date().toISOString(),
             id: inserted?.id ?? commentId,
-            user_id: user?.id ?? 99,
+            user_id: user?.id,
             username: user?.username ?? 'Anonymous',
             users_stake: usersStake,
             photo_url: finalPhoto,

@@ -9,13 +9,16 @@ services:
       - "443:443"
     volumes:
       - './nginx.conf:/etc/nginx/nginx.conf'
-      - '/etc/letsencrypt:/etc/letsencrypt'
+      - '/etc/letsencrypt:/etc/letsencrypt:ro'
       - './nginx/static:/usr/share/nginx/html:ro'
     depends_on:
       - backend
       - frontend
     networks:
       - dev
+    stop_grace_period: 30s
+    stop_signal: SIGQUIT
+    user: "101:101"
 
   backend:
     build:

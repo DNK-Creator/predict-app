@@ -8,10 +8,9 @@ let _cachedBets = null
 
 // client-side: utils/requestCreateBet.js (or inline)
 export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
+    if (!user) return
     const controller = new AbortController();
     const id = setTimeout(() => controller.abort(), timeoutMs);
-
-    console.log(eventObj.gifts_bet)
 
     try {
         const resp = await fetch('https://api.giftspredict.ru/api/create-event', {
@@ -19,7 +18,7 @@ export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
             body: JSON.stringify({
-                telegram: Number(user?.id ?? 99),
+                telegram: Number(user?.id),
                 name: String(eventObj.name),
                 descriptionCondition: String(eventObj.descriptionCondition),
                 descriptionPeriod: String(eventObj.descriptionPeriod),
@@ -87,11 +86,12 @@ export async function fetchPastBets({ offset = 0, limit = 8 } = {}) {
 }
 
 export async function fetchCreatedEvents({ offset = 0, limit = 8 } = {}) {
+    if (!user) return []
     const to = offset + limit - 1
     const { data, error } = await supabase
         .from('bets')
         .select('id, name, name_en, description, creator_first_stake, creator_side, is_approved, status')
-        .eq('creator_telegram', user?.id ?? 99)
+        .eq('creator_telegram', user?.id)
         .order('creator_first_stake', { ascending: false })
         .range(offset, to)
 
@@ -115,11 +115,12 @@ export async function getBetsHolders(betId) {
 }
 
 export async function getUsersActiveBets() {
+    if (!user) return []
     // 1️⃣ fetch the user’s placed_bets
     const { data: userData, error: userError } = await supabase
         .from('users')
         .select('placed_bets')
-        .eq('telegram', user?.id ?? 99)
+        .eq('telegram', user?.id)
         .single();
     if (userError) throw userError;
 
@@ -150,11 +151,12 @@ export async function getUsersActiveBets() {
 }
 
 export async function getUsersHistoryBets() {
+    if (!user) return []
     // 1️⃣ fetch placed_bets
     const { data: userData, error: userError } = await supabase
         .from('users')
         .select('placed_bets')
-        .eq('telegram', user?.id ?? 99)
+        .eq('telegram', user?.id)
         .single()
     if (userError) throw userError
 
@@ -206,11 +208,12 @@ export async function getBetById(betId) {
 
 // client: call RPC
 export async function placeBetRequest(betId, side, stake, placed_gifts) {
+    if (!user) return
     if (!betId || !side) throw new Error('missing args');
     if (!stake && !placed_gifts) throw new Error('missing args');
 
     const { data, error } = await supabase.rpc('place_bet_rpc', {
-        p_telegram: Number(user?.id ?? 99), // your telegram id from tg session
+        p_telegram: Number(user?.id), // your telegram id from tg session
         p_bet_id: Number(betId),
         p_side: String(side),
         p_stake: String(Number(stake).toFixed(2)), // send numeric string with 2 decimals
@@ -261,10 +264,11 @@ export async function placeBetRequest(betId, side, stake, placed_gifts) {
 }
 
 async function _refreshCachedBets() {
+    if (!user) return []
     const { data: profile, error } = await supabase
         .from('users')
         .select('placed_bets')
-        .eq('telegram', user?.id ?? 99)
+        .eq('telegram', user?.id)
         .single()
 
     if (error) throw error
@@ -275,11 +279,8 @@ async function _refreshCachedBets() {
         : []
 }
 
-/**
- * Returns true if the user is NOT allowed to comment on betId
- * (i.e. they’ve NOT placed a bet), false otherwise.
- */
 export async function availableComments(betId) {
+    if (!user) return false
     // lazy‑load cache on first call
     if (_cachedBets === null) {
         await _refreshCachedBets()
@@ -292,11 +293,12 @@ export async function availableComments(betId) {
 
 // 6) Get current user’s stake & side on a specific bet
 export async function getUserBetAmount(betId) {
+    if (!user) return
     // 1) lookup the user’s placed_bets array by their Telegram ID
     const { data: profile, error } = await supabase
         .from('users')
         .select('placed_bets')
-        .eq('telegram', user?.id ?? 99)
+        .eq('telegram', user?.id)
         .single()
 
     if (error) throw error
@@ -346,7 +348,8 @@ export async function getUserLastCommentTime(userTelegramId) {
 // Looks up the users row by telegram -> obtains users.id and last_commented_at.
 // Inserts comment with user_id = users.id and updates users.last_commented_at on success.
 export async function postNewComment(betId, text, commentId, usersStake = null) {
-    const currentTelegram = user?.id ?? 99 // fallback for testing
+    if (!user) return
+    const currentTelegram = user?.id // fallback for testing
     if (!currentTelegram) {
         throw new Error('No authenticated user.')
     }

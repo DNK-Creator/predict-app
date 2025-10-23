@@ -223,7 +223,6 @@ watch(
             }
             // Fetch the gifts attributes 
             getTelegramGift().then(data => {
-                console.log(data.model, data.backdrop, data.symbol)
                 // assign to refs:
                 model.value = data.model
                 backdrop.value = data.backdrop

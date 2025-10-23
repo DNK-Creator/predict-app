@@ -312,28 +312,80 @@ function parseTelegramNFT(html) {
     return result
 }
 
-app.get('/api/telegram/nft/:slug', async (req, res) => {
+const COINGECKO_URL = 'https://api.coingecko.com/api/v3/coins/the-open-network'
+const CACHE_TTL_MS = 60 * 1000
+const FETCH_TIMEOUT_MS = 5 * 1000
+const TARGET_USDT = 0.012
+
+// simple in-memory cache
+let cached = {
+    value: null,
+    fetchedAt: 0,
+    raw: null
+}
+
+async function fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), timeoutMs);
     try {
-        const slug = req.params.slug
-        // build Telegram web page URL (the t.me path typically redirects; use full web URL)
-        const url = `https://t.me/nft/${encodeURIComponent(slug)}`
-
-        const upstream = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'node-fetch' } })
-        if (!upstream.ok) {
-            return res.status(502).json({ error: 'upstream fetch failed', status: upstream.status })
-        }
-        const html = await upstream.text()
-
-        const parsed = parseTelegramNFT(html)
-
-        // optional: add CORS header for your client (restrict to your origin in production)
-        res.set('Access-Control-Allow-Origin', 'https://giftspredict.ru')
-        return res.json(parsed)
-    } catch (err) {
-        console.error('error fetching/parsing', err)
-        return res.status(500).json({ error: err.message })
+        const resp = await fetch(url, { signal: controller.signal });
+        return resp;
+    } finally {
+        clearTimeout(id);
     }
-})
+}
+
+async function getTonPriceUsd() {
+    const now = Date.now();
+    if (cached.value && (now - cached.fetchedAt) < CACHE_TTL_MS) {
+        return cached.value;
+    }
+
+    const resp = await fetchWithTimeout(COINGECKO_URL, FETCH_TIMEOUT_MS);
+
+    if (!resp.ok) {
+        const txt = await resp.text().catch(() => '');
+        throw new Error(`CoinGecko responded ${resp.status}: ${txt}`);
+    }
+
+    const data = await resp.json();
+
+    // validate shape
+    const priceUsd = data?.market_data?.current_price?.usd;
+    if (priceUsd == null || Number.isNaN(Number(priceUsd))) {
+        throw new Error('CoinGecko response missing market_data.current_price.usd');
+    }
+
+    const numericPrice = Number(priceUsd);
+
+    // update cache
+    cached.value = numericPrice;
+    cached.fetchedAt = Date.now();
+    cached.raw = data;
+
+    return numericPrice;
+}
+
+app.get('/api/tonprice', async (req, res) => {
+    try {
+        // If you need USDT specifically, rename functions and ensure API returns 'usdt' or use an exchange.
+        const tonPriceUsd = await getTonPriceUsd();
+
+        // compute how many TON you need to reach target USDT/USD
+        const tonNeeded = TARGET_USDT / tonPriceUsd;
+
+        // adjust rounding to your preferred precision
+        const tonNeededRounded = Number(tonNeeded.toFixed(8)); // 8 decimals
+
+        return res.json({
+            price_usd_per_ton: tonPriceUsd,
+            ton_needed: tonNeededRounded
+        });
+    } catch (err) {
+        console.error('error fetching ton price', err);
+        return res.status(502).json({ error: 'failed to fetch TON price', message: err.message });
+    }
+});
 
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
@@ -1547,12 +1599,13 @@ app.post("/api/botmessage", async (req, res) => {
 
 app.post('/api/withdraw', async (req, res) => {
     try {
-        const { telegram, amount, address, idempotencyKey, wallet_id } = req.body;
+        const { telegram, amount, amount_cut, address, idempotencyKey } = req.body;
         if (!telegram || !amount || !address) return res.status(400).json({ error: 'missing parameters' });
 
         const rpc = await supabaseAdmin.rpc('submit_withdrawal', {
             p_telegram: telegram,
             p_amount: amount,
+            p_amount_cut: amount_cut,
             p_withdrawal_address: address,
             p_idempotency_key: idempotencyKey ?? null,
             p_wallet_id: "cf9e2291-74ab-4a30-991b-5b6a2a3f7843"
@@ -1565,6 +1618,8 @@ app.post('/api/withdraw', async (req, res) => {
         const msg = (err?.message || JSON.stringify(err)) + '';
         if (msg.includes('insufficient_funds')) {
             return res.status(400).json({ error: 'insufficient_funds' });
+        } else if (msg.includes('stars_deposit')) {
+            return res.status(400).json({ error: 'stars_deposit' });
         }
         console.error('submit_withdrawal error', err);
         return res.status(500).json({ error: 'internal_error' });
@@ -1678,6 +1733,10 @@ app.post('/api/stars-payment', async (req, res) => {
             return res.status(400).json({ ok: false, error: 'missing_amount' });
         }
 
+        if (telegramId == null || telegramId == undefined) {
+            return res.status(400).json({ ok: false, error: 'no user identificator' });
+        }
+
         const amountStarsNum = Number(raw);
         if (!Number.isFinite(amountStarsNum) || amountStarsNum <= 0) {
             return res.status(400).json({ ok: false, error: 'invalid_amount' });
@@ -1726,7 +1785,7 @@ app.post('/api/stars-payment', async (req, res) => {
         const txUuid = uuidv4()
         const insertRow = {
             uuid: txUuid,
-            user_id: telegramId ?? 99,
+            user_id: Number(telegramId),
             amount: amountTON, // amount IN TON as requested
             status: 'Успешное пополнение',
             type: 'Deposit',

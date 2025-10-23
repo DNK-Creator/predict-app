@@ -38,7 +38,7 @@
                             <div ref="svgContainerOne" class="media-method"> </div>
                             <div class="description-texts">
                                 <span v-if="!address" class="deposit-text-info-two">{{ $t('deposit-ton-connect')
-                                }}</span>
+                                    }}</span>
                                 <span v-else="!address" class="deposit-text-info-two">{{ $t('connected-balance') }} {{
                                     balance }} TON</span>
                             </div>
@@ -73,39 +73,44 @@
                         <!-- STARTING Deposit for Stars -->
                         <div class="deposit-method-container" v-show="selectedDeposit === 'STARS'">
                             <div ref="svgContainerThree" class="media-method"> </div>
-                            <div class="description-texts">
-                                <span class="deposit-text-info">{{ $t('stars-deposit-info') }}</span>
-                            </div>
-                            <!-- Starting Deposit Fields container for TON -->
-                            <section class="deposit-ton-body">
-
-                                <div class="top-info-gifts">
-                                    <button class="list-button">
-                                        {{ $t('stars-deposit-instruction') }}</button>
+                            <div v-if="tonPriceAvailable">
+                                <div class="description-texts">
+                                    <span class="deposit-text-info">{{ $t('stars-deposit-info') }}</span>
                                 </div>
-
-                                <!-- CENTERED FLEX GROUP -->
-                                <div class="amount-wrapper">
-                                    <div class="input-warnings">
-                                        <div class="amount-group">
-                                            <!-- STARS input -->
-                                            <input ref="amountInputStars" v-model="amount" type="text"
-                                                inputmode="numeric" pattern="[0-9]*" placeholder="0"
-                                                class="amount-input" @input="onAmountStarsInput" @focus="onAmountFocus"
-                                                @blur="onAmountStarsBlur" :size="amount.length > 0 ? amount.length : 1"
-                                                :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
-                                            <img :src="StarIcon" class="amount-currency-star" @click="focusAmountInput">
-                                        </div>
-                                        <span class="converted-ton">~{{ starsConvertedTon }} TON</span>
-                                        <span v-if="starsWarn" class="warning-text" role="alert" aria-live="polite">
-                                            {{ $t('stars-limit') }}
-                                        </span>
+                                <section class="deposit-ton-body">
+                                    <div class="top-info-gifts">
+                                        <button class="list-button">
+                                            {{ $t('stars-deposit-instruction') }}</button>
                                     </div>
+                                    <!-- CENTERED FLEX GROUP -->
+                                    <div class="amount-wrapper">
+                                        <div class="input-warnings">
+                                            <div class="amount-group">
+                                                <!-- STARS input -->
+                                                <input ref="amountInputStars" v-model="amount" type="text"
+                                                    inputmode="numeric" pattern="[0-9]*" placeholder="0"
+                                                    class="amount-input" @input="onAmountStarsInput"
+                                                    @focus="onAmountFocus" @blur="onAmountStarsBlur"
+                                                    :size="amount.length > 0 ? amount.length : 1"
+                                                    :style="{ '--chars': (amount && amount.length) ? amount.length : 1 }" />
+                                                <img :src="StarIcon" class="amount-currency-star"
+                                                    @click="focusAmountInput">
+                                            </div>
+                                            <span class="converted-ton">~{{ starsConvertedTon }} TON</span>
+                                            <span v-if="starsWarn" class="warning-text" role="alert" aria-live="polite">
+                                                {{ $t('stars-limit') }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                            <div v-else>
+                                <div class="description-texts">
+                                    <span class="deposit-text-info">{{ $t('deposit-reject') }}</span>
                                 </div>
-
-                            </section>
-                            <!-- Ending Deposit for STARS -->
+                            </div>
                         </div>
+                        <!-- Ending Deposit for STARS -->
 
                         <div class="deposit-method-container" v-show="selectedDeposit === 'GIFTS'">
                             <div ref="svgContainerTwo" class="media-method"> </div>
@@ -114,11 +119,6 @@
                                     <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-one') }}</span>
                                     <button class="bot-button" @click="openRelayerChat">@GiftsPredictRelayer</button>
                                 </div>
-                                <!-- <div class="top-info-gifts">
-                                    <button class="list-button" @click="$emit('open-prices')">{{
-                                        $t('gifts-deposit-instruction-two') }}</button>
-                                </div>
-                                <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-three') }}</span> -->
                             </div>
                         </div>
                     </div>
@@ -144,7 +144,8 @@
                     </button>
 
                     <button type="button" v-if="selectedDeposit === 'STARS'" class="action-btn-two"
-                        :class="{ pressed: pressingBtn === 'two' }" @click="onBtnTwoClick">
+                        :class="{ pressed: pressingBtn === 'two' }" :disabled="!tonPriceAvailable"
+                        @click="onBtnTwoClick">
                         <span>{{ actionText }}</span>
                     </button>
                 </div>
@@ -154,7 +155,7 @@
 </template>
 
 <script setup>
-import { ref, watch, nextTick, onUnmounted, computed, onDeactivated, toRef, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onMounted, onUnmounted, computed, onDeactivated, toRef, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
@@ -188,9 +189,7 @@ let windowResizeListener = null
 
 const { tg } = useTelegram()
 
-const emit = defineEmits(['update:modelValue', 'deposit-stars', 'open-wallet-info', 'open-prices', 'close', 'anim-start', 'anim-end', 'connect-new-wallet', 'deposit']) // keep update:modelValue for v-model support
-
-const starsConvertedTon = computed(() => Number(amount.value / 250).toFixed(2))
+const emit = defineEmits(['update:modelValue', 'deposit-stars', 'open-wallet-info', 'close', 'anim-start', 'anim-end', 'connect-new-wallet', 'deposit']) // keep update:modelValue for v-model support
 
 const selectedDeposit = ref('TON')
 const svgContainerOne = ref(null)
@@ -236,19 +235,18 @@ function blockDepositFor(ms = 3000) {
     setTimeout(() => { depositBlocked.value = false }, ms)
 }
 
-watch(visible, (v) => {
-    console.log('[DepositsModalTwo] visible changed ->', v)
-})
-
 function sendDepositRequest() {
     // If blocked, early-return — caller handles animation
-    if (depositBlocked.value) return
+    if (depositBlocked.value) {
+        console.log('Deposit blocked, skipping request')
+        return
+    }
 
+    console.log('Emitting deposit event')
     emit('deposit', amount.value)
     // start 3 second block after emitting
     blockDepositFor(3000)
 }
-
 
 function sendStarsRequest() {
     // If blocked, early-return — caller handles animation
@@ -638,7 +636,6 @@ async function initAnimations() {
 watch(
     visible,
     async (isVisible) => {
-        console.log('[DepositsModalTwo] visible ->', isVisible)
         if (isVisible) {
             await initAnimations()
         } else {
@@ -647,6 +644,118 @@ watch(
     },
     { immediate: true }
 )
+
+// --- Begin: TON price fetching + stars -> TON UI logic ---
+
+// Cache + state
+const tonForOneStar = ref(null)
+const tonPriceFetchedAt = ref(0)     // ms
+
+// config
+const TON_PRICE_TTL_MS = 60 * 1000   // cache TTL 60s
+const TON_PRICE_TIMEOUT_MS = 4000    // fetch timeout
+
+// helper: fetch with timeout (uses global fetch)
+async function fetchWithTimeout(url, timeoutMs) {
+    const controller = new AbortController()
+    const id = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+        const resp = await fetch(url, { signal: controller.signal })
+        return resp
+    } finally {
+        clearTimeout(id)
+    }
+}
+
+// fetch price from server (idempotent; caches for TTL)
+async function fetchTonPriceFromServer({ force = false } = {}) {
+    const now = Date.now()
+    if (!force && tonForOneStar.value !== null && (now - tonPriceFetchedAt.value) < TON_PRICE_TTL_MS) {
+        return tonForOneStar.value
+    }
+
+    try {
+        // adjust endpoint if your server uses a different path
+        const resp = await fetchWithTimeout('https://api.giftspredict.ru/api/tonprice', TON_PRICE_TIMEOUT_MS)
+
+        if (!resp.ok) {
+            const txt = await resp.text().catch(() => '')
+            throw new Error(`status ${resp.status} ${txt ? `- ${txt}` : ''}`)
+        }
+
+        const data = await resp.json()
+
+        let price = null
+        if (data == null) throw new Error('empty response')
+
+        price = data.tonNeededRounded
+
+        if (price == null || !isFinite(price)) {
+            throw new Error('unexpected response format or null price')
+        }
+
+        tonForOneStar.value = Number(price)
+        tonPriceFetchedAt.value = Date.now()
+        return tonForOneStar.value
+    } catch (err) {
+        console.warn('Error while fetching TON price for stars: ' + err)
+        // keep previous cached price if any; don't clobber it with null
+        return tonForOneStar.value
+    }
+}
+
+// helpers: presence flags
+const tonPriceAvailable = computed(() => tonForOneStar.value !== null && isFinite(tonForOneStar.value))
+
+// compute TON amount from stars (core conversion: stars -> TON)
+const starsTonRaw = computed(() => {
+    const n = Number(amount.value)
+    if (!Number.isFinite(n) || n <= 0) return 0
+    return n * tonForOneStar.value
+})
+
+// formatted TON (for UI)
+const starsConvertedTon = computed(() => {
+    const t = starsTonRaw.value
+    // change decimals if you want more precision
+    return Number(t).toFixed(2).replace(/(?:\.0+|(\.\d+?)0+)$/, '$1') // trim trailing zeros
+})
+
+// Debounce fetch while typing (avoid flooding the server)
+let fetchDebounceTimer = null
+function scheduleFetchTonPrice(debounceMs = 400) {
+    if (fetchDebounceTimer) clearTimeout(fetchDebounceTimer)
+    fetchDebounceTimer = setTimeout(() => {
+        fetchDebounceTimer = null
+        fetchTonPriceFromServer().catch((e) => {
+            console.warn('fetch ton price failed', e)
+        })
+    }, debounceMs)
+}
+
+// prefetch price when modal opens and whenever user is editing stars
+watch(visible, (v) => {
+    if (v && selectedDeposit.value === 'STARS') {
+        // immediate fetch on open (but keep caching in place)
+        fetchTonPriceFromServer().catch(() => { })
+    }
+})
+
+// watch star amount only when STARS deposit is selected
+watch([() => amount.value, selectedDeposit], ([amt, sel]) => {
+    if (sel !== 'STARS') return
+    // don't fetch when amount is empty
+    if (!amt || String(amt).trim() === '') return
+    // schedule debounced fetch
+    scheduleFetchTonPrice(300)
+})
+
+// optional: prefetch on mount
+onMounted(() => {
+    // very small eager prefetch (no-op if caching exists)
+    fetchTonPriceFromServer().catch(() => { })
+})
+
 
 onUnmounted(() => {
     destroyAnims()
@@ -691,7 +800,7 @@ function connectNewWallet() {
     right: 0;
     bottom: 0;
     height: 75vh;
-    max-width: 620px;
+    max-width: 520px;
     background: #292a2a;
     color: White;
     font-family: "Inter", sans-serif;
@@ -819,7 +928,7 @@ function connectNewWallet() {
     cursor: pointer;
     border: none;
     border-radius: 16px;
-    font-size: 1.05rem;
+    font-size: 0.85rem;
     padding: 15px;
     font-family: "Inter", sans-serif;
     font-weight: 600;
@@ -864,7 +973,7 @@ function connectNewWallet() {
 /* disabled visual style when deposit is blocked */
 .action-btn-two.disabled,
 .action-btn-two[disabled] {
-    opacity: 0.95;
+    opacity: 0.65;
     pointer-events: none;
     box-shadow: none;
 }

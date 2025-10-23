@@ -89,7 +89,7 @@
             </div>
 
             <button class="share-btn" @click.stop="$emit('share')" aria-label="Share bet">
-                <img :src="shareIcon" />
+                <img class="share-btn-image" :src="shareIcon" />
             </button>
         </div>
     </div>
@@ -616,12 +616,12 @@ defineEmits(['click', 'share'])
 }
 
 .event-logo {
-    width: 69px;
-    height: 69px;
-    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
+    width: 69px;
+    height: 69px;
+    border-radius: 20px;
     box-shadow: 0 8px 20px rgba(247, 147, 26, 0.12), inset 0 -6px 12px rgba(0, 0, 0, 0.18);
     flex-shrink: 0;
 }
@@ -717,9 +717,9 @@ defineEmits(['click', 'share'])
     transition: background 150ms;
 }
 
-.share-btn img {
-    width: 74%;
-    height: 67%;
+.share-btn-image {
+    width: 18px;
+    height: 18px;
     opacity: 0.9;
 }
 
@@ -775,7 +775,7 @@ defineEmits(['click', 'share'])
     .event-logo {
         width: 56px;
         height: 56px;
-        border-radius: 10px;
+        border-radius: 16px;
     }
 
     .title {

@@ -48,7 +48,6 @@ const initial = computed(() => {
 })
 
 function sideNormalized(side) {
-    console.log(side.toLowerCase())
     return side.toLowerCase()
 }
 

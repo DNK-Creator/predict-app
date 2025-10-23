@@ -1,13 +1,13 @@
 <template>
     <!-- WITHDRAWAL MODAL  -->
     <WithdrawModal v-model="showWithdrawalModal" :address="parsedWalletAddress" :balance="appStoreObj.points"
-        @withdraw="handleWithdraw" :house_cut="house_cut_rate" />
+        @withdraw="handleWithdraw" />
 
     <!-- DEPOSIT MODAL -->
     <DepositsModalTwo v-model="showDepositModal" :address="parsedWalletAddress" :balance="walletBalance"
         @deposit="handleDeposit" @deposit-stars="handleStarsDeposit" @close="closeDepositsWindow"
         @anim-start="onModalAnimStart" @anim-end="onModalAnimEnd" @connect-new-wallet="reconnectWallet"
-        @open-prices="openGiftsPrices" @open-wallet-info="openWalletInfo" />
+        @open-wallet-info="openWalletInfo" />
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
     <YourWalletModal :show="showWalletInfo" :balance="walletBalance" :address="parsedWalletAddress"
@@ -68,7 +68,7 @@
 
 <script setup>
 
-import { defineProps, defineEmits, ref, onMounted, onActivated, computed, watch } from 'vue'
+import { defineProps, defineEmits, ref, onMounted, onUnmounted, onActivated, computed, watch } from 'vue'
 import { toast } from 'vue3-toastify'
 import 'vue3-toastify/dist/index.css'
 import { Address, beginCell, toNano } from '@ton/core'
@@ -77,10 +77,8 @@ import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 import supabase from '@/services/supabase'
 import { getTonConnect } from '@/services/ton-connect-ui'
-import { useRouter } from 'vue-router'
 import { useTon } from '@/services/useTon'
 import { fetchInvoiceLink, fetchBotMessageTransaction } from '@/services/payments'
-import { getLastWithdrawalTime } from '@/api/requests'
 import { v4 as uuidv4 } from 'uuid'
 import DepositsModalTwo from '../DepositsModalTwo.vue'
 import YourWalletModal from '../YourWalletModal.vue'
@@ -102,11 +100,8 @@ const props = defineProps({
     totalVolume: Number,
     betsMade: Number,
     betsWon: Number,
+    parentShow: Boolean,
 })
-
-const house_cut_rate = ref(7)
-
-const router = useRouter()
 
 const showDepositModal = ref(false)
 
@@ -115,8 +110,6 @@ const walletAddress = computed(() => {
 })
 
 const modalAnimating = ref(false)
-
-const lastWithdrawalRequest = ref(null)
 
 const showWithdrawalModal = ref(false)
 
@@ -138,10 +131,6 @@ function viewWonPreviousBets() {
     emit('view-won-bets')
 }
 
-function openGiftsPrices() {
-    router.push({ name: 'gifts-prices' })
-}
-
 // called when transition begins (enter or leave)
 function onModalAnimStart() {
     modalAnimating.value = true
@@ -153,12 +142,9 @@ function onModalAnimEnd() {
 }
 
 function openDepositModal() {
-    console.log('[Parent] openDepositModal clicked, modalAnimating=', modalAnimating.value)
     if (modalAnimating.value) return
     showDepositModal.value = true
-    console.log('[Parent] showDepositModal now =', showDepositModal.value)
 }
-
 
 function closeDepositsWindow() {
     if (modalAnimating.value) return
@@ -177,24 +163,36 @@ const parsedWalletAddress = computed(() => {
     }
 })
 
+let depositInFlight;
+
 async function handleDeposit(amount) {
-    if (!walletAddress.value) {
+    if (depositInFlight) return
+    depositInFlight = true
+
+    ensureTon()
+
+    // Check if wallet is actually connected in current session
+    const isConnected = ton.value.connected
+
+    if (!isConnected || !walletAddress.value) {
         try {
-            ensureTon()
+            console.warn('Wallet not connected, attempting connection...')
             const wallet = await ton.value.connectWallet()
             if (wallet) {
                 await handleConnected(wallet)
-                // continue the deposit now that wallet is connected
+                // Add a small delay to ensure connection is fully established
+                await new Promise(resolve => setTimeout(resolve, 500))
                 await onDeposit(amount)
             }
         } catch (e) {
             console.error('Could not connect:', e)
             toast.error('Не удалось подключить кошелёк.')
+            return // Important: return here to prevent further execution
         }
-        return
     } else {
         await onDeposit(amount)
     }
+    depositInFlight = false
 }
 
 async function handleStarsDeposit(amount) {
@@ -238,7 +236,7 @@ async function openWithdrawalModal() {
 }
 
 // Called when user clicks “Вывод”
-async function handleWithdraw(amount, amount_cut) {
+async function handleWithdraw(amount) {
     ensureTon()
     if (!walletAddress.value) {
         try {
@@ -252,11 +250,14 @@ async function handleWithdraw(amount, amount_cut) {
         return;
     }
     else {
-        onWithdraw(amount, amount_cut)
+        onWithdraw(amount)
     }
 }
 
-async function onWithdraw(amount, amount_cut) {
+async function onWithdraw(amount) {
+    if (!user) return
+    const amount_cut = Math.min(amount - 0.01, 0)
+    if (amount_cut <= 0.05) return
     if (appStoreObj.points < amount) {
         let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
         toast.error(errorText);
@@ -267,21 +268,67 @@ async function onWithdraw(amount, amount_cut) {
     const idempotencyKey = uuidv4();
 
     // POST to your server endpoint
-    const resp = await fetch(`${API_BASE}/api/withdraw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            telegram: user?.id ?? 99,
-            amount: amount_cut,
-            address: parsedAddress,
-            idempotencyKey
-        })
-    });
+    let resp, data;
 
-    const data = await resp.json();
+    try {
+        resp = await fetch(`${API_BASE}/api/withdraw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                telegram: user?.id,
+                amount: amount,
+                amount_cut,
+                address: parsedAddress,
+                idempotencyKey
+            })
+        });
+    } catch (err) {
+        // network-level error (DNS, offline, CORS, etc.)
+        console.error('Network error while calling withdraw:', networkErr);
+        const netMsg = appStoreObj.language === 'ru' ? 'Сетевая ошибка' : 'Network error';
+        toast.error(`${netMsg}: ${networkErr.message || 'unknown'}`);
+        return;
+    }
+
+    // Try to parse JSON, but tolerate non-JSON responses
+    try {
+        data = await resp.json();
+    } catch (parseErr) {
+        // response wasn't JSON — try to read text fallback
+        try {
+            const txt = await resp.text();
+            data = { raw: txt };
+        } catch (e) {
+            data = { raw: null };
+        }
+    }
+
     if (!resp.ok) {
-        let errorTextTwo = appStoreObj.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: '
-        toast.error(errorTextTwo + (data?.error || 'unknown'));
+        // tolerant extraction of error code
+        const errCode = (data && (data.error || data.code || data.error_code)) ? String(data.error || data.code || data.error_code) : null;
+
+        // map known error codes to human messages (localized)
+        const errorMap = {
+            insufficient_funds: {
+                ru: 'Недостаточно средств',
+                en: 'Insufficient funds'
+            },
+            stars_deposit: {
+                ru: 'Вы недавно пополняли звёздами — вывод недоступен (21 день)',
+                en: 'Recent stars deposit — withdrawal unavailable for 21 days'
+            },
+            // add other server error codes here...
+        };
+
+        if (errCode && errorMap[errCode]) {
+            const msg = appStoreObj.language === 'ru' ? errorMap[errCode].ru : errorMap[errCode].en;
+            toast.error(msg);
+        } else {
+            // unknown server error: show message returned by server if any, else generic
+            const serverMsg = (data && (data.message || data.raw || data.error)) ? (data.message || data.raw || data.error) : 'unknown';
+            const defaultMsg = appStoreObj.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: ';
+            toast.error(defaultMsg + serverMsg);
+        }
         return;
     }
 
@@ -299,69 +346,56 @@ async function onWithdraw(amount, amount_cut) {
     }
 }
 
-function canRequestWithdrawal(lastWithdrawalRequest) {
-    const MS_PER_DAY = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const last = new Date(lastWithdrawalRequest).getTime();
-    const elapsed = now - last;
-
-    if (elapsed >= MS_PER_DAY) {
-        // more than 24h have passed
-        return true;
-    }
-
-    // compute remaining time
-    const remainingMs = MS_PER_DAY - elapsed;
-    const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-    const remainingMinutes = Math.floor(
-        (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
-    );
-
-    toast.error(`Вывод доступен через ${remainingHours} ч. ${remainingMinutes} мин.`)
-    return false;
-}
-
 // add this helper near the other functions
 async function handleConnected(wallet) {
+    if (!wallet) {
+        walletStatus.value = 'Подключите кошелёк'
+        walletBalance.value = null
+        appStoreObj.walletAddress = null
+        return
+    }
     // normalize address
     let addr = wallet?.account?.address ?? null
-
     let parsedAddress = null
-    if (addr !== null && addr !== undefined) {
+
+    if (addr) {
         try {
             parsedAddress = (Address.parse(addr)).toString({ urlSafe: true, bounceable: false })
             walletStatus.value = `Ваш кошелёк ${parsedAddress.slice(0, 4)}...${parsedAddress.slice(-3)}`
+
+            // Update reactive state immediately
+            walletAddress.value = parsedAddress
+            appStoreObj.walletAddress = parsedAddress
+
+            // fetch balance
+            try {
+                const tonBal = await fetchTonBalance(parsedAddress)
+                walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
+            } catch (err) {
+                console.warn('Failed to fetch TON balance', err)
+                walletBalance.value = null
+            }
+
+            // update Supabase
+            if (user) {
+                const { error } = await supabase
+                    .from('users')
+                    .update({ wallet_address: parsedAddress })
+                    .eq('telegram', user.id)
+                if (error) {
+                    console.error('Error updating wallet_address:', error)
+                }
+            }
+
         } catch (err) {
             console.warn('Failed to parse address', err)
             walletStatus.value = 'Подключите кошелёк'
-        }
-
-        if (parsedAddress !== null && parsedAddress !== undefined) {
-            appStoreObj.walletAddress = parsedAddress
-        }
-
-        // fetch balance (guard with try/catch)
-        try {
-            const tonBal = await fetchTonBalance(appStoreObj.walletAddress)
-            walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
-        } catch (err) {
-            console.warn('Failed to fetch TON balance', err)
             walletBalance.value = null
         }
     } else {
         walletStatus.value = 'Подключите кошелёк'
         walletBalance.value = null
-    }
-
-    // update Supabase users.wallet_address (keep your previous logic)
-    if (user || !user) {
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: parsedAddress })
-            .eq('telegram', user?.id ?? 99)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
+        walletAddress.value = null
     }
 }
 
@@ -493,6 +527,7 @@ async function onDeposit(amount) {
 
 
 async function onDepositStars(amount) {
+    if (!user) return
     try {
         // 1. create invoice link
         let invoiceLink = await fetchInvoiceLink(amount)
@@ -510,7 +545,7 @@ async function onDepositStars(amount) {
                     const resp = await fetch(`${API_BASE}/api/stars-payment`, {
                         method: 'POST',
                         headers,
-                        body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id ?? 99 })
+                        body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id })
                     })
 
                     const json = await resp.json().catch(() => null)
@@ -552,6 +587,7 @@ async function onDepositStars(amount) {
  * server should set status = 'Отмененное пополнение' for that uuid
  */
 async function createDepositIntentOnServer(amount) {
+    if (!user) return
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10_000);
     let userParsedAddr = null
@@ -562,7 +598,7 @@ async function createDepositIntentOnServer(amount) {
         const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, user_id: user?.id ?? 99, usersWallet: userParsedAddr }),
+            body: JSON.stringify({ amount, user_id: user?.id, usersWallet: userParsedAddr }),
             signal: controller.signal,
         });
 
@@ -652,10 +688,11 @@ async function reconnectWallet() {
     if (ton.value.connected || appStoreObj.walletAddress !== null) {
         appStoreObj.walletAddress = null
         await ton.value.disconnect();
+        if (!user) return
         const { error } = await supabase
             .from('users')
             .update({ wallet_address: null })
-            .eq('telegram', user?.id ?? 99)
+            .eq('telegram', user?.id)
         if (error) {
             console.error('Error updating wallet_address:', error)
         }
@@ -670,19 +707,23 @@ async function reconnectWallet() {
     }
 }
 
-
-// ---------------------
-// Backend-backed balance fetch
-// ---------------------
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
         const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
-        const resp = await fetch(url);
+        let resp;
+        try {
+            resp = await fetch(url)
+        } catch (err) {
+            console.warn('Backend is unavailable or network error: ' + err)
+            return
+        }
+
         if (!resp.ok) {
             const err = await resp.json().catch(() => null);
             throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
         }
+
         const json = await resp.json();
         // backend returns { balance: number } in TON
         return Number(json.balance);
@@ -693,51 +734,52 @@ async function fetchTonBalance(address) {
 }
 
 onMounted(async () => {
-    const { data, error } = await supabase
-        .from('withdraw_information')
-        .select('house_cut')
-        .eq('id', 1)
-        .single()   // .single() is fine if the row exists
-
-    if (error) {
-        console.error('failed to load house_cut', error)
-        // keep default 0 or handle error UI
-        return
-    }
-
-    // Ensure it's a number (DB double precision usually arrives as a JS number)
-    const val = Number(data?.house_cut)
-    house_cut_rate.value = Number.isFinite(val) ? val : 7
-
-    document.querySelectorAll('tc-widget-root').forEach(el => el.remove())
-
-    const defineCustomElement = CustomElementRegistry.prototype.define;
-    CustomElementRegistry.prototype.define = function define(name, constructor, options) {
-        if (name == 'tc-root') {
-            return;
-        }
-        return defineCustomElement.call(this, name, constructor, options);
-    };
-
-    lastWithdrawalRequest.value = await getLastWithdrawalTime()
-
     setupTonConnectListener()
+
+    // Try to restore existing connection
+    try {
+        ensureTon()
+        const currentWallet = ton.value.wallet
+        if (currentWallet) {
+            await handleConnected(currentWallet)
+        }
+    } catch (error) {
+        console.warn('No existing wallet connection to restore')
+    }
 
     spinnerShow.value = false;
 })
 
-onActivated(async () => {
-    // every time DepositView is shown again…
-    if (ton.value?.connected && appStoreObj.walletAddress) {
-        const freshBal = await fetchTonBalance(appStoreObj.walletAddress)
-        walletBalance.value = +freshBal.toFixed(2)
+// Also clean up on unmount
+onUnmounted(() => {
+    if (ton.value && ton.value._statusListenerRegistered) {
+        // You might want to disconnect or clean up listeners here
+        isTonConnectSetup = false
     }
 })
 
-function setupTonConnectListener() {
-    ensureTon()
+// onActivated(async () => {
+//     if (ton.value?.connected && appStoreObj.walletAddress) {
+//         let freshBal
+//         try {
+//             freshBal = await fetchTonBalance(appStoreObj.walletAddress)
+//         } catch (err) {
+//             console.log('Backend not reachable or server error while fetchign TON : ' + err)
+//             return
+//         }
+//         if (freshBal === undefined || freshBal === null) return
+//         walletBalance.value = +freshBal.toFixed(2)
+//     }
+// })
 
-    // 2) only register status change once
+let isTonConnectSetup = false
+
+function setupTonConnectListener() {
+    if (isTonConnectSetup) return
+    ensureTon()
+    isTonConnectSetup = true
+
+    // only register status change once
     if (!ton.value._statusListenerRegistered) {
         ton.value._statusListenerRegistered = true
         ton.value.onStatusChange(async (wallet) => {
@@ -749,6 +791,24 @@ function setupTonConnectListener() {
         })
     }
 }
+
+watch(() => appStoreObj.openDepositFlag,
+    async (val) => {
+        if (val === true) {
+            appStoreObj.openDepositFlag = false
+            if (showDepositModal.value === true) return
+            if (props.parentShow === false) {
+                setTimeout(() => {
+                    openDepositModal()
+                }, 450);
+            }
+            else {
+                openDepositModal()
+            }
+        }
+    },
+    { immediate: true }
+)
 
 watch(
     () => walletAddress.value,
@@ -769,15 +829,21 @@ watch(
 
         // fetch fresh balance
         try {
-            const bal = await fetchTonBalance(addr)
-            walletBalance.value = (typeof bal === 'number') ? +bal.toFixed(2) : null
+            let freshBal
+            try {
+                freshBal = await fetchTonBalance(addr)
+            } catch (err) {
+                console.error('Backend not reachable or server error while fetchign TON : ' + err)
+                return
+            }
+            if (freshBal === undefined || freshBal === null) return
+            walletBalance.value = +freshBal.toFixed(2)
         } catch (err) {
             walletBalance.value = null
         }
     },
     { immediate: true }
 )
-
 
 </script>
 

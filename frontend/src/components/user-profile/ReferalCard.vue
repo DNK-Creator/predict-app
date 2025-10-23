@@ -61,7 +61,7 @@
             {{ $t('earn-with-friends') }}
         </h1>
         <p class="ref-description">
-            {{ $t('invite-friends-and-get') }} <span class="highlighted-words"> {{ $t('fifty-com') }}
+            {{ $t('invite-friends-and-get') }} <span class="highlighted-words"> {{ $t('percent-com') }}
             </span> {{ $t('for-their-winnings-forever') }}
         </p>
         <div class="starter-statistics-container">
@@ -88,7 +88,7 @@
         <h3 class="card-title-follow">
             {{ $t('follow-promo') }}
         </h3>
-        <button class="follow-button">@gifts_predict</button>
+        <button class="follow-button">@myoracle_news</button>
     </div>
 </template>
 
@@ -114,6 +114,7 @@ const referralsBodyRef = ref(null)
 const isScrollable = ref(false)
 const scrolledTop = ref(true)   // true when at top (no top-fade)
 const scrolledBottom = ref(true) // true when at bottom (no bottom-fade)
+const starterUrl = ref('https://t.me/myoracle_news')
 
 const showNudge = ref(false)            // controls DOM presence of nudge
 const nudgeActive = ref(false)          // triggers CSS class to highlight scrollbar
@@ -227,34 +228,16 @@ async function loadFriendsDetails() {
     }
 }
 
-function copyLink() {
-    const ref = tgUser?.id ?? ''
-    const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
-    navigator.clipboard.writeText(shareLink)
-}
-
 function openReferalModal() {
     emit('open-referal-modal')
 }
 
-function shareReferal() {
-    const ref = tgUser?.id ?? ''
-    const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
-    const messageText = `%0AПрисоединяйся ко мне в Gifts Predict и зарабатывай TON!`
-    try {
-        tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
-    } catch (e) {
-        // fallback: open share link in new tab
-        window.open(`https://t.me/share/url?url=${shareLink}&text=${messageText}`, '_blank')
-    }
-}
-
 function openChannel() {
     try {
-        tg.openTelegramLink('https://t.me/giftspredict')
+        tg.openTelegramLink(starterUrl.value)
     } catch (e) {
         // fallback: open share link in new tab
-        window.open('https://t.me/giftspredict', '_blank')
+        window.open(starterUrl.value, '_blank')
     }
 }
 
@@ -322,7 +305,7 @@ watch(
 /* Parent: don't force a small vh height on mobile; use padding + optional min-height */
 .follow-card {
     max-width: 480px;
-    width: 89vw;
+    width: 91vw;
     /* remove fixed height: 12vh; use padding so content defines height naturally */
     padding: 18px;
     padding-top: 14px;

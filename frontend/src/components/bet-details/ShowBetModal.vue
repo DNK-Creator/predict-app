@@ -558,7 +558,6 @@ function generateRandomVisuals() {
     suitableGiftsVisuals.value = []
     const payout = Number(potentialPayout.value || 0)
 
-    console.log(Number(potentialPayout.value || 0))
     if (!isFinite(payout) || payout <= 0) {
         quickStakeChanged.value = false
         return
@@ -1210,7 +1209,6 @@ function fmtTon(x) {
 }
 
 watch([() => potentialPayout.value, suitableGiftsVisuals], () => {
-    console.log('fire watch potential payout')
     if (Number(potentialPayout.value) > 0 && hasVisuals.value) {
         startRotation()
     } else {

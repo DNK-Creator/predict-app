@@ -23,15 +23,16 @@ function normalizeUsername(u) {
 
 export const useAppStore = defineStore('app', {
   state: () => ({
-    user: null,         // DB user row
+    user: null,
     language: "en",
     points: 0,
-    referrals: [],      // [{ telegram, username, total_winnings, commission }]
+    referrals: [],
     loadingReferrals: false,
     _pointsChannel: null,
     _userChannel: null,
     walletAddress: null,
-    demoMode: false, // <-- default: disabled; kept only in-memory (not persisted to DB)
+    demoMode: false,
+    openDepositFlag: false
   }),
   actions: {
     /* INIT */
@@ -43,13 +44,11 @@ export const useAppStore = defineStore('app', {
 
       const languageCode = tgUser?.language_code ?? 'en'
 
-      console.log(languageCode)
-
       debug('[app.init] telegram raw user', { tgUser })
 
       try { if (typeof ready === 'function') await ready() } catch (e) { warn('[app.init] tg.ready threw', { e }) }
 
-      const telegramId = Number(tgUser?.id ?? 99)
+      const telegramId = Number(tgUser?.id)
       if (!telegramId) {
         console.warn('No telegram id available on init')
         warn('[app.init] no telegram id; aborting init', { tgUser })
@@ -145,31 +144,26 @@ export const useAppStore = defineStore('app', {
           return false
         }
 
-
         const tgNameRaw = tgUser?.username ?? ''
         if (!tgNameRaw) {
           debug('[syncTelegramUsername] telegram username empty — nothing to sync')
           return false
         }
 
-
         const tgName = normalizeUsername(tgNameRaw)
         const dbName = normalizeUsername(this.user?.username)
-
 
         if (tgName === dbName) {
           debug('[syncTelegramUsername] username already matches DB', { tgName, dbName })
           return false
         }
 
-
         debug('[syncTelegramUsername] attempting DB update', { from: dbName, to: tgName })
-
 
         const { error } = await supabase
           .from('users')
           .update({ username: tgNameRaw })
-          .eq('telegram', Number(tgUser?.id ?? 99))
+          .eq('telegram', Number(tgUser?.id))
 
 
         if (error) {

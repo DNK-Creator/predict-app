@@ -220,7 +220,6 @@ function observePastSentinel() {
 }
 
 function selectActiveTab() {
-    console.log(helperAnimPassed.value)
     if (helperAnimPassed.value === true && helperQuickSelected.value !== 'active') {
         isPastShown.value = false
         helperQuickSelected.value = 'active'
@@ -237,7 +236,6 @@ function selectActiveTab() {
 }
 
 function selectPastTab() {
-    console.log(helperAnimPassed.value)
     if (helperAnimPassed.value === true && helperQuickSelected.value !== 'past') {
         isActiveShown.value = false
         helperQuickSelected.value = 'past'

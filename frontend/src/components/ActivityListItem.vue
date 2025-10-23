@@ -13,7 +13,7 @@
             <img v-if="photo_url" :src="photo_url" alt="avatar" class="avatar" />
             <div class="main">
                 <div class="top">
-                    <div class="name">{{ '@' + username || '—' }}</div>
+                    <div class="name">{{ userThatBetName }}</div>
                     <div class="bet-amount">{{ $t('bet') }} {{ stakeDisplay }} TON</div>
                 </div>
                 <div class="bottom">
@@ -73,12 +73,12 @@ const props = defineProps({
     status: { type: String, default: '' }
 })
 
-const betNameDisplay = computed(() => {
-    if (props.bet_name == null) return '—'
-    if (props.bet_name.length > 25) {
-        return props.bet_name.slice(0, 25) + '..'
+const userThatBetName = computed(() => {
+    if (props.username == null) return '—'
+    if (props.username.length > 13) {
+        return '@' + props.username.slice(0, 13) + '..'
     }
-    return props.bet_name
+    return '@' + props.username
 })
 
 function createGiftUrl(giftObj) {
@@ -280,8 +280,8 @@ const displayGifts = computed(() => {
 }
 
 .time {
-    font-size: 0.9rem;
-    max-width: 120px;
+    font-size: 0.8rem;
+    max-width: 110px;
     color: rgba(210, 210, 210, 0.78);
     font-family: "Inter", sans-serif;
     font-weight: 600;
@@ -299,7 +299,7 @@ const displayGifts = computed(() => {
     font-family: "Inter", sans-serif;
     color: white;
     font-weight: 600;
-    font-size: 0.9rem;
+    font-size: 0.8rem;
 }
 
 .bottom {

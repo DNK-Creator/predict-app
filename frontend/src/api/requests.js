@@ -3,7 +3,7 @@ import { useTelegram } from '@/services/telegram'
 
 const { user } = useTelegram()
 
-const MY_ID = user?.id ?? 99
+const MY_ID = user?.id
 
 export async function userFirstTimeOpening(telegramId) {
     try {
@@ -106,6 +106,10 @@ export async function getUsersPoints(telegramId) {
 }
 
 export async function getUsersBetsSummary() {
+    let countBets = 0
+    let totalVolume = 0
+    if (!MY_ID) return { countBets, totalVolume };
+
     const { data, error } = await supabase
         .from('users')
         .select('placed_bets')
@@ -120,14 +124,15 @@ export async function getUsersBetsSummary() {
     /** @type {{ side: string, stake: number }[]} */
     const bets = data.placed_bets;
 
-    const countBets = bets.length;
-    const totalVolume = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
+    countBets = bets.length;
+    totalVolume = bets.reduce((sum, b) => sum + (b.stake || 0), 0);
 
     return { countBets, totalVolume };
 }
 
 
 export async function getUsersWonBetsCount() {
+    if (!MY_ID) return 0
     const { data, error } = await supabase
         .from('users')
         .select('bets_won')
@@ -151,26 +156,11 @@ export async function getGiftsPrices() {
         console.error('Error fetching points:', error);
         return {};
     }
-    console.log(data)
     return data;
 }
 
-export async function getLastWithdrawalTime() {
-    const { data, error } = await supabase
-        .from('users')
-        .select('last_withdrawal_request')
-        .eq('telegram', MY_ID)
-        .single();
-
-    if (error) {
-        console.error('Error fetching withdrawal time:', error);
-        return null;
-    }
-
-    return data.last_withdrawal_request;
-}
-
 export async function getUsersWalletAddress() {
+    if (!MY_ID) return null
     const { data, error } = await supabase
         .from('users')
         .select('wallet_address')

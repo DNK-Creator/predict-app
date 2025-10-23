@@ -5,7 +5,6 @@ export async function fetchInvoiceLink(amount) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),
     });
-    console.log(resp)
     if (!resp.ok) throw new Error("invoice creation failed");
     const { link } = await resp.json();
     return link;

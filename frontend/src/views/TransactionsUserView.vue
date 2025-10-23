@@ -1,7 +1,7 @@
 <template>
     <!-- WITHDRAWAL MODAL  -->
     <WithdrawModal v-model="showWithdrawalModal" :address="parsedWalletAddress" :balance="app.points"
-        @withdraw="handleWithdraw" :house_cut="house_cut_rate" />
+        @withdraw="handleWithdraw" />
 
     <!-- WALLET INFORMATION MODAL & BLUR OVERLAY  -->
     <YourWalletModal :show="showWalletInfo" :address="parsedWalletAddress" :balance="walletBalance"
@@ -39,7 +39,6 @@ import 'vue3-toastify/dist/index.css'
 import supabase from '@/services/supabase'
 import { toast } from 'vue3-toastify'
 import { ref, onMounted, computed, onActivated, watch, nextTick } from 'vue'
-import { getLastWithdrawalTime } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 import { Address } from '@ton/core'
@@ -59,8 +58,6 @@ const transactions = ref([])
 const spinnerShow = ref(true)
 const transactionsShow = ref(false)
 
-const house_cut_rate = ref(7)
-
 // inside setup: add this ref
 const showView = ref(false)
 
@@ -75,14 +72,6 @@ const walletAddress = computed(() => {
     return app.walletAddress ?? null
 })
 
-const walletStatus = computed(() => {
-    if (app.walletAddress) {
-        return `${app.walletAddress.slice(0, 4)}...${app.walletAddress.slice(-3)}`
-    }
-    return app.language === 'ru' ? 'Подключите кошелёк' : 'Connect your wallet'
-})
-
-const lastWithdrawalRequest = ref(null)
 const { user } = useTelegram()
 
 const parsedWalletAddress = computed(() => {
@@ -133,6 +122,7 @@ async function openWithdrawalModal() {
 }
 
 async function reconnectWallet() {
+    if (!user) return
     // If already connected, drop the session
     ensureTon()
     if (ton.value.connected) {
@@ -142,7 +132,7 @@ async function reconnectWallet() {
         const { error } = await supabase
             .from('users')
             .update({ wallet_address: null })
-            .eq('telegram', user?.id ?? 99)
+            .eq('telegram', user?.id)
         if (error) {
             console.error('Error updating wallet_address:', error)
         }
@@ -156,7 +146,7 @@ async function reconnectWallet() {
 }
 
 // Called when user clicks “Вывод”
-async function handleWithdraw(amount, amount_cut) {
+async function handleWithdraw(amount) {
     ensureTon()
     if (!walletAddress.value) {
         try {
@@ -170,77 +160,106 @@ async function handleWithdraw(amount, amount_cut) {
         return;
     }
     else {
-        onWithdraw(amount, amount_cut)
+        onWithdraw(amount)
     }
 }
 
-async function onWithdraw(amount, amount_cut) {
-    if (app.points < amount) {
-        let errorText = app.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+
+async function onWithdraw(amount) {
+    if (!user) return
+    const amount_cut = Math.min(amount - 0.01, 0)
+    if (amount_cut <= 0.05) return
+    if (appStoreObj.points < amount) {
+        let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
         toast.error(errorText);
         return;
     }
 
-    const parsedAddress = (Address.parse(app.walletAddress)).toString({ urlSafe: true, bounceable: false });
+    const parsedAddress = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false });
     const idempotencyKey = uuidv4();
 
     // POST to your server endpoint
-    const resp = await fetch(`${API_BASE}/api/withdraw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            telegram: user?.id ?? 99,
-            amount: amount_cut,
-            address: parsedAddress,
-            idempotencyKey
-        })
-    });
+    let resp, data;
 
-    const data = await resp.json();
+    try {
+        resp = await fetch(`${API_BASE}/api/withdraw`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                telegram: user?.id,
+                amount: amount,
+                amount_cut,
+                address: parsedAddress,
+                idempotencyKey
+            })
+        });
+    } catch (err) {
+        // network-level error (DNS, offline, CORS, etc.)
+        console.error('Network error while calling withdraw:', networkErr);
+        const netMsg = appStoreObj.language === 'ru' ? 'Сетевая ошибка' : 'Network error';
+        toast.error(`${netMsg}: ${networkErr.message || 'unknown'}`);
+        return;
+    }
+
+    // Try to parse JSON, but tolerate non-JSON responses
+    try {
+        data = await resp.json();
+    } catch (parseErr) {
+        // response wasn't JSON — try to read text fallback
+        try {
+            const txt = await resp.text();
+            data = { raw: txt };
+        } catch (e) {
+            data = { raw: null };
+        }
+    }
+
     if (!resp.ok) {
-        let errorTextTwo = app.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: '
-        toast.error(errorTextTwo + (data?.error || 'unknown'));
+        // tolerant extraction of error code
+        const errCode = (data && (data.error || data.code || data.error_code)) ? String(data.error || data.code || data.error_code) : null;
+
+        // map known error codes to human messages (localized)
+        const errorMap = {
+            insufficient_funds: {
+                ru: 'Недостаточно средств',
+                en: 'Insufficient funds'
+            },
+            stars_deposit: {
+                ru: 'Вы недавно пополняли звёздами — вывод недоступен (21 день)',
+                en: 'Recent stars deposit — withdrawal unavailable for 21 days'
+            },
+            // add other server error codes here...
+        };
+
+        if (errCode && errorMap[errCode]) {
+            const msg = appStoreObj.language === 'ru' ? errorMap[errCode].ru : errorMap[errCode].en;
+            toast.error(msg);
+        } else {
+            // unknown server error: show message returned by server if any, else generic
+            const serverMsg = (data && (data.message || data.raw || data.error)) ? (data.message || data.raw || data.error) : 'unknown';
+            const defaultMsg = appStoreObj.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: ';
+            toast.error(defaultMsg + serverMsg);
+        }
         return;
     }
 
     // optimistic update or fetch fresh user points from server
-    app.points = Number((app.points - amount).toFixed(2));
-    let successText = app.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
+    appStoreObj.points = Number((appStoreObj.points - amount).toFixed(2));
+    let successText = appStoreObj.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
     toast.success(successText);
 
     try {
-        let botMessageText = app.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${app.points} TON` :
-            `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${app.points} TON`
+        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
+            `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
         fetchBotMessageTransaction(botMessageText, user?.id)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }
 }
 
-function canRequestWithdrawal(lastWithdrawalRequest) {
-    const MS_PER_DAY = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-    const last = new Date(lastWithdrawalRequest).getTime();
-    const elapsed = now - last;
-
-    if (elapsed >= MS_PER_DAY) {
-        // more than 24h have passed
-        return true;
-    }
-
-    // compute remaining time
-    const remainingMs = MS_PER_DAY - elapsed;
-    const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
-    const remainingMinutes = Math.floor(
-        (remainingMs % (60 * 60 * 1000)) / (60 * 1000)
-    );
-
-    toast.error(`Вывод доступен через ${remainingHours} ч. ${remainingMinutes} мин.`)
-    return false;
-}
-
 // add this helper near the other functions
 async function handleConnected(wallet) {
+    if (!user) return
     // normalize address
     let addr = wallet?.account?.address || null
 
@@ -272,7 +291,7 @@ async function handleConnected(wallet) {
         const { error } = await supabase
             .from('users')
             .update({ wallet_address: parsedAddress })
-            .eq('telegram', user?.id ?? 99)
+            .eq('telegram', user?.id)
         if (error) {
             console.error('Error updating wallet_address:', error)
         }
@@ -303,11 +322,12 @@ async function fetchTonBalance(address) {
 
 // ——— Load transactions from Supabase ———
 async function loadTransactions() {
+    if (!user) return
     // if (!user) return
     const { data, error } = await supabase
         .from('transactions')
         .select('uuid, amount, status, gift_url, created_at, type')
-        .eq('user_id', user?.id ?? 99)
+        .eq('user_id', user?.id)
         .order('created_at', { ascending: false })
 
     if (error) {
@@ -320,23 +340,21 @@ async function loadTransactions() {
 onMounted(async () => {
     // await loadTransactions()
     await loadTransactions()
-    lastWithdrawalRequest.value = await getLastWithdrawalTime()
 
     // Subscribe to realtime updates (Supabase JS v2)
-    if (user || !user) {
+    if (user) {
         // Create or reuse a channel
         const channel = supabase
-            .channel('transactions-' + user?.id ?? 99)            // a unique name
+            .channel('transactions-' + user?.id)            // a unique name
             .on(
                 'postgres_changes',                          // listen to Postgres changes
                 {
                     event: '*',                                // INSERT, UPDATE, DELETE
                     schema: 'public',                          // your schema
                     table: 'transactions',
-                    filter: `user_id=eq.${user?.id ?? 99}`            // only this user’s rows
+                    filter: `user_id=eq.${user?.id}`            // only this user’s rows
                 },
                 async (payload) => {
-                    console.log('Realtime payload:', payload)
                     // await loadTransactions()
                     await loadTransactions()
                 }
@@ -345,22 +363,6 @@ onMounted(async () => {
         // finally subscribe
         channel.subscribe()
     }
-
-    const { data, error } = await supabase
-        .from('withdraw_information')
-        .select('house_cut')
-        .eq('id', 1)
-        .single()   // .single() is fine if the row exists
-
-    if (error) {
-        console.error('failed to load house_cut', error)
-        // keep default 0 or handle error UI
-        return
-    }
-
-    // Ensure it's a number (DB double precision usually arrives as a JS number)
-    const val = Number(data?.house_cut)
-    house_cut_rate.value = Number.isFinite(val) ? val : 7
 
     spinnerShow.value = false
     transactionsShow.value = true
@@ -388,7 +390,7 @@ onActivated(async () => {
     await nextTick()
     requestAnimationFrame(() => { showView.value = true })
 
-    // every time DepositView is shown again…
+    // every time page is shown again…
     if (ton.value?.connected && app.walletAddress) {
         const freshBal = await fetchTonBalance(app.walletAddress)
         walletBalance.value = +freshBal.toFixed(2)

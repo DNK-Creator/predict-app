@@ -28,12 +28,12 @@
     "earn-with-friends": "Earn with friends",
     "invite-friends-and-get": "Invite friends and get",
     "invite-friends": "Invite friends",
-    "fifty-com": "50% commission",
+    "percent-com": "10% commission",
     "for-their-winnings-forever": "on their profits forever.",
     "referrals": "REFERRALS",
     "earned": "EARNED",
     "follow-promo": "Follow and don't miss out on important updates, events, and giveaways!",
-    "share-your-link": "Share your referral link and get 50% of the commission from users winnings",
+    "share-your-link": "Share your referral link and get 10% of the commission from users winnings",
     "your-link": "Your referral link:",
     "share": "Share",
     "all": "All",
@@ -66,7 +66,7 @@
     "gifts-deposit-instruction-one": "To add new gifts to the inventory, send unique gifts to",
     "gifts-deposit-instruction-two": "The gift will be credited to your TON balance at the market price from the list.",
     "gifts-deposit-instruction-three": "The transfer operation is final, and the balance will be updated immediately.",
-    "stars-deposit-instruction": "Stars are automatically converted to TON, and your balance will be updated instantly.",
+    "stars-deposit-instruction": "Balance will be updated instantly. After depositing with stars you will have a 21 day withdraw hold.",
     "close": "Close",
     "empty-now": "Nothing to see here now.",
     "no-bets-here": "There are no events in this category. Try switching to another tab.",
@@ -185,5 +185,7 @@
     "total-bet": "Your bet",
     "withdraw-gift": "Withdraw gifts",
     "max-withdraw-gifts": "Limit of 10 gifts per withdraw.",
-    "withdrawing-wait": "Withdrawing.."
+    "withdrawing-wait": "Withdrawing..",
+    "deposit-reject": "Can not deposit with the chosen method right now.",
+    "withdrawal-min": "Withdraw above 0.1 TON."
 }

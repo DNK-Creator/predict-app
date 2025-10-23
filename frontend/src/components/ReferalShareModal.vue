@@ -13,7 +13,7 @@
                         <div class="ref-header-image">
                             <img :src="ShareIcon">
                         </div>
-                        <button class="close-btn" @click="close" :disabled="saving">✖</button>
+                        <button class="close-btn" @click="close">✖</button>
                     </div>
                     <h1 class="card-title">
                         {{ $t('invite-friends') }}
@@ -25,7 +25,7 @@
                         <div class="large-link-show">
                             <span class="large-link-header">{{ $t('your-link') }}</span>
                             <div class="small-link-show">
-                                <span>https://t.me/giftspredict_bot?startapp={{ user?.id ?? '' }}</span>
+                                <span>{{ shareUrlStarter }}{{ user?.id ?? '' }}</span>
                             </div>
                         </div>
                     </div>
@@ -47,15 +47,19 @@
 
 <script setup>
 import ShareIcon from '@/assets/icons/Share_Icon.png'
-import { ref, defineEmits, defineProps, onMounted } from 'vue'
+import { ref, defineEmits, defineProps, computed } from 'vue'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 
 const app = useAppStore()
 
+const shareUrlStarter = ref('https://t.me/myoraclerobot?startapp=')
+
 const { user } = useTelegram()
 
-const inviteText = ref('Copy Link')
+const inviteText = computed(() => {
+    return app.language === 'ru' ? 'Скопировать ссылку' : 'Copy link'
+})
 
 const props = defineProps({
     /** whether the modal is visible */
@@ -70,7 +74,7 @@ function close() {
 
 function copyLink() {
     const ref = user?.id ?? ''
-    const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
+    const shareLink = shareUrlStarter.value + ref
     navigator.clipboard.writeText(shareLink)
     inviteText.value = app.language === 'ru' ? "Ссылка скопирована!" : "Copied Link!"
     setTimeout(() => (inviteText.value = app.language === 'ru' ? "Скопировать ссылку" : "Copy Link"), 1800)
@@ -78,12 +82,12 @@ function copyLink() {
 
 function shareReferal() {
     const ref = user?.id ?? ''
-    const shareLink = 'https://t.me/giftspredict_bot?startapp=' + ref
+    const shareLink = shareUrlStarter.value + ref
     let messageText = ""
     if (app.language === 'ru') {
-        messageText = `%0AПрисоединяйся ко мне в Gifts Predict и зарабатывай TON!`
+        messageText = `%0AЗаходи со мной в Oracle и зарабатывай TON!`
     } else {
-        messageText = `%0AJoin me in Gifts Predict and earn TON!`
+        messageText = `%0AJoin me in Oracle and earn TON!`
     }
     try {
         tg.openTelegramLink(`https://t.me/share/url?url=${shareLink}&text=${messageText}`)
@@ -92,10 +96,6 @@ function shareReferal() {
         window.open(`https://t.me/share/url?url=${shareLink}&text=${messageText}`, '_blank')
     }
 }
-
-onMounted(() => {
-    inviteText.value = app.language === 'ru' ? "Скопировать ссылку" : "Copy Link"
-})
 
 </script>
 

@@ -9,9 +9,9 @@
 
             <div class="orb" ref="orb">
                 <!-- hand (child of orb) -->
-                <div class="hand" aria-hidden="true">
+                <!-- <div class="hand" aria-hidden="true">
                     <img :src="handSrc" alt="Hand under orb" />
-                </div>
+                </div> -->
 
                 <div class="orb-inner" aria-hidden="false">
 
@@ -226,7 +226,7 @@ onBeforeUnmount(() => {
     /* don't let it accidentally enlarge parent's measured width */
 
     /* fixed fallback */
-    padding-bottom: calc(var(--orb-size, 200px) * 0.5);
+    /* padding-bottom: calc(var(--orb-size, 200px) * 0.5); */
     margin: 0 auto;
     display: flex;
     align-items: center;

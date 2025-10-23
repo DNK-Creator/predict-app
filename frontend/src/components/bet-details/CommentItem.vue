@@ -183,8 +183,9 @@ function parseToMs(value) {
 
 /* canDelete: user must be owner AND comment not older than 48h */
 const canDelete = computed(() => {
+    if (!user) return false
     // quick owner check
-    const currentUserId = user?.id ?? 99
+    const currentUserId = user?.id
     if (!currentUserId) return false
     if (props.comment.user_id !== currentUserId) return false
 

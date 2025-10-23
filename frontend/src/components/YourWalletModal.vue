@@ -108,7 +108,10 @@ async function copyAddress() {
     left: 0;
     right: 0;
     bottom: 0;
-    height: 38vh;
+    height: min(68vh, 320px);
+    max-width: 520px;
+    align-self: center;
+    margin: auto auto;
     background: #292a2a;
     color: White;
     border-top-left-radius: 20px;

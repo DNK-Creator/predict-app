@@ -91,7 +91,6 @@ const passThrough = ref(false)
 
 function onClose() {
     passThrough.value = true
-    console.log(passThrough.value)
     emit('close')
 }
 

@@ -38,11 +38,12 @@ function openRelayerChat() {
 }
 // ——— Load gifts from Supabase ———
 async function loadGifts() {
+    if (!user) return
     try {
         const { data, error } = await supabase
             .from('users')
             .select('inventory')
-            .eq('telegram', user?.id ?? 99)
+            .eq('telegram', user?.id)
             .single()
 
         if (error) {
@@ -101,7 +102,6 @@ function onWithdrawComplete(evt) {
             // toast.error(`Some gifts failed: ${perGiftErrors.slice(0, 3).join('; ')}${perGiftErrors.length > 3 ? '...' : ''}`)
         } else {
             console.log('Withdraw request submitted — inventory will refresh shortly')
-            // toast.success('Withdraw request submitted — inventory will refresh shortly')
         }
 
         // schedule re-sync after ~2 seconds to pick up final DB state

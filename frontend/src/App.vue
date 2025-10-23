@@ -349,6 +349,7 @@ watch(
 )
 
 async function reconnectWallet() {
+  if (!user) return
   if (!assertInTelegram()) return
   ensureTon()
   // If already connected, drop the session
@@ -359,7 +360,7 @@ async function reconnectWallet() {
     const { error } = await supabase
       .from('users')
       .update({ wallet_address: null })
-      .eq('telegram', user?.id ?? 99)
+      .eq('telegram', user?.id)
     if (error) {
       console.error('Error updating wallet_address:', error)
     }
@@ -374,6 +375,7 @@ async function reconnectWallet() {
 
 // add this helper near the other functions
 async function handleConnected(wallet) {
+  if (!user) return
   if (!assertInTelegram()) return
   // normalize address
   app.walletAddress = wallet?.account?.address || null
@@ -392,7 +394,7 @@ async function handleConnected(wallet) {
     const { error } = await supabase
       .from('users')
       .update({ wallet_address: parsedAddress })
-      .eq('telegram', user?.id ?? 99)
+      .eq('telegram', user?.id)
     if (error) {
       console.error('Error updating wallet_address:', error)
     }
@@ -401,12 +403,14 @@ async function handleConnected(wallet) {
 
 function openDepositWindow() {
   if (!assertInTelegram()) return
+  app.openDepositFlag = true
+  if (route.path === '/profile') return
   router.push({ name: 'profile' })
 }
 
 function openPrivacy() {
   if (!assertInTelegram()) return
-  // navigate to the privacy route — RouterView will render PrivacyView
+  if (route.path === '/privacy') return
   router.push({ name: 'privacy' }).catch(() => { })
   // close settings modal if open
   closeSettings()
@@ -602,7 +606,7 @@ onMounted(async () => {
 
   try {
     // pass user id if you have it; else userFirstTimeOpening will use the current user from useTelegram()
-    const isFirst = await userFirstTimeOpening(user?.id ?? 99)
+    const isFirst = await userFirstTimeOpening(user?.id)
     userFirstTime.value = Boolean(isFirst)
     debug('[App] userFirstTime set', { userFirstTime: userFirstTime.value })
   } catch (e) {
@@ -690,11 +694,9 @@ onMounted(async () => {
   if (userFirstTime.value) {
     // Preload images so they appear instantly when overlay fades
     const results = await preloadTutorialImages(tutorialImages.value)
-    console.log('[App] preloadTutorialImages done', results)
 
     // you could also delay showing the tutorial until they are ready:
     showTutorialOverlay.value = results.every(r => r.ok)
-    console.log('[App] showTutorialOverlay set true', showTutorialOverlay.value, 'overlayVisible=', overlayVisible.value)
 
     // We do NOT open channel modal in this case — tutorial is superior
     showChannelFollowModal.value = false
