@@ -103,7 +103,7 @@ async function getTelegramGift() {
 
     const slug = `${urlSafeName}-${props.gift.number}`
 
-    const r = await fetch(`https://api.giftspredict.ru/api/telegram/nft/${encodeURIComponent(slug)}`)
+    const r = await fetch(`https://api.myoracleapp.com/api/telegram/nft/${encodeURIComponent(slug)}`)
     if (!r.ok) throw new Error(`HTTP ${r.status}`)
     return await r.json()
 }

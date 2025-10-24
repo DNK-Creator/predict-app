@@ -13,7 +13,7 @@ const apiId = Number(process.env.TG_API_ID || 0);
 const apiHash = process.env.TG_API_HASH || "";
 const stringSession = process.env.TG_STRING_SESSION || "";
 // Worker will call BACKEND_FAILED_URL for failed gifts.
-const BACKEND_FAILED_URL = process.env.BACKEND_FAILED_URL || "https://api.giftspredict.ru/api/giftFailed";
+const BACKEND_FAILED_URL = process.env.BACKEND_FAILED_URL || "https://api.myoracleapp.com/api/giftFailed";
 const DEBUG = (process.env.GIFTR_DEBUG || "1") === "1";
 
 // Dedupe processed messages (keeps memory bounded)
@@ -35,7 +35,7 @@ function log(...args) {
 
 async function persistGiftRecord(record) {
     try {
-        const resp = await fetch('https://api.giftspredict.ru/api/giftHandle', {
+        const resp = await fetch('https://api.myoracleapp.com/api/giftHandle', {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(record),

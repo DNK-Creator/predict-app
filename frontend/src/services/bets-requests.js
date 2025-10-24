@@ -13,7 +13,7 @@ export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
     const id = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        const resp = await fetch('https://api.giftspredict.ru/api/create-event', {
+        const resp = await fetch('https://api.myoracleapp.com/api/create-event', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             signal: controller.signal,
@@ -237,22 +237,22 @@ export async function placeBetRequest(betId, side, stake, placed_gifts) {
             side: String(side),
             stake: String(Number(stake).toFixed(2)),
             placed_gifts: placed_gifts,
-            chat_id: '@giftspredict_chat'
+            chat_id: '@myoracle_chat'
         });
 
-        void fetch('https://api.giftspredict.ru/api/bet-placed', {
+        void fetch('https://api.myoracleapp.com/api/bet-placed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: payload,
             keepalive: true
         }).catch(err => {
             // silently ignore but log for diagnostics
-            console.warn('Ignored webhook error (giftspredict):', err);
+            console.warn('Ignored webhook error (myoracle):', err);
         });
 
     } catch (err) {
         // Defensive: nothing should throw, but ignore any synchronous errors here too
-        console.warn('Ignored webhook setup error (giftspredict):', err);
+        console.warn('Ignored webhook setup error (myoracle):', err);
     }
 
     return {

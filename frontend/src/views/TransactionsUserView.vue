@@ -19,7 +19,7 @@
                     </div>
                 </div>
                 <div class="wallet">
-                    <h3 class="wallet-balance-hint">{{ $t("gifts-predict-balance") }}</h3>
+                    <h3 class="wallet-balance-hint">{{ $t("oracle-balance") }}</h3>
                     <h1 class="wallet-balance">{{ app.points }} TON</h1>
                     <div class="wallet-buttons">
                         <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
@@ -64,7 +64,7 @@ const showView = ref(false)
 const showWithdrawalModal = ref(false)
 const showWalletInfo = ref(false)
 
-const API_BASE = 'https://api.giftspredict.ru'
+const API_BASE = 'https://api.myoracleapp.com'
 
 const walletBalance = ref(null)
 

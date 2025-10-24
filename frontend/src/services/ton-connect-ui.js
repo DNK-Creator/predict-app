@@ -8,7 +8,7 @@ export function getTonConnect() {
   if (tonInstance) return tonInstance;
 
   const tc = new TonConnectUI({
-    manifestUrl: 'https://giftspredict.ru/tonconnect-manifest.json',
+    manifestUrl: 'https://myoracleapp.com/tonconnect-manifest.json',
     uiOptions: {
       twaReturnUrl: window.location.href,
       uiPreferences: {}

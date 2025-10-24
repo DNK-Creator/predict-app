@@ -118,7 +118,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb', verify: rawBodySaver 
 
 // Restricted CORS: only your frontend allowed, credentials enabled
 const corsRestricted = cors({
-    origin: 'https://giftspredict.ru',
+    origin: 'https://myoracleapp.com',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true
 });
@@ -721,12 +721,12 @@ app.post("/api/invoice", async (req, res) => {
 export async function createInvoiceLink(amount) {
     return bot.telegram.createInvoiceLink(
         {
-            title: `Deposit ${Number(amount / 300).toFixed(2)} TON`,
-            description: "Top-Up Gifts Predict balance using Telegram Stars",
+            title: `Deposit to Oracle with Stars`,
+            description: "Top-Up Oracle Balance",
             payload: "{}",
             provider_token: "",
             currency: "XTR",
-            prices: [{ amount: amount, label: `${Number(amount / 300).toFixed(2)} TON!` }]
+            prices: [{ amount: amount, label: `Convert to In-App TON!` }]
         }
     );
 }
@@ -1573,7 +1573,7 @@ app.post("/api/botmessage", async (req, res) => {
             parse_mode: 'HTML', // optionally; or 'MarkdownV2' / omit
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "Open profile", url: "https://t.me/myoracle_robot?startapp" }]
+                    [{ text: "Open profile", url: "https://t.me/myoraclerobot?startapp" }]
                 ]
             }
         };
@@ -1880,7 +1880,7 @@ app.get('/api/channelMembership', async (req, res) => {
         if (!token) {
             return res.status(500).json({ error: 'Bot not configured to check member' })
         }
-        let formattedChatId = '@giftspredict'
+        let formattedChatId = '@oracle_news'
 
 
         const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
@@ -1971,8 +1971,7 @@ async function handleStart(ctx) {
             console.log('Saved ref for', ctx.from?.id, '=', incoming);
         }
 
-        const privacyUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/GiftsPredictPrivacyPolicy.pdf";
-        const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/Horizontal_Banner.png";
+        const bannerUrl = "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/services-information/Oracle_Banner_2.png";
 
         // build startAppQuery and ensure safe encoding
         const rawRef = ctx.session.ref ?? '';
@@ -1982,8 +1981,8 @@ async function handleStart(ctx) {
         const replyOptions = {
             parse_mode: "HTML",
             ...Markup.inlineKeyboard([
-                [Markup.button.url("🕹️ Open App", `https://t.me/myoracle_robot${startAppQuery}`)],
-                [Markup.button.url("📢 Community", `https://t.me/giftspredict`)]
+                [Markup.button.url("🕹️ Open App", `https://t.me/myoraclerobot${startAppQuery}`)],
+                [Markup.button.url("📢 Community", `https://t.me/oracle_news`)]
             ]),
             message_effect_id: effectIdTwo
         };
@@ -2002,13 +2001,13 @@ async function handleStart(ctx) {
 
             // Send image as buffer so Telegram receives it from your app, not from remote url
             return ctx.replyWithPhoto({ source: buf }, {
-                caption: `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.`,
+                caption: `Good to see you in Oracle! 🔮 Use your knowledge, play and predict the future events.`,
                 ...replyOptions
             });
         } catch (e) {
             console.warn('banner send failed (will fallback to text):', e?.message ?? e);
             return ctx.reply(
-                `Welcome to Gifts Predict! 🔮 Use your knowledge, play and predict the future events.`,
+                `Good to see you in Oracle! 🔮 Use your knowledge, play and predict the future events.`,
                 { disable_web_page_preview: true, ...replyOptions }
             );
         }

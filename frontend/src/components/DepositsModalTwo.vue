@@ -117,7 +117,7 @@
                             <div class="description-texts">
                                 <div class="info-relayer">
                                     <span class="deposit-text-info">{{ $t('gifts-deposit-instruction-one') }}</span>
-                                    <button class="bot-button" @click="openRelayerChat">@GiftsPredictRelayer</button>
+                                    <button class="bot-button" @click="openRelayerChat">@Oracle_Relayer</button>
                                 </div>
                             </div>
                         </div>
@@ -267,7 +267,7 @@ function sendStarsRequest() {
 }
 
 function openRelayerChat() {
-    tg.openTelegramLink('https://t.me/giftspredictrelayer')
+    tg.openTelegramLink('https://t.me/oracle_relayer')
 }
 
 // handlers that animate then perform action
@@ -676,7 +676,7 @@ async function fetchTonPriceFromServer({ force = false } = {}) {
 
     try {
         // adjust endpoint if your server uses a different path
-        const resp = await fetchWithTimeout('https://api.giftspredict.ru/api/tonprice', TON_PRICE_TIMEOUT_MS)
+        const resp = await fetchWithTimeout('https://api.myoracleapp.com/api/tonprice', TON_PRICE_TIMEOUT_MS)
 
         if (!resp.ok) {
             const txt = await resp.text().catch(() => '')

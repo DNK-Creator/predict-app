@@ -2,7 +2,7 @@
     <section class="privacy-root">
         <article class="privacy-body" tabindex="0">
 
-            <h1 class="privacy-title">User Agreement - Gifts Predict</h1>
+            <h1 class="privacy-title">User Agreement - Oracle</h1>
 
             <p>
                 The User Agreement is available in two languages: English and Russian.
@@ -20,18 +20,18 @@
 
             <h2>Labels</h2>
             <p>
-                Game: <a href="https://t.me/giftspredict_bot">@giftspredict_bot</a>
+                Game: <a href="https://t.me/myoraclerobot">@myoraclerobot</a>
             </p>
             <p>
-                Developer: <a href="https://t.me/giftspredict">@giftspredict</a>
+                Developer: <a href="https://t.me/oracle_news">@oracle_news</a>
             </p>
             <p>
-                Support: <a href="https://t.me/giftspredict_support">@giftspredict_support</a>
+                Support: <a href="https://t.me/myoracle_support">@myoracle_support</a>
             </p>
 
             <h2>1. General Provisions</h2>
             <p>
-                1.1. Gifts Predict is an entertaining game implemented in the Telegram Mini App format, where
+                1.1. Oracle is an entertaining game implemented in the Telegram Mini App format, where
                 users
                 apply their accumulated skills and knowledge to determine the outcomes of future events and use
                 an in-game
@@ -45,7 +45,7 @@
                 of legal age.
             </p>
             <p>
-                1.4. Gifts Predict is not a game of chance, lottery, or an online-casino. The game does not involve
+                1.4. Oracle is not a game of chance, lottery, or an online-casino. The game does not involve
                 betting in
                 real currency,
                 pre-determined odds, or slot machines. All participation is based on skill and strategy.
@@ -85,7 +85,7 @@
 
             <p>
                 3.3. The user has the right to request the deletion of their data by contacting support:
-                @giftspredict_support
+                @myoracle_support
             </p>
 
             <h2>4. In-game currency</h2>
@@ -94,7 +94,7 @@
                 other currencies, and obtaining TON does not
                 depend on external factors or chance.
                 It is a unit designed for participation in events,
-                unlocking loyalty features within Gifts Predict, and exchanging for prizes for active play.
+                unlocking loyalty features within Oracle, and exchanging for prizes for active play.
             </p>
 
             <p>
@@ -123,7 +123,7 @@
             </p>
 
             <p>
-                5.3. No commission is charged by Gifts Predict for replenishment and exchange of TON.
+                5.3. No commission is charged by Oracle for replenishment and exchange of TON.
             </p>
 
             <p>
@@ -133,7 +133,7 @@
 
             <h2>6. Exchange for prizes</h2>
             <p>
-                6.1. Gifts Predict does not have a withdrawal function. However, users can exchange their accumulated
+                6.1. Oracle does not have a withdrawal function. However, users can exchange their accumulated
                 coins
                 for in-game prizes in the form of TON cryptocurrency.
             </p>
@@ -195,7 +195,7 @@
 
             <h2>Disclaimer</h2>
             <p>
-                Gifts Predict is an entertainment platform based on skill and interaction.
+                Oracle is an entertainment platform based on skill and interaction.
 
                 TON is an in-game currency with no monetary or market value.
 
@@ -207,22 +207,22 @@
 
             <p class="muted">Last update: August 10, 2025</p>
 
-            <h1 class="privacy-title">Пользовательское соглашение - Gifts Predict</h1>
+            <h1 class="privacy-title">Пользовательское соглашение - Oracle</h1>
 
             <h2>Обозначения</h2>
             <p>
-                Игра: <a href="https://t.me/giftspredict_bot">@giftspredict_bot</a>
+                Игра: <a href="https://t.me/myoraclerobot">@myoraclerobot</a>
             </p>
             <p>
-                Разработчик: <a href="https://t.me/giftspredict">@giftspredict</a>
+                Разработчик: <a href="https://t.me/oracle_news">@oracle_news</a>
             </p>
             <p>
-                Поддержка: <a href="https://t.me/giftspredict_support">@giftspredict_support</a>
+                Поддержка: <a href="https://t.me/myoracle_support">@myoracle_support</a>
             </p>
 
             <h2>1. Общие положения</h2>
             <p>
-                1.1. Gifts Predict — это развлекательная игра, реализованная в формате Telegram Mini App, где
+                1.1. Oracle — это развлекательная игра, реализованная в формате Telegram Mini App, где
                 пользователи
                 применяют накопленные навыки и знания для определения результатов будущих событий и используют
                 внутриигровую
@@ -236,7 +236,7 @@
                 совершеннолетие.
             </p>
             <p>
-                1.4. Gifts Predict не является азартной игрой, лотереей или казино. Игра не предусматривает ставки в
+                1.4. Oracle не является азартной игрой, лотереей или казино. Игра не предусматривает ставки в
                 настоящей валюте,
                 заранее подготовленные коэффициенты или игровые автоматы. Всё участие основано на навыке и стратегии.
                 Если вы чувствуете дискомфорт от игры, пожалуйста, закройте её и обратитесь к
@@ -273,7 +273,7 @@
             </p>
 
             <p>
-                3.3. Пользователь вправе запросить удаление своих данных, обратившись в поддержку: @giftspredict_support
+                3.3. Пользователь вправе запросить удаление своих данных, обратившись в поддержку: @myoracle_support
             </p>
 
             <h2>4. Внутриигровая единица</h2>
@@ -282,7 +282,7 @@
                 другой валютой, получение TON не
                 зависит от внешних факторов либо случайности.
                 Это единица, предназначенная для участия в событиях,
-                разблокировки функций лояльности в рамках Gifts Predict и обмена на призы за активную игру.
+                разблокировки функций лояльности в рамках Oracle и обмена на призы за активную игру.
             </p>
 
             <p>
@@ -310,7 +310,7 @@
             </p>
 
             <p>
-                5.3. При пополнении и обмене TON Gifts Predict не взимает комиссию.
+                5.3. При пополнении и обмене TON Oracle не взимает комиссию.
             </p>
 
             <p>
@@ -320,7 +320,7 @@
 
             <h2>6. Обмен на призы</h2>
             <p>
-                6.1. В Gifts Predict отсутствует функция вывода средств. Однако пользователь может обменять накопленные
+                6.1. В Oracle отсутствует функция вывода средств. Однако пользователь может обменять накопленные
                 монеты
                 на внутриигровые призы, представленные в виде криптовалюты TON.
             </p>
@@ -382,7 +382,7 @@
 
             <h2> Отказ от ответственности</h2>
             <p>
-                Игра Gifts Predict является развлекательной платформой, основанной на навыке и взаимодействии.
+                Игра Oracle является развлекательной платформой, основанной на навыке и взаимодействии.
 
                 TON — это внутриигровые очки, не имеющие денежной или рыночной ценности.
 

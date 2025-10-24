@@ -7,7 +7,7 @@
             <div ref="svgContainer" class="empty-media"></div>
             <span class="empty-text">{{ $t('none-gifts-one') }}</span>
             <span class="empty-text-two">{{ $t('none-gifts-two') }}</span>
-            <span class="empty-text-bot-handle" @click="openRelayerChat">@GiftsPredictRelayer</span>
+            <span class="empty-text-bot-handle" @click="openRelayerChat">@Oracle_Relayer</span>
         </div>
 
         <div v-else class="none-empty-gifts">
@@ -46,7 +46,7 @@
             <div class="footer">
                 <div v-if="maxGiftsWarnShow === false" class="add-gifts-hint">
                     <span>{{ $t('to-add-new-gifts') }}</span>
-                    <span class="selectable" @click="openRelayerChat">@GiftsPredictRelayer</span>
+                    <span class="selectable" @click="openRelayerChat">@Oracle_Relayer</span>
                 </div>
                 <div v-else>
                     <span class="warn-text">{{ $t('max-withdraw-gifts') }}</span>
@@ -209,7 +209,7 @@ async function withdrawGifts() {
 
     try {
         // 1) Request invoice link + orderId (server should embed orderId into invoice payload)
-        const resp = await fetch('https://api.giftspredict.ru/api/pay-withdraw', {
+        const resp = await fetch('https://api.myoracleapp.com/api/pay-withdraw', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payStarsPayload)
@@ -248,7 +248,7 @@ async function withdrawGifts() {
                 if (status === 'paid') {
                     // user successfully withdrawn gifts
                     try {
-                        const resp = await fetch('https://api.giftspredict.ru/api/withdraw-gifts', {
+                        const resp = await fetch('https://api.myoracleapp.com/api/withdraw-gifts', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify(payload),

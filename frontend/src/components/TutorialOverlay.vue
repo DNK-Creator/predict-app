@@ -70,7 +70,7 @@ const props = defineProps({
     titles: {
         type: Array,
         default: () => [
-            "Привет! Это Gifts Predict",
+            "Привет! Это Oracle",
             "Пополнение и вывод",
             "Вместе - веселее"
         ]

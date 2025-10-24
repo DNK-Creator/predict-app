@@ -253,7 +253,7 @@ function selectPastTab() {
 
 function shareBetFunction(betName, betNameEn) {
     let ref = user?.id ?? ''
-    let shareLink = 'https://t.me/GiftsPredict_Bot?startapp=' + ref
+    let shareLink = 'https://t.me/myoraclerobot?startapp=' + ref
     let messageText = ''
     if (app.language === 'ru') {
         messageText = `%0AПосмотри, что думает комьюнити в телеграме по поводу события - ${betName} 🔔%0A%0AЛегкие TON или прогорят? 💵`

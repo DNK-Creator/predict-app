@@ -113,7 +113,7 @@ const modalAnimating = ref(false)
 
 const showWithdrawalModal = ref(false)
 
-const API_BASE = 'https://api.giftspredict.ru'
+const API_BASE = 'https://api.myoracleapp.com'
 
 const walletBalance = ref(null)
 const walletStatus = ref('Подключите кошелек')

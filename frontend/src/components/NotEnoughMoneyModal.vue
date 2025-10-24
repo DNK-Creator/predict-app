@@ -37,7 +37,7 @@ const router = useRouter()
 
 const props = defineProps({
     show: { type: Boolean, required: true },
-    channel: { type: String, default: '@giftspredict' }
+    channel: { type: String, default: '@oracle_news' }
 })
 
 const emit = defineEmits(['close', 'subscribe'])
@@ -253,7 +253,7 @@ function onRedirect() {
 
 /* bottom watermark text like in reference */
 .channel-follow-modal::after {
-    content: "@giftspredict";
+    content: "@oracle_news";
     position: absolute;
     bottom: 24px;
     left: 50%;

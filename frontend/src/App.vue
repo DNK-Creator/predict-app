@@ -36,7 +36,7 @@
     :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
 
 
-  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@giftspredict"
+  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@oracle_news"
     @close="closeChannelModal" @subscribe="onSubscribeToChannel" />
 
 </template>
@@ -80,7 +80,7 @@ const router = useRouter()
 
 const route = useRoute()
 
-const API_BASE = 'https://api.giftspredict.ru'
+const API_BASE = 'https://api.myoracleapp.com'
 
 const userFirstTime = ref(false)
 const userFollowsChannel = ref(false)
@@ -135,7 +135,7 @@ const TUTORIAL_BY_LANG = {
       ''
     ],
     titles: [
-      'Welcome to Gifts Predict!',
+      'Welcome to Oracle!',
       'Top up & Withdraw',
       'Together is better'
     ],
@@ -154,7 +154,7 @@ const TUTORIAL_BY_LANG = {
       ''
     ],
     titles: [
-      'Привет! Это Gifts Predict',
+      'Привет! Это Oracle',
       'Пополнение и вывод',
       'Вместе - веселее'
     ],
@@ -232,10 +232,10 @@ async function onSubscribeToChannel() {
   try {
     // try to open channel: prefer tg native (if available)
     try {
-      tg.openTelegramLink('https://t.me/giftspredict')
+      tg.openTelegramLink('https://t.me/oracle_news')
     } catch (e) {
       // fallback
-      window.open('https://t.me/giftspredict', '_blank')
+      window.open('https://t.me/oracle_news', '_blank')
     }
 
     showChannelFollowModal.value = false
@@ -419,10 +419,10 @@ function openPrivacy() {
 function openSupport() {
   if (!assertInTelegram()) return
   try {
-    tg.openTelegramLink('https://t.me/giftspredict_support')
+    tg.openTelegramLink('https://t.me/myoracle_support')
   } catch (e) {
     // fallback: open share link in new tab
-    window.open('https://t.me/giftspredict_support', '_blank')
+    window.open('https://t.me/myoracle_support', '_blank')
   }
 }
 

@@ -31,12 +31,10 @@ const showView = ref(false)
 const inventoryFull = ref([])
 const displayedGifts = ref([])
 
-const API_BASE = 'https://api.giftspredict.ru'
-
 function openRelayerChat() {
-    tg.openTelegramLink(`https://t.me/giftspredictrelayer`)
+    tg.openTelegramLink(`https://t.me/oracle_relayer`)
 }
-// ——— Load gifts from Supabase ———
+
 async function loadGifts() {
     if (!user) return
     try {

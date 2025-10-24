@@ -39,7 +39,7 @@ function backoffMs(attempt, base = 500, max = 30000) {
     return Math.max(0, expo + jitter);
 }
 
-const MAIN_BACKEND_URL = 'https://api.giftspredict.ru';
+const MAIN_BACKEND_URL = 'https://api.myoracleapp.com';
 
 function signPayload(payloadJson) {
     return crypto.createHmac('sha256', SHARED_SECRET).update(payloadJson).digest('hex');

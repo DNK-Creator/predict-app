@@ -120,7 +120,7 @@ function close() {
 
 function shareHolidayMessage() {
     let ref = user?.id ?? ""
-    let shareLink = 'https://t.me/GiftsPredict_Bot?startapp=' + ref
+    let shareLink = 'https://t.me/myoraclerobot?startapp=' + ref
     let messageText = ''
     if (app.language === 'ru') {
         messageText = `%0AУже ${holidayDateTransform(props.holiday.date)} будет ${props.holiday.name} 🔔%0A%0AПОДАРКИ В 03:00 ❓❓❓`

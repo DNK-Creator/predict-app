@@ -1,6 +1,6 @@
 // src/services/payment.js
 export async function fetchInvoiceLink(amount) {
-    const resp = await fetch("https://api.giftspredict.ru/api/invoice", {
+    const resp = await fetch("https://api.myoracleapp.com/api/invoice", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount }),
@@ -13,7 +13,7 @@ export async function fetchInvoiceLink(amount) {
 // helper: call backend endpoint
 export async function fetchBotMessageTransaction(messageText, userId) {
     try {
-        const resp = await fetch('https://api.giftspredict.ru/api/botmessage', {
+        const resp = await fetch('https://api.myoracleapp.com/api/botmessage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ messageText, userID: userId }),
