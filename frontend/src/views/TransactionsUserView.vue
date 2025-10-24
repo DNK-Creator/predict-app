@@ -167,7 +167,7 @@ async function handleWithdraw(amount) {
 
 async function onWithdraw(amount) {
     if (!user) return
-    const amount_cut = Math.min(amount - 0.01, 0)
+    const amount_cut = amount - 0.01
     if (amount_cut <= 0.05) return
     if (appStoreObj.points < amount) {
         let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'

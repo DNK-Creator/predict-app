@@ -338,21 +338,28 @@ async function fetchWithTimeout(url, timeoutMs) {
 async function getTonPriceUsd() {
     const now = Date.now();
     if (cached.value && (now - cached.fetchedAt) < CACHE_TTL_MS) {
+        console.log('returning cached value for ton price')
         return cached.value;
     }
+
+    console.log('from getTonprice usd fetch coingecko url')
 
     const resp = await fetchWithTimeout(COINGECKO_URL, FETCH_TIMEOUT_MS);
 
     if (!resp.ok) {
         const txt = await resp.text().catch(() => '');
+        console.log('responce from coingecko is not okay')
         throw new Error(`CoinGecko responded ${resp.status}: ${txt}`);
     }
 
     const data = await resp.json();
 
+    console.log('got correct responce from coingecko')
+
     // validate shape
     const priceUsd = data?.market_data?.current_price?.usd;
     if (priceUsd == null || Number.isNaN(Number(priceUsd))) {
+        console.log('something wrong with the priceUsd getting from data')
         throw new Error('CoinGecko response missing market_data.current_price.usd');
     }
 
@@ -363,11 +370,14 @@ async function getTonPriceUsd() {
     cached.fetchedAt = Date.now();
     cached.raw = data;
 
+    console.log('successfully returning value from get ton price: ' + numericPrice)
+
     return numericPrice;
 }
 
 app.get('/api/tonprice', async (req, res) => {
     try {
+        console.log('HIT API TONPRICE, start fetching getTonPriceUsd')
         // If you need USDT specifically, rename functions and ensure API returns 'usdt' or use an exchange.
         const tonPriceUsd = await getTonPriceUsd();
 
@@ -376,6 +386,9 @@ app.get('/api/tonprice', async (req, res) => {
 
         // adjust rounding to your preferred precision
         const tonNeededRounded = Number(tonNeeded.toFixed(8)); // 8 decimals
+
+        console.log('1 successfully returning the initial response from client with values: price usd per ton: ' + tonPriceUsd)
+        console.log('2 successfully returning the initial response from client with values: ton_needed: ' + tonNeededRounded)
 
         return res.json({
             price_usd_per_ton: tonPriceUsd,

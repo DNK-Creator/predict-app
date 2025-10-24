@@ -380,6 +380,12 @@ watch(spinnerShow, async (spinnerIsVisible) => {
     padding: 8px;
 }
 
+.loading-spinner {
+    color: white;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
 
 .inline-loader {
     display: flex;

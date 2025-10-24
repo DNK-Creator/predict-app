@@ -57,9 +57,7 @@ const shareUrlStarter = ref('https://t.me/myoraclerobot?startapp=')
 
 const { user } = useTelegram()
 
-const inviteText = computed(() => {
-    return app.language === 'ru' ? 'Скопировать ссылку' : 'Copy link'
-})
+const inviteText = ref('Copy link')
 
 const props = defineProps({
     /** whether the modal is visible */
@@ -97,6 +95,11 @@ function shareReferal() {
     }
 }
 
+// prefetch price when modal opens and whenever user is editing stars
+watch(props.show, (v) => {
+    inviteText.value = app.language === 'ru' ? 'Скопировать ссылку' : 'Copy link'
+})
+
 </script>
 
 <style scoped>
@@ -129,7 +132,7 @@ function shareReferal() {
     left: 0;
     right: 0;
     bottom: 0;
-    height: 72vh;
+    height: min(72vh, 460px);
     background: #292a2a;
     color: White;
     border-top-left-radius: 20px;
@@ -210,24 +213,37 @@ function shareReferal() {
     margin-top: 2.5rem;
 }
 
+.action-btn-one,
 .action-btn-two {
-    flex: 1 1 auto;
-    /* grow to fill remaining space */
-    gap: 8px;
     display: flex;
     align-items: center;
     justify-content: center;
     cursor: pointer;
     border: none;
     border-radius: 16px;
+    font-size: 1.05rem;
     padding: 12px;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+}
+
+.action-btn-one {
+    flex: 0 0 auto;
+    /* do NOT grow or shrink; width = content */
+    gap: 4px;
+    background-color: #3b3c3c;
+    color: white;
+}
+
+.action-btn-two {
+    flex: 1 1 auto;
+    /* grow to fill remaining space */
+    gap: 8px;
 }
 
 .action-btn-two span {
-    font-size: 1.1rem;
     color: black;
-    font-weight: 600;
-    font-family: "Inter", sans-serif;
+    outline: none;
 }
 
 /* full-width button with spacing & truncation */
@@ -267,14 +283,6 @@ function shareReferal() {
     width: 1.25rem;
     height: 1.25rem;
     opacity: 0.8;
-}
-
-.close-btn {
-    background: transparent;
-    border: none;
-    font-size: 1.75rem;
-    cursor: pointer;
-    color: white;
 }
 
 .item-header {

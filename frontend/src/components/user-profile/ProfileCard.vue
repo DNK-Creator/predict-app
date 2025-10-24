@@ -256,7 +256,7 @@ async function handleWithdraw(amount) {
 
 async function onWithdraw(amount) {
     if (!user) return
-    const amount_cut = Math.min(amount - 0.01, 0)
+    const amount_cut = amount - 0.01
     if (amount_cut <= 0.05) return
     if (appStoreObj.points < amount) {
         let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
@@ -404,7 +404,8 @@ async function onDeposit(amount) {
     const amountTON = +amount
 
     if (!amountTON || amountTON === undefined || amountTON < 0.1) {
-        toast.warn('Пополнения от 0.1 TON.')
+        let messageText = appStoreObj.language === 'ru' ? 'Пополнения от 0.1 TON.' : 'Deposit from 0.1 TON.'
+        toast.warn(messageText)
         return
     }
 
@@ -413,16 +414,18 @@ async function onDeposit(amount) {
     try {
         intent = await createDepositIntentOnServer(amountTON)
     } catch (err) {
+        let messageText = appStoreObj.language === 'ru' ? 'Не удалось создать пополнение — попробуйте позже.' : 'Failed to create deposit intent.'
         console.error('Failed to create deposit intent', err)
-        toast.error('Не удалось создать пополнение — попробуйте позже.')
+        toast.error(messageText)
         return
     }
 
     const txId = intent.uuid
     const depositAddress = intent.deposit_address // backend-sent address (hot wallet or generated address)
     if (!txId || !depositAddress) {
+        let messageText = appStoreObj.language === 'ru' ? 'Ошибка сервера — обратитесь в поддержку.' : 'Server is unavailable - contact support.'
         console.error('Invalid intent response', intent)
-        toast.error('Ошибка сервера — обратитесь в поддержку.')
+        toast.error(messageText)
         return
     }
 
@@ -431,17 +434,6 @@ async function onDeposit(amount) {
         .storeUint(0, 32)
         .storeStringTail(txId)
         .endCell()
-
-    // --- detect wallet network (DEFENSIVE) ---
-    // Where wallets expose it can vary. We try common locations.
-    const walletObj = ton.value?.wallet || null;
-    const walletInfo = ton.value?.walletInfo || null;
-
-    const walletNetwork =
-        walletObj?.items?.[0]?.network ??
-        walletObj?.network ??
-        walletInfo?.network ??
-        null;
 
     // Build base request WITHOUT forcing a network yet
     const baseReq = {
@@ -453,78 +445,47 @@ async function onDeposit(amount) {
         }]
     };
 
-    if (walletNetwork) {
-        baseReq.network = walletNetwork;
-    } else {
-        // fallback: you can either omit `network` (let wallet use its selected network)
-        // or set 'mainnet' if you're certain. Safer to omit:
-        // baseReq.network = 'mainnet'
-    }
+    // --- detect wallet network ---
+    // const walletObj = ton.value?.wallet || null;
+    // const walletInfo = ton.value?.walletInfo || null;
 
-    // Try send, and if we receive a *bad network* error, attempt a one-time fallback.
+    // const walletNetwork =
+    //     walletObj?.items?.[0]?.network ??
+    //     walletObj?.network ??
+    //     walletInfo?.network ??
+    //     null;
+
+    // if (walletNetwork) {
+    //     baseReq.network = walletNetwork;
+    // } else {
+    //     baseReq.network = 'mainnet'
+    // }
+
+    baseReq.network = 'mainnet'
+
     try {
         await ton.value.sendTransaction(baseReq)
-        toast.info('Транзакция отправлена. Ожидайте подтверждения.')
+        let messageText = appStoreObj.language === 'ru' ? 'Транзакция отправлена. Ожидайте подтверждения.' : 'Transaction was sent. Wait for approval.'
+        toast.info(messageText)
         return
     } catch (e) {
         // User canceled
         if (e instanceof UserRejectsError) {
             console.warn('[deposit] user rejected tx')
             await cancelDepositIntentOnServer(txId)
-            toast.info('Транзакция отменена.')
+            let messageText = appStoreObj.language === 'ru' ? 'Транзакция отменена.' : 'Transaction was canceled.'
+            toast.info(messageText)
             return
         }
 
         console.error('[deposit] initial sendTransaction error:', e)
-        // === one-time fallback attempt ===
-        // If we originally sent 'mainnet' but walletNetwork is '-239', or vice-versa,
-        // try the other commonly accepted alternative.
-        const tried = new Set([String(baseReq.network ?? '')])
-
-        // produce alternative candidates
-        const altCandidates = []
-
-        // If walletNetwork is numeric -239 and we didn't set it, try setting it
-        if (walletNetwork && String(walletNetwork) !== String(baseReq.network)) {
-            altCandidates.push(String(walletNetwork))
-        }
-
-        // If we used 'mainnet' previously, try '-239' as fallback
-        if (!tried.has('-239')) altCandidates.push('-239')
-
-        // If we used '-239', try 'mainnet'
-        if (!tried.has('mainnet')) altCandidates.push('mainnet')
-
-        // Try candidates once each until one succeeds
-        for (const candidate of altCandidates) {
-            if (!candidate) continue
-            if (tried.has(candidate)) continue
-            tried.add(candidate)
-
-            const tryReq = { ...baseReq, network: candidate }
-
-            try {
-                await ton.value.sendTransaction(tryReq)
-                toast.info('Транзакция отправлена. Ожидайте подтверждения.')
-                return
-            } catch (err2) {
-                if (err2 instanceof UserRejectsError) {
-                    console.warn('[deposit] user rejected tx on retry')
-                    await cancelDepositIntentOnServer(txId)
-                    toast.info('Транзакция отменена.')
-                    return
-                }
-                console.error(`[deposit] retry sendTransaction failed for network=${candidate}`, err2)
-                // continue to next candidate
-            }
-        }
 
         // All attempts failed
+        let messageText = appStoreObj.language === 'ru' ? 'Ошибка отправки транзакции. Переподключите кошелёк.' : 'Error while processing transaction. Reconnect your wallet.'
         console.error('[deposit] All sendTransaction attempts failed')
-        toast.error('Ошибка отправки транзакции. Проверьте кошелек и попробуйте снова.')
+        toast.error(messageText)
     }
 }
-
 
 async function onDepositStars(amount) {
     if (!user) return

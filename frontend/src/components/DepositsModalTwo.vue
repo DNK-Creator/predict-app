@@ -688,7 +688,7 @@ async function fetchTonPriceFromServer({ force = false } = {}) {
         let price = null
         if (data == null) throw new Error('empty response')
 
-        price = data.tonNeededRounded
+        price = data.ton_needed
 
         if (price == null || !isFinite(price)) {
             throw new Error('unexpected response format or null price')
