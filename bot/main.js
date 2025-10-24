@@ -1880,7 +1880,7 @@ app.get('/api/channelMembership', async (req, res) => {
         if (!token) {
             return res.status(500).json({ error: 'Bot not configured to check member' })
         }
-        let formattedChatId = '@oracle_news'
+        let formattedChatId = '@myoracle_news'
 
 
         const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
@@ -1982,7 +1982,7 @@ async function handleStart(ctx) {
             parse_mode: "HTML",
             ...Markup.inlineKeyboard([
                 [Markup.button.url("🕹️ Open App", `https://t.me/myoraclerobot${startAppQuery}`)],
-                [Markup.button.url("📢 Community", `https://t.me/oracle_news`)]
+                [Markup.button.url("📢 Community", `https://t.me/myoracle_news`)]
             ]),
             message_effect_id: effectIdTwo
         };

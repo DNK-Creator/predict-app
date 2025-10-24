@@ -36,7 +36,7 @@
     :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
 
 
-  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@oracle_news"
+  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@myoracle_news"
     @close="closeChannelModal" @subscribe="onSubscribeToChannel" />
 
 </template>
@@ -232,10 +232,10 @@ async function onSubscribeToChannel() {
   try {
     // try to open channel: prefer tg native (if available)
     try {
-      tg.openTelegramLink('https://t.me/oracle_news')
+      tg.openTelegramLink('https://t.me/myoracle_news')
     } catch (e) {
       // fallback
-      window.open('https://t.me/oracle_news', '_blank')
+      window.open('https://t.me/myoracle_news', '_blank')
     }
 
     showChannelFollowModal.value = false

@@ -23,7 +23,7 @@
                 Game: <a href="https://t.me/myoraclerobot">@myoraclerobot</a>
             </p>
             <p>
-                Developer: <a href="https://t.me/oracle_news">@oracle_news</a>
+                Developer: <a href="https://t.me/myoracle_news">@myoracle_news</a>
             </p>
             <p>
                 Support: <a href="https://t.me/myoracle_support">@myoracle_support</a>
@@ -214,7 +214,7 @@
                 Игра: <a href="https://t.me/myoraclerobot">@myoraclerobot</a>
             </p>
             <p>
-                Разработчик: <a href="https://t.me/oracle_news">@oracle_news</a>
+                Разработчик: <a href="https://t.me/myoracle_news">@myoracle_news</a>
             </p>
             <p>
                 Поддержка: <a href="https://t.me/myoracle_support">@myoracle_support</a>
