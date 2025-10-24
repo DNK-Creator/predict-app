@@ -461,7 +461,7 @@ async function onDeposit(amount) {
     //     baseReq.network = 'mainnet'
     // }
 
-    baseReq.network = 'mainnet'
+    // baseReq.network = 'mainnet'
 
     try {
         await ton.value.sendTransaction(baseReq)
