@@ -47,7 +47,7 @@
 
 <script setup>
 import ShareIcon from '@/assets/icons/Share_Icon.png'
-import { ref, defineEmits, defineProps, computed } from 'vue'
+import { ref, defineEmits, defineProps, watch } from 'vue'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 
