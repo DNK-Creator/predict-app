@@ -306,9 +306,9 @@ async function fetchTonBalance(address) {
 
 onMounted(async () => {
     if (!user) return
-    await fetchUsersTransactions()
+    await fetchUsersTransactions(app)
 
-    await subscribeToTransactions()
+    await subscribeToTransactions(app)
 
     spinnerShow.value = false
     transactionsShow.value = true

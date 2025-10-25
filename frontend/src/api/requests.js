@@ -1,8 +1,7 @@
+// src/api/requests.js (client side file)
 import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
-import { useAppStore } from '@/stores/appStore'
 
-const app = null
 const { user } = useTelegram()
 
 const MY_ID = user?.id
@@ -239,12 +238,10 @@ export async function updateUsername(name) {
     return error
 }
 
-export function subscribeToPointsChange(channelOld) {
-    if (app === null) app = useAppStore()
-
+export function subscribeToPointsChange(channelOld, appObj) {
     if (channelOld) {
         try { supabase.removeChannel(channelOld) } catch (e) { /* ignore */ }
-        app._pointsChannel = null
+        appObj._pointsChannel = null
     }
 
     const channel = supabase
@@ -256,11 +253,11 @@ export function subscribeToPointsChange(channelOld) {
             filter: `telegram=eq.${user?.id}`,
         }, () => {
             // whenever the user's row changes, re-fetch points
-            app.fetchPoints()
+            appObj.fetchPoints()
         })
         .subscribe()
 
-    app._pointsChannel = channel
+    appObj._pointsChannel = channel
 }
 
 export async function getUsersLanguage() {
@@ -310,9 +307,7 @@ export async function fetchAllHolidays() {
     return { data, error }
 }
 
-export async function fetchUsersTransactions() {
-    if (app === null) app = useAppStore()
-
+export async function fetchUsersTransactions(appObj) {
     const { data, error } = await supabase
         .from('transactions')
         .select('uuid, amount, status, gift_url, created_at, type')
@@ -324,10 +319,10 @@ export async function fetchUsersTransactions() {
         return
     }
 
-    app.transactions = data
+    appObj.transactions = data
 }
 
-export async function subscribeToTransactions() {
+export async function subscribeToTransactions(appObj) {
     // Create or reuse a channel
     const channel = supabase
         .channel('transactions-' + user?.id)
@@ -340,7 +335,7 @@ export async function subscribeToTransactions() {
                 filter: `user_id=eq.${user?.id}`
             },
             async () => {
-                await fetchUsersTransactions()
+                await fetchUsersTransactions(appObj)
             }
         )
 
