@@ -1,4 +1,5 @@
 // src/services/bets-requests.js
+import { createNewEvent, placeBetNotification } from '@/api/requests'
 import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
 
@@ -13,21 +14,18 @@ export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
     const id = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-        const resp = await fetch('https://api.myoracleapp.com/api/create-event', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
-                telegram: Number(user?.id),
-                name: String(eventObj.name),
-                descriptionCondition: String(eventObj.descriptionCondition),
-                descriptionPeriod: String(eventObj.descriptionPeriod),
-                descriptionContext: String(eventObj.descriptionContext),
-                side: String(eventObj.side),
-                stake: String(Number(eventObj.stake).toFixed(2)),
-                gifts_bet: eventObj.gifts_bet
-            })
-        });
+        const payload = {
+            telegram: Number(user?.id),
+            name: String(eventObj.name),
+            descriptionCondition: String(eventObj.descriptionCondition),
+            descriptionPeriod: String(eventObj.descriptionPeriod),
+            descriptionContext: String(eventObj.descriptionContext),
+            side: String(eventObj.side),
+            stake: String(Number(eventObj.stake).toFixed(2)),
+            gifts_bet: eventObj.gifts_bet
+        }
+
+        const resp = await createNewEvent(controller, payload)
 
         clearTimeout(id);
 
@@ -240,19 +238,10 @@ export async function placeBetRequest(betId, side, stake, placed_gifts) {
             chat_id: '@myoracle_chat'
         });
 
-        void fetch('https://api.myoracleapp.com/api/bet-placed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: payload,
-            keepalive: true
-        }).catch(err => {
-            // silently ignore but log for diagnostics
-            console.warn('Ignored webhook error (myoracle):', err);
-        });
-
+        await placeBetNotification(payload)
     } catch (err) {
         // Defensive: nothing should throw, but ignore any synchronous errors here too
-        console.warn('Ignored webhook setup error (myoracle):', err);
+        console.warn('Error when trying to create a new bet', err);
     }
 
     return {

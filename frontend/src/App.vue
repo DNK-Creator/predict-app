@@ -22,7 +22,6 @@
 
     <Navbar v-if="!outsideTelegram" />
 
-    <!-- <DevSafeDebug v-if="showDevSafeDebug" /> -->
   </div>
 
   <transition v-if="!outsideTelegram" name="overlay-fade" @after-leave="onOverlayHidden">
@@ -49,7 +48,7 @@ import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from 'vue'
 import { debug, info, warn, error, group, groupEnd, wrapAsync, installGlobalErrorHandlers } from '@/services/debugLogger'
 import { initLayout, disposeLayout, updateLayoutVars } from '@/services/useLayoutChanges' // ensure updateLayoutVars is exported
 import { getReferralFromUrl } from './services/urlParamsParse'
-import { userFirstTimeOpening, updateUsersWallet } from './api/requests'
+import { userFirstTimeOpening, updateUsersWallet, checkUserInChannel } from './api/requests'
 import { useAppStore } from '@/stores/appStore.js'
 import { useTelegram } from '@/services/telegram.js'
 import { Address } from '@ton/core'
@@ -60,9 +59,6 @@ import SettingsModal from './components/SettingsModal.vue'
 import AppLoader from './components/AppLoader.vue'
 import TutorialOverlay from './components/TutorialOverlay.vue'
 import ChannelFollowModal from './components/ChannelFollowModal.vue'
-import DevSafeDebug from '@/components/DebugArea.vue'
-
-const showDevSafeDebug = ref(false)
 
 const appDataLoading = ref(true)
 const loadingStage = ref(0)
@@ -79,8 +75,6 @@ const showSettings = ref(false)
 const router = useRouter()
 
 const route = useRoute()
-
-const API_BASE = 'https://api.myoracleapp.com'
 
 const userFirstTime = ref(false)
 const userFollowsChannel = ref(false)
@@ -505,8 +499,7 @@ async function checkChannelMembership() {
   }
 
   try {
-    const url = `${API_BASE}/api/channelMembership?userId=${userId}`;
-    const resp = await fetch(url, { credentials: 'include' }); // include credentials if your API uses cookies
+    const resp = await checkUserInChannel()
     if (!resp.ok) {
       // try to show any helpful server error, but return false to the caller
       const body = await resp.json().catch(() => null);

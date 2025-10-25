@@ -77,6 +77,7 @@ import EmptyGift from '@/assets/FrogToilet.tgs'
 import tonBlueIcon from '@/assets/icons/TON_Icon.png'
 import plusImg from '@/assets/icons/Transparent_Plus_Icon.png'
 import giftImg from '@/assets/icons/Gift_Icon.png'
+import { payStarsForWithdrawal, withdrawUsersGifts } from '@/api/requests'
 
 const props = defineProps({
     gifts: { type: Array, required: true },
@@ -209,11 +210,7 @@ async function withdrawGifts() {
 
     try {
         // 1) Request invoice link + orderId (server should embed orderId into invoice payload)
-        const resp = await fetch('https://api.myoracleapp.com/api/pay-withdraw', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payStarsPayload)
-        });
+        const resp = await payStarsForWithdrawal(payStarsPayload)
 
         if (!resp.ok) {
             const text = await resp.text().catch(() => null);
@@ -248,11 +245,7 @@ async function withdrawGifts() {
                 if (status === 'paid') {
                     // user successfully withdrawn gifts
                     try {
-                        const resp = await fetch('https://api.myoracleapp.com/api/withdraw-gifts', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(payload),
-                        })
+                        const resp = await withdrawUsersGifts(payload)
 
                         if (!resp.ok) {
                             // try parse error body

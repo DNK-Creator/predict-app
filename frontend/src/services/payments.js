@@ -1,23 +1,19 @@
+import { createStarsDepositLink, sendBotMessage } from "@/api/requests";
+
 // src/services/payment.js
 export async function fetchInvoiceLink(amount) {
-    const resp = await fetch("https://api.myoracleapp.com/api/invoice", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
-    });
+    const resp = await createStarsDepositLink(amount)
+
     if (!resp.ok) throw new Error("invoice creation failed");
     const { link } = await resp.json();
     return link;
 }
 
 // helper: call backend endpoint
-export async function fetchBotMessageTransaction(messageText, userId) {
+export async function fetchBotMessageTransaction(messageText) {
     try {
-        const resp = await fetch('https://api.myoracleapp.com/api/botmessage', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ messageText, userID: userId }),
-        });
+        const resp = await sendBotMessage(messageText)
+
         if (!resp.ok) {
             const err = await resp.json().catch(() => null);
             console.warn('botmessage endpoint returned non-OK', resp.status, err);

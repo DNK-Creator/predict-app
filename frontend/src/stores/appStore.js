@@ -1,6 +1,6 @@
 // src/stores/appStore.js (client side)
 import { defineStore } from 'pinia'
-import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, subscribeToPointsChange, getUsersLanguage, changeUsersLanguage, fetchUserReferrals } from '@/api/requests.js'
+import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, getUsersLanguage, changeUsersLanguage, fetchUserReferrals } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
@@ -109,7 +109,6 @@ export const useAppStore = defineStore('app', {
       try {
         debug('[app.init] fetching points & subscribing')
         await this.fetchPoints()
-        subscribeToPointsChange(this._pointsChannel, this)
         info('[app.init] points fetched & subscriptions set', { points: this.points })
       } catch (err) {
         warn('[app.init] points/subscriptions failed', { err: err?.message ?? err })

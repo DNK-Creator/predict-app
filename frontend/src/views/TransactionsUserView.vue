@@ -23,7 +23,7 @@
                     <h1 class="wallet-balance">{{ app.points }} TON</h1>
                     <div class="wallet-buttons">
                         <button class="wallet-button-withdraw" @click="openWithdrawalModal">{{ $t("withdraw")
-                            }}</button>
+                        }}</button>
                     </div>
                 </div>
             </div>
@@ -48,7 +48,7 @@ import TransactionsTable from '@/components/TransactionsTable.vue'
 import YourWalletModal from '@/components/YourWalletModal.vue'
 import WithdrawModal from '@/components/WithdrawalModal.vue'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
-import { fetchUsersTransactions, subscribeToTransactions, updateUsersWallet } from '@/api/requests'
+import { fetchUsersTransactions, updateUsersWallet, withdrawUserTon } from '@/api/requests'
 
 const app = useAppStore()
 
@@ -65,8 +65,6 @@ const showView = ref(false)
 
 const showWithdrawalModal = ref(false)
 const showWalletInfo = ref(false)
-
-const API_BASE = 'https://api.myoracleapp.com'
 
 const walletBalance = ref(null)
 
@@ -176,23 +174,13 @@ async function onWithdraw(amount) {
     let resp, data;
 
     try {
-        resp = await fetch(`${API_BASE}/api/withdraw`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                telegram: user?.id,
-                amount: amount,
-                amount_cut,
-                address: parsedAddress,
-                idempotencyKey
-            })
-        });
+        resp = await withdrawUserTon(amount, amount_cut, parsedAddress, idempotencyKey)
     } catch (err) {
         // network-level error (DNS, offline, CORS, etc.)
-        console.error('Network error while calling withdraw:', networkErr);
-        const netMsg = appStoreObj.language === 'ru' ? 'Сетевая ошибка' : 'Network error';
-        toast.error(`${netMsg}: ${networkErr.message || 'unknown'}`);
-        return;
+        console.error('Something went wrong while withdrawing.')
+        const netMsg = appStoreObj.language === 'ru' ? 'Ошибка при попытке соединения для вывода.' : 'Network error while trying to withdraw.'
+        toast.error(netMsg)
+        return
     }
 
     // Try to parse JSON, but tolerate non-JSON responses
@@ -245,7 +233,7 @@ async function onWithdraw(amount) {
     try {
         let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
             `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
-        fetchBotMessageTransaction(botMessageText, user?.id)
+        fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }
@@ -289,8 +277,14 @@ async function handleConnected(wallet) {
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
-        const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
-        const resp = await fetch(url);
+        const resp = await fetchTonBalance(address)
+
+        if (resp === null) {
+            let msgText = app.language === 'ru' ? 'Ошибка при соединении с сервером.' : 'Error when trying to fetch the server.'
+            toast.error(msgText)
+            return
+        }
+
         if (!resp.ok) {
             const err = await resp.json().catch(() => null);
             throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
@@ -307,8 +301,6 @@ async function fetchTonBalance(address) {
 onMounted(async () => {
     if (!user) return
     await fetchUsersTransactions(app)
-
-    await subscribeToTransactions(app)
 
     spinnerShow.value = false
     transactionsShow.value = true

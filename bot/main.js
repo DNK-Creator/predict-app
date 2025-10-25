@@ -8,7 +8,7 @@ import cors from "cors"
 import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
-import crypto from 'crypto';
+import crypto from 'crypto'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // service_role key (server-only)
@@ -176,14 +176,17 @@ app.use((req, res, next) => {
     }
 });
 
-
-// Light rate limiting for deposit-intent to reduce abuse
-const depositLimiter = rateLimit({
-    windowMs: 60 * 1000, // 1 minute window
-    max: 5, // max 10 deposit-intent requests per minute per IP
+const apiLimiter = rateLimit({
+    windowMs: 15 * 1000, // 15 seconds window
+    max: 30, // limit each IP to 30 requests per windowMs
     standardHeaders: true,
     legacyHeaders: false
 })
+
+app.use('/api/', apiLimiter)
+
+const usersApiRouter = require('./routes/api/users')
+app.use('/api', usersApiRouter)
 
 /*
   Handles the pre_checkout_query event.
@@ -422,6 +425,201 @@ app.get('/api/telegram/nft/:slug', async (req, res) => {
         return res.status(500).json({ error: err.message })
     }
 })
+
+// POST /api/bet-placed
+app.post('/api/bet-placed', async (req, res) => {
+    try {
+        const { telegram, bet_id, side, stake, placed_gifts, chat_id } = req.body || {};
+        if (!telegram || !bet_id || !side || (stake === undefined || stake === null)) {
+            return res.status(400).json({ error: 'telegram, bet_id, side, stake required' });
+        }
+
+        // fetch user row (get username)
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('id, username, telegram')
+            .eq('telegram', Number(telegram))
+            .maybeSingle();
+
+        if (userErr) {
+            console.error('bet-placed: supabase users select error', userErr);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!userRow) {
+            return res.status(404).json({ error: 'user_not_found' });
+        }
+
+        // fetch event row (get event name + volume)
+        const { data: eventRow, error: eventErr } = await supabaseAdmin
+            .from('bets')
+            .select('id, name_en, volume')
+            .eq('id', Number(bet_id))
+            .maybeSingle();
+
+        if (eventErr) {
+            console.error('bet-placed: supabase bets row select error', eventErr);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!eventRow) {
+            return res.status(404).json({ error: 'bet_not_found' });
+        }
+
+        const betNameEn = eventRow.name_en || 'Unknown event';
+
+        // compute totalPool from volume JSONB (handle object or JSON-string)
+        const rawVolume = eventRow.volume;
+        let volumeObj = {};
+        try {
+            if (!rawVolume) {
+                volumeObj = {};
+            } else if (typeof rawVolume === 'string') {
+                // sometimes Supabase returns jsonb as parsed object, but just in case it's a string
+                volumeObj = JSON.parse(rawVolume);
+            } else if (typeof rawVolume === 'object') {
+                volumeObj = rawVolume;
+            } else {
+                volumeObj = {};
+            }
+        } catch (e) {
+            console.warn('bet-placed: failed to parse volume json, treating as empty', e);
+            volumeObj = {};
+        }
+
+        // Sum numeric values in the object (case-insensitive keys not required for summation)
+        const totalPool = Object.values(volumeObj).reduce((acc, v) => {
+            const n = Number(v ?? 0);
+            return acc + (Number.isFinite(n) ? n : 0);
+        }, 0);
+
+        // prepare message (escape username & values for HTML mode)
+        const escapeHtml = (s = '') =>
+            String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+        // Build clickable username link: prefer https://t.me/<username> if available
+        const rawUsername = userRow.username ? String(userRow.username).replace(/^@/, '') : null;
+        let userLinkHref, userLinkText;
+        if (rawUsername) {
+            userLinkHref = `https://t.me/${encodeURIComponent(rawUsername)}`;
+            userLinkText = `@${rawUsername}`;
+        } else {
+            // fallback to tg://user?id=<telegram>
+            userLinkHref = `tg://user?id=${encodeURIComponent(String(userRow.telegram))}`;
+            userLinkText = `telegram:${userRow.telegram}`;
+        }
+
+        const stakeNumber = Number(stake);
+        const stakeFormatted = Number.isFinite(stakeNumber) ? stakeNumber : stake;
+
+        // Safely parse placed_gifts (may be array or JSON string).
+        let giftsArray = [];
+        try {
+            if (Array.isArray(placed_gifts)) {
+                giftsArray = placed_gifts;
+            } else if (placed_gifts) {
+                // if it's a stringified JSON, try parse; otherwise treat as empty
+                giftsArray = typeof placed_gifts === 'string' ? JSON.parse(placed_gifts) : [];
+            }
+        } catch (e) {
+            console.warn('bet-placed: failed to parse placed_gifts, ignoring gifts', e);
+            giftsArray = [];
+        }
+        if (!Array.isArray(giftsArray)) giftsArray = [];
+
+        const lines = [];
+        if (Number(stake) > 15) {
+            lines.push('<b>Whale Alert 🐳</b>');
+        }
+
+        // The clickable display: use HTML <a href="...">display</a> and escape display text
+        const clickable = `<a href="${userLinkHref}">${escapeHtml(userLinkText)}</a>`;
+        const sideEscaped = escapeHtml(String(side));
+        const betNameEscaped = escapeHtml(String(betNameEn));
+
+        const giftsList = giftsArray
+            .map(g => {
+                const gName = escapeHtml(String(g?.name ?? 'Gift'));
+                const gNumber = escapeHtml(String(g?.number ?? ''));
+                return `${gName}-${gNumber}`;
+            })
+            .filter(Boolean)
+            .join(', '); // join with comma and space
+
+        // Construct the single-line primary sentence
+        let primaryLine = '';
+        if (giftsList.length > 0) {
+            // gifts present
+            if (stakeNumber > 0) {
+                // include stake, then comma, then gifts, then on "side"
+                primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON, ${giftsList} on "${sideEscaped}"`;
+            } else {
+                // no stake: omit stake, show gifts only
+                primaryLine = `${clickable} just placed ${giftsList} on "${sideEscaped}"`;
+            }
+        } else {
+            // no gifts: keep previous single-line format with stake (even if 0 it will show 0)
+            primaryLine = `${clickable} just placed ${escapeHtml(String(stakeFormatted))} TON on "${sideEscaped}"`;
+        }
+
+        lines.push(primaryLine);
+
+        lines.push(`Event: ${betNameEscaped} ⭐`);
+
+        // Optionally log totalPool for debugging/metrics
+        console.log(`bet-placed: totalPool for bet ${bet_id} = ${totalPool}`);
+
+        // fetch user's giveaway tickets for this bet
+        let ticketsCount = 0;
+        try {
+            const { data: bhRow, error: bhErr } = await supabaseAdmin
+                .from('bets_holders')
+                .select('giveaway_tickets')
+                .eq('user_id', Number(telegram))
+                .eq('bet_id', Number(bet_id))
+                .maybeSingle();
+
+            if (bhErr) {
+                console.warn('bet-placed: bets_holders select error (non-fatal)', bhErr);
+            } else if (bhRow) {
+                ticketsCount = Number(bhRow.giveaway_tickets ?? 0);
+            }
+        } catch (e) {
+            console.warn('bet-placed: unexpected error querying bets_holders (non-fatal):', e);
+        }
+
+        // if user has tickets, add a blank line and then the tickets line
+        if (ticketsCount > 0) {
+            lines.push(''); // blank line separator
+            lines.push(`User now has ${ticketsCount} tickets for the giveaway 🎁`);
+        }
+
+        const messageText = lines.join('\n');
+
+        // send message using your Telegraf bot instance
+        try {
+            const chatId = chat_id || process.env.ANNOUNCE_CHAT_ID;
+            if (!chatId) {
+                console.error('bet-placed: no chat id configured (pass chat_id in body or set ANNOUNCE_CHAT_ID env)');
+                return res.status(500).json({ error: 'server_not_configured' });
+            }
+
+            const sent = await bot.telegram.sendMessage(chatId, messageText, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+            });
+
+            return res.json({ ok: true, result: sent, totalPool });
+        } catch (tgErr) {
+            console.error('bet-placed: telegram send error', tgErr);
+            return res.status(502).json({ error: 'telegram_error', details: String(tgErr), totalPool });
+        }
+    } catch (err) {
+        console.error('bet-placed unexpected error', err);
+        return res.status(500).json({ error: 'internal_error', details: String(err) });
+    }
+});
 
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
@@ -1662,7 +1860,7 @@ app.post('/api/withdraw', async (req, res) => {
     }
 });
 
-app.post('/api/deposit-intent', depositLimiter, async (req, res) => {
+app.post('/api/deposit-intent', async (req, res) => {
     try {
         // log incoming raw payload (helpful in debugging)
         console.log('[deposit-intent] incoming payload:', req.body);

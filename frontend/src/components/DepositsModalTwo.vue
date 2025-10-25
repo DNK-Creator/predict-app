@@ -167,6 +167,7 @@ import StarsMedia from '@/assets/LootBag.tgs'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
 import tonIcon from '@/assets/icons/TON_White_Icon.png'
 import StarIcon from '@/assets/icons/Star.png'
+import { fetchTonPrice } from '@/api/requests'
 
 const app = useAppStore()
 
@@ -656,11 +657,11 @@ const TON_PRICE_TTL_MS = 60 * 1000   // cache TTL 60s
 const TON_PRICE_TIMEOUT_MS = 4000    // fetch timeout
 
 // helper: fetch with timeout (uses global fetch)
-async function fetchWithTimeout(url, timeoutMs) {
+async function fetchWithTimeout(timeoutMs) {
     const controller = new AbortController()
     const id = setTimeout(() => controller.abort(), timeoutMs)
     try {
-        const resp = await fetch(url, { signal: controller.signal })
+        const resp = await fetchTonPrice()
         return resp
     } finally {
         clearTimeout(id)
@@ -676,7 +677,7 @@ async function fetchTonPriceFromServer({ force = false } = {}) {
 
     try {
         // adjust endpoint if your server uses a different path
-        const resp = await fetchWithTimeout('https://api.myoracleapp.com/api/tonprice', TON_PRICE_TIMEOUT_MS)
+        const resp = await fetchWithTimeout(TON_PRICE_TIMEOUT_MS)
 
         if (!resp.ok) {
             const txt = await resp.text().catch(() => '')

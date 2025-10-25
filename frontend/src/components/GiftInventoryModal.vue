@@ -79,6 +79,7 @@ import lottie from 'lottie-web'
 import tonIcon from '@/assets/icons/TON_Icon.png'
 import copyIcon from '@/assets/icons/Copy_Icon_Two.png'
 import okayIcon from '@/assets/icons/Okay_Icon.png'
+import { getGiftInfo } from '@/api/requests'
 
 const props = defineProps({
     visible: { type: Boolean, default: false },
@@ -103,9 +104,9 @@ async function getTelegramGift() {
 
     const slug = `${urlSafeName}-${props.gift.number}`
 
-    const r = await fetch(`https://api.myoracleapp.com/api/telegram/nft/${encodeURIComponent(slug)}`)
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    return await r.json()
+    const resp = getGiftInfo(slug)
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+    return await resp.json()
 }
 
 /* ----- mapping gift_id -> tgs asset ----- */

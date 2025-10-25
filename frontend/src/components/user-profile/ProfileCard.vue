@@ -87,7 +87,7 @@ import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
 import withdrawIcon from '@/assets/icons/Wallet_Icon_Gray.png'
-import { updateUsersWallet } from '@/api/requests'
+import { cancelDepositIntent, createDepositIntent, depositUserStars, updateUsersWallet, withdrawUserTon } from '@/api/requests'
 
 const { user, tg } = useTelegram()
 
@@ -112,8 +112,6 @@ const walletAddress = computed(() => {
 const modalAnimating = ref(false)
 
 const showWithdrawalModal = ref(false)
-
-const API_BASE = 'https://api.myoracleapp.com'
 
 const walletBalance = ref(null)
 const walletStatus = ref('Подключите кошелек')
@@ -271,17 +269,7 @@ async function onWithdraw(amount) {
     let resp, data;
 
     try {
-        resp = await fetch(`${API_BASE}/api/withdraw`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                telegram: user?.id,
-                amount: amount,
-                amount_cut,
-                address: parsedAddress,
-                idempotencyKey
-            })
-        });
+        resp = await withdrawUserTon(amount, amount_cut, parsedAddress, idempotencyKey)
     } catch (err) {
         // network-level error (DNS, offline, CORS, etc.)
         console.error('Network error while calling withdraw:', networkErr);
@@ -340,7 +328,7 @@ async function onWithdraw(amount) {
     try {
         let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
             `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
-        fetchBotMessageTransaction(botMessageText, user?.id)
+        fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
     }
@@ -494,13 +482,7 @@ async function onDepositStars(amount) {
                     const amountNum = Number(amount)
                     const amountStarsRounded = Number(amountNum.toFixed(2))
 
-                    const headers = { 'Content-Type': 'application/json' }
-
-                    const resp = await fetch(`${API_BASE}/api/stars-payment`, {
-                        method: 'POST',
-                        headers,
-                        body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id })
-                    })
+                    const resp = await depositUserStars(amountStarsRounded)
 
                     const json = await resp.json().catch(() => null)
                     if (!resp.ok) {
@@ -549,12 +531,7 @@ async function createDepositIntentOnServer(amount) {
         userParsedAddr = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false })
     }
     try {
-        const resp = await fetch(`${API_BASE}/api/deposit-intent`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ amount, user_id: user?.id, usersWallet: userParsedAddr }),
-            signal: controller.signal,
-        });
+        const resp = await createDepositIntent(controller, amount, userParsedAddr)
 
         clearTimeout(timeout);
 
@@ -594,12 +571,7 @@ async function cancelDepositIntentOnServer(txId) {
     const timeout = setTimeout(() => controller.abort(), 10_000);
     try {
 
-        const resp = await fetch(`${API_BASE}/api/deposit-cancel`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ txId }),
-            signal: controller.signal,
-        });
+        const resp = await cancelDepositIntent(controller, txId)
 
         clearTimeout(timeout);
 
@@ -658,14 +630,8 @@ async function reconnectWallet() {
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
-        const url = `${API_BASE}/api/balance?address=${encodeURIComponent(address)}`;
-        let resp;
-        try {
-            resp = await fetch(url)
-        } catch (err) {
-            console.warn('Backend is unavailable or network error: ' + err)
-            return
-        }
+        const resp = fetchTonBalance(address)
+        if (resp === null) return
 
         if (!resp.ok) {
             const err = await resp.json().catch(() => null);
