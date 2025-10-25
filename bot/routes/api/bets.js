@@ -116,30 +116,6 @@ router.get('/bets/created', async (req, res) => {
 })
 
 /**
- * GET /api/bets/:id/holders
- */
-router.get('/bets/:id/holders', async (req, res) => {
-    try {
-        const id = req.betId // validated by router.param
-        console.log('[GET] /api/bets/:id/holders hit, betId=', id)
-
-        const { data, error } = await supabaseAdmin
-            .from('bets_holders')
-            .select('id, created_at, user_id, bet_id, stake_with_gifts, giveaway_tickets, side, username, photo_url')
-            .eq('bet_id', id)
-            .order('stake_with_gifts', { ascending: false })
-
-        if (error) return sendServerError(res, error, 'db_query_failed')
-
-        console.log(`Fetched ${Array.isArray(data) ? data.length : 0} holders for bet_id=${id}`)
-        return res.json({ rows: data ?? [] })
-    } catch (err) {
-        console.error('failed_fetch_bets_holders handler error:', err)
-        return sendServerError(res, err, 'failed_fetch_bets_holders')
-    }
-})
-
-/**
  * GET /api/bets/user-active?telegram=123
  * returns bets with user's stake merged in
  */
@@ -545,6 +521,30 @@ router.get('/comments', async (req, res) => {
         return res.json({ rows: data ?? [] })
     } catch (err) {
         return sendServerError(res, err, 'failed_fetch_comments')
+    }
+})
+
+/**
+ * GET /api/bets/:id/holders
+ */
+router.get('/bets/:id/holders', async (req, res) => {
+    try {
+        const id = req.betId // validated by router.param
+        console.log('[GET] /api/bets/:id/holders hit, betId=', id)
+
+        const { data, error } = await supabaseAdmin
+            .from('bets_holders')
+            .select('id, created_at, user_id, bet_id, stake_with_gifts, giveaway_tickets, side, username, photo_url')
+            .eq('bet_id', id)
+            .order('stake_with_gifts', { ascending: false })
+
+        if (error) return sendServerError(res, error, 'db_query_failed')
+
+        console.log(`Fetched ${Array.isArray(data) ? data.length : 0} holders for bet_id=${id}`)
+        return res.json({ rows: data ?? [] })
+    } catch (err) {
+        console.error('failed_fetch_bets_holders handler error:', err)
+        return sendServerError(res, err, 'failed_fetch_bets_holders')
     }
 })
 
