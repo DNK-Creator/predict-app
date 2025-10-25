@@ -9,6 +9,8 @@ import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
+import usersApiRouter from './routes/api/users.js'
+import betsApiRouter from './routes/api/bets.js'
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL; // e.g. https://xyz.supabase.co
 const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY; // service_role key (server-only)
@@ -184,10 +186,7 @@ const apiLimiter = rateLimit({
 })
 
 app.use('/api/', apiLimiter)
-
-const usersApiRouter = require('./routes/api/users')
 app.use('/api', usersApiRouter)
-const betsApiRouter = require('./routes/api/bets')
 app.use('/api', betsApiRouter)
 
 /*
