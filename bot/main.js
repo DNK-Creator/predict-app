@@ -187,6 +187,8 @@ app.use('/api/', apiLimiter)
 
 const usersApiRouter = require('./routes/api/users')
 app.use('/api', usersApiRouter)
+const betsApiRouter = require('./routes/api/bets')
+app.use('/api', betsApiRouter)
 
 /*
   Handles the pre_checkout_query event.

@@ -23,6 +23,19 @@ function parseIntOrNull(v) {
     return Number.isFinite(n) ? n : null
 }
 
+// GET /api/user/placed-bets?telegram=123
+router.get('/user/placed-bets', async (req, res) => {
+    const telegram = parseIntOrNull(req.query.telegram)
+    if (!telegram) return res.status(400).json({ error: 'telegram required' })
+    const { data, error } = await supabaseAdmin
+        .from('users')
+        .select('placed_bets')
+        .eq('telegram', telegram)
+        .maybeSingle()
+    if (error) return sendServerError(res, error, 'db_error')
+    return res.json({ placed_bets: data?.placed_bets ?? [] })
+})
+
 /**
  * GET /api/user/first-time?telegram=123
  * Response: { isFirstTime: boolean }
@@ -548,4 +561,4 @@ router.get('/user/transactions', async (req, res) => {
     }
 })
 
-module.exports = router
+export default router

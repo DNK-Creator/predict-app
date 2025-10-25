@@ -1,5 +1,4 @@
 // src/api/requests.js (client side file)
-import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
 
 const { user } = useTelegram()
@@ -55,11 +54,6 @@ async function apiFetch(path, { method = 'GET', body = null, signal = null, head
         clearTimeout(id)
     }
 }
-
-/* -----------------
-   Replaced functions that previously used supabase directly
-   Each calls server endpoints added in the server snippet below.
-   ----------------- */
 
 export async function userFirstTimeOpening(telegramId) {
     const idToCheck = telegramId ?? user?.id ?? null
