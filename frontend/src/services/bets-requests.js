@@ -39,7 +39,16 @@ async function apiFetch(path, { method = 'GET', body = null, signal = null, head
             e.name = 'AbortError'
             throw e
         }
-        throw err
+
+        // If fetch's response created an error earlier we set err.status/body there,
+        // but ensure we pass it through and include textual body if available.
+        // Some bundlers present Response-derived errors differently; normalize:
+        const e = new Error(err.message || 'Network error')
+        e.original = err
+        // preserve status/body if present
+        if (err.status) e.status = err.status
+        if (err.body) e.body = err.body
+        throw e
     } finally {
         clearTimeout(id)
     }
@@ -242,6 +251,9 @@ export async function getUserBetAmount(betId) {
         return resp.data ?? { stake: 0, placed_gifts: [], result: "0" }
     } catch (err) {
         console.error('getUserBetAmount error', err)
+        if (err.body) {
+            console.error('server returned body:', err.body)
+        }
         throw err
     }
 }

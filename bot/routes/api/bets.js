@@ -346,17 +346,36 @@ router.get('/bets/available-comments', async (req, res) => {
  */
 router.get('/bets/user-bet-amount', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        const betId = parseIntOrNull(req.query.betId)
-        if (!telegram || betId == null) return res.status(400).json({ error: 'telegram and betId required' })
+        // Log raw incoming query (very helpful for debugging)
+        console.log('[DEBUG] GET /api/bets/user-bet-amount raw query:', req.query)
 
+        // Accept either string or array form (express may parse repeated keys into arrays)
+        const rawTelegram = Array.isArray(req.query.telegram) ? req.query.telegram[0] : req.query.telegram
+        const rawBetId = Array.isArray(req.query.betId) ? req.query.betId[0] : req.query.betId
+
+        const telegram = parseIntOrNull(rawTelegram)
+        const betId = parseIntOrNull(rawBetId)
+
+        // Defensive validation: explicitly check for null/NaN
+        if (telegram == null || betId == null) {
+            console.warn('[WARN] user-bet-amount missing/invalid params', { rawTelegram, rawBetId, telegram, betId })
+            return res.status(400).json({
+                error: 'telegram and betId required',
+                received: { rawTelegram, rawBetId, telegram, betId }
+            })
+        }
+
+        // Continue as before
         const { data, error } = await supabaseAdmin
             .from('users')
             .select('placed_bets')
             .eq('telegram', telegram)
             .single()
 
-        if (error) return sendServerError(res, error, 'db_profile_fetch_failed')
+        if (error) {
+            console.error('user-bet-amount db error:', error)
+            return sendServerError(res, error, 'db_profile_fetch_failed')
+        }
 
         const placed = Array.isArray(data?.placed_bets) ? data.placed_bets : []
         const entry = placed.find(b => Number(b.bet_id) === Number(betId))
