@@ -142,18 +142,6 @@ export async function getUsersWonBetsCount() {
     return data.bets_won;
 }
 
-export async function getGiftsPrices() {
-    const { data, error } = await supabase
-        .from('gift_prices')
-        .select('*')
-
-    if (error) {
-        console.error('Error fetching points:', error);
-        return {};
-    }
-    return data;
-}
-
 export async function getUsersWalletAddress() {
     if (!MY_ID) return null
     const { data, error } = await supabase
@@ -211,7 +199,7 @@ export async function updateUsersWallet(wallet_to_update) {
 export async function getGiftsPrices() {
     const { data, error } = await supabase
         .from('gift_prices')
-        .select('collection_name, price_ton, lottie_url')
+        .select('*')
 
     if (error) {
         console.error('Error loading gifts: ', error)
