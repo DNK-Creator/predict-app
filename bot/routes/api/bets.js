@@ -16,6 +16,17 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false }
 })
 
+// param middleware — runs for routes with :id
+router.param('id', (req, res, next, value) => {
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+        return res.status(400).json({ error: 'invalid id' })
+    }
+    const n = Number(value)
+    if (!Number.isFinite(n)) return res.status(400).json({ error: 'invalid id' })
+    req.betId = n
+    next()
+})
+
 // small util
 function parseIntOrNull(v) {
     if (v == null) return null
@@ -105,24 +116,20 @@ router.get('/bets/created', async (req, res) => {
 })
 
 /**
- * GET /api/bets/:id(\\d+)/holders
+ * GET /api/bets/:id/holders
  */
-router.get('/bets/:id(\\d+)/holders', async (req, res) => {
+router.get('/bets/:id/holders', async (req, res) => {
     try {
-        // Now use req.betId (already validated)
-        const id = req.betId
+        const id = req.betId // validated by router.param
         console.log('[GET] /api/bets/:id/holders hit, betId=', id)
 
         const { data, error } = await supabaseAdmin
             .from('bets_holders')
             .select('id, created_at, user_id, bet_id, stake_with_gifts, giveaway_tickets, side, username, photo_url')
-            .eq('bet_id', id) // pass number when column is numeric
+            .eq('bet_id', id)
             .order('stake_with_gifts', { ascending: false })
 
-        if (error) {
-            console.error('supabase error while fetching bets_holders:', error)
-            return sendServerError(res, error, 'db_query_failed')
-        }
+        if (error) return sendServerError(res, error, 'db_query_failed')
 
         console.log(`Fetched ${Array.isArray(data) ? data.length : 0} holders for bet_id=${id}`)
         return res.json({ rows: data ?? [] })
