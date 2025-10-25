@@ -5,8 +5,8 @@ import { createClient } from '@supabase/supabase-js'
 
 const router = express.Router()
 
-const SUPABASE_URL = process.env.SUPABASE_URL
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL
+const SUPABASE_SERVICE_KEY = process.env.VITE_SUPABASE_SERVICE_KEY
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
     console.error('Supabase server keys are not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_KEY')
