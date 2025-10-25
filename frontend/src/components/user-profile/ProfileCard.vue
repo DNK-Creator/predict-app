@@ -87,7 +87,7 @@ import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
 import withdrawIcon from '@/assets/icons/Wallet_Icon_Gray.png'
-import { cancelDepositIntent, createDepositIntent, depositUserStars, updateUsersWallet, withdrawUserTon } from '@/api/requests'
+import { cancelDepositIntent, createDepositIntent, depositUserStars, fetchUsersBalanceWalletTon, updateUsersWallet, withdrawUserTon } from '@/api/requests'
 
 const { user, tg } = useTelegram()
 
@@ -630,7 +630,7 @@ async function reconnectWallet() {
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
-        const resp = fetchTonBalance(address)
+        const resp = fetchUsersBalanceWalletTon(address)
         if (resp === null) return
 
         if (!resp.ok) {

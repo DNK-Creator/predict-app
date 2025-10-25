@@ -48,7 +48,7 @@ import TransactionsTable from '@/components/TransactionsTable.vue'
 import YourWalletModal from '@/components/YourWalletModal.vue'
 import WithdrawModal from '@/components/WithdrawalModal.vue'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
-import { fetchUsersTransactions, updateUsersWallet, withdrawUserTon } from '@/api/requests'
+import { fetchUsersBalanceWalletTon, fetchUsersTransactions, updateUsersWallet, withdrawUserTon } from '@/api/requests'
 
 const app = useAppStore()
 
@@ -277,7 +277,7 @@ async function handleConnected(wallet) {
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
-        const resp = await fetchTonBalance(address)
+        const resp = await fetchUsersBalanceWalletTon(address)
 
         if (resp === null) {
             let msgText = app.language === 'ru' ? 'Ошибка при соединении с сервером.' : 'Error when trying to fetch the server.'

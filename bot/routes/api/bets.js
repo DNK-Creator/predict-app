@@ -525,12 +525,38 @@ router.get('/comments', async (req, res) => {
 })
 
 /**
+ * GET /api/bet/:id/availability
+ */
+router.get('/bet/:id/availability', async (req, res) => {
+    try {
+        const id = parseIntOrNull(req.params.id)
+        if (!id) return res.status(400).json({ error: 'invalid id' })
+
+        const { data, error } = await supabaseAdmin
+            .from('bets')
+            .select('is_approved')
+            .eq('id', id)
+            .single()
+
+        if (error) {
+            console.error('bet availability error', error)
+            return res.status(500).json({ error: 'db_error', details: error.message })
+        }
+
+        return res.json({ is_approved: data?.is_approved ?? false })
+    } catch (err) {
+        console.error('bet availability handler error', err)
+        return res.status(500).json({ error: 'internal', details: String(err) })
+    }
+})
+
+/**
  * GET /api/bets/:id/holders
  */
-router.get('/bets/:id/holders', async (req, res) => {
+router.get('/bets/get-holders/:id', async (req, res) => {
     try {
         const id = req.betId // validated by router.param
-        console.log('[GET] /api/bets/:id/holders hit, betId=', id)
+        console.log('[GET] /api/bets/get-holders/:id hit, betId=', id)
 
         const { data, error } = await supabaseAdmin
             .from('bets_holders')

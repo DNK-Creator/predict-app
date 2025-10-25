@@ -361,7 +361,7 @@ export async function cancelDepositIntent(controller, txId) {
     return resp
 }
 
-export async function fetchTonBalance(address) {
+export async function fetchUsersBalanceWalletTon(address) {
     const url = `${BACKEND_URL}/api/balance?address=${encodeURIComponent(address)}`;
 
     let resp

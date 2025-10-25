@@ -2067,10 +2067,16 @@ app.post('/api/stars-payment', async (req, res) => {
 // ---------- GET /api/balance?address=... ----------
 app.get('/api/balance', async (req, res) => {
     try {
+        console.log('FETCH TON BALANCE HIT /API/BALANCE')
         const address = String(req.query.address || '').trim();
-        if (!address) return res.status(400).json({ error: 'address query param required' });
+        if (!address) {
+            console.log('Fetch ton balance ERROR : ' + 'address query param required')
+            return res.status(400).json({ error: 'address query param required' });
+        }
+
 
         if (!TONCENTER_API_KEY) {
+            console.log('Fetch ton balance ERROR : ' + 'Server not configured to fetch balances')
             return res.status(500).json({ error: 'Server not configured to fetch balances' });
         }
 
