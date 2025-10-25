@@ -64,7 +64,7 @@
 </template>
 
 <script setup>
-import { ref, defineProps, defineEmits, onMounted, computed, watchEffect } from 'vue'
+import { ref, defineProps, defineEmits, onMounted, computed } from 'vue'
 import lottie from 'lottie-web'
 import pako from 'pako'
 import 'vue3-toastify/dist/index.css'

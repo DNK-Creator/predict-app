@@ -34,10 +34,12 @@ function openRelayerChat() {
 async function loadGifts() {
     if (!user) return
     try {
-        displayedGifts.value = getUsersInventory()
+        displayedGifts.value = await getUsersInventory()
     } catch (err) {
         console.error('Unexpected error in loadGifts:', err)
         displayedGifts.value = []
+    } finally {
+        giftsShow.value = true
     }
 }
 
@@ -108,7 +110,6 @@ function onWithdrawComplete(evt) {
 onMounted(async () => {
     await loadGifts()
     spinnerShow.value = false
-    giftsShow.value = true
 })
 
 // toggle the view when spinner hides (avoid flicker by waiting a paint)

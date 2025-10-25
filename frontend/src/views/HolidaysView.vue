@@ -47,7 +47,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, onBeforeUnmount, computed, watch, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, onActivated, onDeactivated, nextTick } from 'vue'
 
 // Components / services
 import HolidayCard from '@/components/HolidayCard.vue'
@@ -177,8 +177,6 @@ function getShortDescription(descriptionValueRu, descriptionValueEn) {
     return shortDescriptionEn
 }
 
-/* ---------------- Data loading + tab-aware pagination ---------------- */
-
 async function fetchAllAndPrepare() {
     try {
         const { data, error } = await fetchAllHolidays()
@@ -200,12 +198,12 @@ async function fetchAllAndPrepare() {
 
         normalized.sort(sortFutureThenPastByCloseness)
         allHolidays.value = normalized
+
+        // Remove the duplicate call and don't clear holidays before loading
         preparePagedCacheForTab(selectedTab.value)
 
-        // prepare paged cache for currently selected tab and load first page
-        preparePagedCacheForTab(selectedTab.value)
-        holidays.value = []
-        await loadMoreHolidays()
+        // Don't clear holidays here - let preparePagedCacheForTab handle it through the transition
+        // The incomingPage mechanism will handle setting the holidays
     } catch (err) {
         console.error('fetchAllAndPrepare failed', err)
     } finally {
@@ -227,10 +225,8 @@ function preparePagedCacheForTab(tab) {
     cachedPages = pages
 
     // Stage the first page to be mounted after the current list finishes leaving.
-    // If there is no page, stage an empty array.
     if (Array.isArray(pages) && pages.length > 0) {
         incomingPage.value = pages[0].slice()
-        // pages array stored in cachedPages already; page index reset to next page
         page.value = 1
         allLoaded.value = pages.length <= 1
     } else {
@@ -240,6 +236,15 @@ function preparePagedCacheForTab(tab) {
     }
 
     loadingMore.value = false
+
+    // If we're not in a transition, apply the incoming page immediately
+    if (!isLeaving.value && !showDisplayed.value) {
+        holidays.value = Array.isArray(incomingPage.value) ? incomingPage.value.slice() : []
+        incomingPage.value = null
+        displayedTab.value = tab
+        listKey.value = displayedTab.value + '-' + Date.now()
+        showDisplayed.value = true
+    }
 }
 
 /** loadMore uses cachedPages (tab-aware) */
@@ -370,11 +375,21 @@ onDeactivated(() => {
     showDisplayed.value = false
 })
 
-onActivated(() => {
-    // When component is activated (from keep-alive), ensure we're showing the correct tab
-    if (displayedTab.value !== selectedTab.value) {
+onActivated(async () => {
+    // When component is activated (from keep-alive), ensure data is loaded and displayed
+    if (!allHolidays.value.length) {
+        // No data loaded yet - fetch it
+        spinnerShow.value = true
+        await fetchAllAndPrepare()
+    } else if (displayedTab.value !== selectedTab.value || !holidays.value.length) {
+        // We have data but it's for the wrong tab, or no holidays displayed
         showDisplayed.value = false
         preparePagedCacheForTab(selectedTab.value)
+    } else {
+        // Data is already correct, just ensure observer is set up
+        nextTick(() => {
+            observeScrollEnd()
+        })
     }
 })
 

@@ -215,7 +215,7 @@ export async function getUsersInventory() {
         console.error('Error loading user inventory :', error)
         return []
     } else {
-        return Array.isArray(data) ? data[0].inventory : data.inventory
+        return data?.inventory ?? []
     }
 }
 
