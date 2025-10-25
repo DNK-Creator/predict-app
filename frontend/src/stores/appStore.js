@@ -1,6 +1,6 @@
 // src/stores/appStore.js (client side)
 import { defineStore } from 'pinia'
-import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, subscribeToPointsChange, getUsersLanguage, changeUsersLanguage, fetchUserReferrals, getUsersTransactions } from '@/api/requests.js'
+import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, subscribeToPointsChange, getUsersLanguage, changeUsersLanguage, fetchUserReferrals } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
