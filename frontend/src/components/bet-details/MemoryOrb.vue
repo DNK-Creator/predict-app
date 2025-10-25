@@ -52,8 +52,8 @@ defineProps({
     inside_image: { type: String, required: true, default: "" },
 });
 
-const handSrc =
-    "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/SkellyArmFive.png";
+// const handSrc =
+//     "https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/gifts-images/SkellyArmFive.png";
 
 const orb = ref(null);
 const innerMain = ref(null);

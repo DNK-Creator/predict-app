@@ -48,12 +48,11 @@ import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from 'vue'
 import { debug, info, warn, error, group, groupEnd, wrapAsync, installGlobalErrorHandlers } from '@/services/debugLogger'
 import { initLayout, disposeLayout, updateLayoutVars } from '@/services/useLayoutChanges' // ensure updateLayoutVars is exported
 import { getReferralFromUrl } from './services/urlParamsParse'
-import { userFirstTimeOpening } from './api/requests'
+import { userFirstTimeOpening, updateUsersWallet } from './api/requests'
 import { useAppStore } from '@/stores/appStore.js'
 import { useTelegram } from '@/services/telegram.js'
 import { Address } from '@ton/core'
 import { useTon } from './services/useTon'
-import supabase from './services/supabase'
 import Navbar from './components/Navbar.vue'
 import Header from './components/Header.vue'
 import SettingsModal from './components/SettingsModal.vue'
@@ -357,14 +356,7 @@ async function reconnectWallet() {
     app.walletAddress = null
     await ton.value.disconnect()
 
-    const { error } = await supabase
-      .from('users')
-      .update({ wallet_address: null })
-      .eq('telegram', user?.id)
-    if (error) {
-      console.error('Error updating wallet_address:', error)
-    }
-
+    await updateUsersWallet(null)
   }
   // Then always open the wallet selector
   const wallet = await ton.value.connectWallet()
@@ -389,16 +381,7 @@ async function handleConnected(wallet) {
     }
   }
 
-  // update Supabase users.wallet_address (keep your previous logic)
-  if (user || !user) {
-    const { error } = await supabase
-      .from('users')
-      .update({ wallet_address: parsedAddress })
-      .eq('telegram', user?.id)
-    if (error) {
-      console.error('Error updating wallet_address:', error)
-    }
-  }
+  await updateUsersWallet(parsedAddress)
 }
 
 function openDepositWindow() {

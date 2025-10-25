@@ -1,6 +1,8 @@
 import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
+import { useAppStore } from '@/stores/appStore'
 
+const app = useAppStore()
 const { user } = useTelegram()
 
 const MY_ID = user?.id
@@ -88,21 +90,14 @@ export async function registerRef(inviterTelegram, inviterUsername, inviteeTeleg
     return data;
 }
 
-/** other helper functions you had (points, bets summary) — adapt to use dynamic telegram when needed **/
-export async function getUsersPoints(telegramId) {
-    if (!telegramId) return null;
+export async function getUsersPoints() {
     const { data, error } = await supabase
         .from('users')
         .select('points')
-        .eq('telegram', Number(telegramId))
+        .eq('telegram', user?.id)
         .single();
 
-    if (error) {
-        console.error('Error fetching points:', error);
-        return null;
-    }
-
-    return data.points;
+    return { data, error };
 }
 
 export async function getUsersBetsSummary() {
@@ -200,4 +195,167 @@ export async function getUsersByTelegrams(telegrams = []) {
     }
 
     return data ?? [];
+}
+
+export async function updateUsersWallet(wallet_to_update) {
+    const { data, error } = await supabase
+        .from('users')
+        .update({ wallet_address: wallet_to_update })
+        .eq('telegram', user?.id)
+
+    if (error) {
+        console.error('Error updating wallet_address: ', error)
+    }
+}
+
+export async function getGiftsPrices() {
+    const { data, error } = await supabase
+        .from('gift_prices')
+        .select('collection_name, price_ton, lottie_url')
+
+    if (error) {
+        console.error('Error loading gifts: ', error)
+        return []
+    } else {
+        return Array.isArray(data) ? data : []
+    }
+}
+
+export async function getUsersInventory() {
+    const { data, error } = await supabase
+        .from('users')
+        .select('inventory')
+        .eq('telegram', user?.id)
+        .single()
+
+    if (error) {
+        console.error('Error loading user inventory :', error)
+        return []
+    } else {
+        return Array.isArray(data) ? data[0].inventory : data.inventory
+    }
+}
+
+export async function isBetAvailable() {
+    const { data, error } = await supabase
+        .from('bets')
+        .select('is_approved')
+        .eq('id', numericId)
+        .single()
+
+    return { data, error }
+}
+
+export async function updateUsername(name) {
+    const { error } = await supabase
+        .from('users')
+        .update({ username: name })
+        .eq('telegram', user?.id)
+
+    return error
+}
+
+export function subscribeToPointsChange(channel) {
+    if (channel) {
+        try { supabase.removeChannel(channel) } catch (e) { /* ignore */ }
+        app._pointsChannel = null
+    }
+
+    const channel = supabase
+        .channel(`points-${user?.id}`)
+        .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'users',
+            filter: `telegram=eq.${user?.id}`,
+        }, () => {
+            // whenever the user's row changes, re-fetch points
+            app.fetchPoints()
+        })
+        .subscribe()
+
+    app._pointsChannel = channel
+}
+
+export async function getUsersLanguage() {
+    const { data, error } = await supabase
+        .from('users')
+        .select('language')
+        .eq('telegram', user?.id)
+        .single()
+
+    return { data, error }
+}
+
+export async function changeUsersLanguage(code) {
+    const { error } = await supabase
+        .from('users')
+        .update({ language: code })
+        .eq('telegram', user?.id)
+
+    return { error }
+}
+
+export async function fetchUserReferrals() {
+    const { data, error } = await supabase
+        .from('users')
+        .select('telegram, total_winnings')
+        .eq('referred_by', user?.id)
+
+    return { data, error }
+}
+
+export async function fetchBetsHolders(from, to) {
+    const { data, error } = await supabase
+        .from('bets_holders')
+        .select('id, stake_with_gifts, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
+        .eq('dont_show', false)
+        .order('created_at', { ascending: false })
+        .range(from, to)
+
+    return { data, error }
+}
+
+export async function fetchAllHolidays() {
+    const { data, error } = await supabase
+        .from('holidays')
+        .select('id, name, name_en, description, description_en, image_path, date')
+
+    return { data, error }
+}
+
+export async function fetchUsersTransactions() {
+    const { data, error } = await supabase
+        .from('transactions')
+        .select('uuid, amount, status, gift_url, created_at, type')
+        .eq('user_id', user?.id)
+        .order('created_at', { ascending: false })
+
+    if (error) {
+        console.error('Something went wrong when fetching users transactions: ' + error)
+        return
+    }
+
+    app.transactions = data
+}
+
+export async function subscribeToTransactions() {
+    // Create or reuse a channel
+    const channel = supabase
+        .channel('transactions-' + user?.id)
+        .on(
+            'postgres_changes',
+            {
+                event: '*',
+                schema: 'public',
+                table: 'transactions',
+                filter: `user_id=eq.${user?.id}`
+            },
+            async () => {
+                await fetchUsersTransactions()
+            }
+        )
+
+    // finally subscribe
+    channel.subscribe()
 }

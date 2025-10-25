@@ -122,11 +122,11 @@ import { useAppStore } from '@/stores/appStore'
 import { useTelegram } from '@/services/telegram'
 import { useVirtualList } from '@vueuse/core'
 import { requestCreateBet } from '@/services/bets-requests'
-import supabase from '@/services/supabase'
 import TonIcon from '@/assets/icons/TON_White_Icon.png'
 import PastIcon from '@/assets/icons/Past_Icon.png'
 import tonBlueIcon from '@/assets/icons/TON_Icon.png'
 import plusImg from '@/assets/icons/Transparent_Plus_Icon.png'
+import { getUsersInventory } from '@/api/requests'
 
 const app = useAppStore()
 const { user } = useTelegram()
@@ -157,23 +157,11 @@ const isSelected = (id) => selectedOrder.value.indexOf(id) !== -1
 
 const displayedGifts = ref([])
 
-// ——— Load gifts from Supabase ———
+// ——— Load gifts from Users Inventory ———
 async function loadGifts() {
     if (!user) return []
     try {
-        const { data, error } = await supabase
-            .from('users')
-            .select('inventory')
-            .eq('telegram', user?.id)
-            .single()
-
-        if (error) {
-            console.error('Error loading gifts:', error)
-            displayedGifts.value = []
-            return
-        }
-
-        displayedGifts.value = data.inventory
+        displayedGifts.value = await getUsersInventory()
     } catch (err) {
         console.error('Unexpected error in loadGifts:', err)
         displayedGifts.value = []

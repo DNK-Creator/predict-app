@@ -12,23 +12,19 @@
 <script setup>
 import 'vue3-toastify/dist/index.css'
 import { toast } from 'vue3-toastify'
-import { ref, onMounted, computed, onActivated, watch, nextTick } from 'vue'
+import { ref, onMounted, onActivated, watch, nextTick } from 'vue'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
-import supabase from '@/services/supabase'
-import { v4 as uuidv4 } from 'uuid'
-import { fetchBotMessageTransaction } from '@/services/payments'
 import GiftsInventoryTable from '@/components/GiftsInventoryTable.vue'
+import { getUsersInventory } from '@/api/requests'
 
 const app = useAppStore()
 const { user, tg } = useTelegram()
 
-const gifts = ref([])
 const spinnerShow = ref(true)
 const giftsShow = ref(false)
 const showView = ref(false)
 
-const inventoryFull = ref([])
 const displayedGifts = ref([])
 
 function openRelayerChat() {
@@ -38,24 +34,13 @@ function openRelayerChat() {
 async function loadGifts() {
     if (!user) return
     try {
-        const { data, error } = await supabase
-            .from('users')
-            .select('inventory')
-            .eq('telegram', user?.id)
-            .single()
-
-        if (error) {
-            console.error('Error loading gifts:', error)
-            inventoryFull.value = []
-            displayedGifts.value = []
-            allLoaded.value = true
-            return
-        }
-
-        displayedGifts.value = data.inventory
+        displayedGifts.value = getUsersInventory()
     } catch (err) {
         console.error('Unexpected error in loadGifts:', err)
         displayedGifts.value = []
+    }
+    finally {
+        allLoaded.value = true
     }
 }
 

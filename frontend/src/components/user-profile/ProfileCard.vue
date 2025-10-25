@@ -75,7 +75,6 @@ import { Address, beginCell, toNano } from '@ton/core'
 import { UserRejectsError } from '@tonconnect/sdk'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
-import supabase from '@/services/supabase'
 import { getTonConnect } from '@/services/ton-connect-ui'
 import { useTon } from '@/services/useTon'
 import { fetchInvoiceLink, fetchBotMessageTransaction } from '@/services/payments'
@@ -88,6 +87,7 @@ import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
 import withdrawIcon from '@/assets/icons/Wallet_Icon_Gray.png'
+import { updateUsersWallet } from '@/api/requests'
 
 const { user, tg } = useTelegram()
 
@@ -376,15 +376,9 @@ async function handleConnected(wallet) {
                 walletBalance.value = null
             }
 
-            // update Supabase
+            // update saved users wallet info
             if (user) {
-                const { error } = await supabase
-                    .from('users')
-                    .update({ wallet_address: parsedAddress })
-                    .eq('telegram', user.id)
-                if (error) {
-                    console.error('Error updating wallet_address:', error)
-                }
+                await updateUsersWallet(parsedAddress)
             }
 
         } catch (err) {
@@ -481,9 +475,8 @@ async function onDeposit(amount) {
         console.error('[deposit] initial sendTransaction error:', e)
 
         // All attempts failed
-        let messageText = appStoreObj.language === 'ru' ? 'Ошибка отправки транзакции. Переподключите кошелёк.' : 'Error while processing transaction. Reconnect your wallet.'
-        console.error('[deposit] All sendTransaction attempts failed')
-        toast.error(messageText)
+        let messageText = appStoreObj.language === 'ru' ? 'Дожидайтесь подтверждения транзакции или попробуйте снова.' : 'Wait for the transaction cofirmation or try again.'
+        toast.info(messageText)
     }
 }
 
@@ -650,13 +643,7 @@ async function reconnectWallet() {
         appStoreObj.walletAddress = null
         await ton.value.disconnect();
         if (!user) return
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: null })
-            .eq('telegram', user?.id)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
+        await updateUsersWallet(null)
     }
     walletStatus.value = 'Подключите кошелек'
     walletBalance.value = null

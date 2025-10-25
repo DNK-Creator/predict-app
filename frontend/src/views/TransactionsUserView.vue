@@ -36,7 +36,6 @@
 
 <script setup>
 import 'vue3-toastify/dist/index.css'
-import supabase from '@/services/supabase'
 import { toast } from 'vue3-toastify'
 import { ref, onMounted, computed, onActivated, watch, nextTick } from 'vue'
 import { useTelegram } from '@/services/telegram'
@@ -49,12 +48,15 @@ import TransactionsTable from '@/components/TransactionsTable.vue'
 import YourWalletModal from '@/components/YourWalletModal.vue'
 import WithdrawModal from '@/components/WithdrawalModal.vue'
 import walletIcon from '@/assets/icons/Wallet_Icon_Gray.png'
+import { fetchUsersTransactions, subscribeToTransactions, updateUsersWallet } from '@/api/requests'
 
 const app = useAppStore()
 
 const { ton, ensureTon } = useTon()
 
-const transactions = ref([])
+const transactions = computed(() => {
+    return app.transactions
+})
 const spinnerShow = ref(true)
 const transactionsShow = ref(false)
 
@@ -129,14 +131,7 @@ async function reconnectWallet() {
         app.walletAddress = null
         await ton.value.disconnect()
 
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: null })
-            .eq('telegram', user?.id)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
-
+        updateUsersWallet(null)
     }
     // Then always open the wallet selector
     const wallet = await ton.value.connectWallet()
@@ -163,7 +158,6 @@ async function handleWithdraw(amount) {
         onWithdraw(amount)
     }
 }
-
 
 async function onWithdraw(amount) {
     if (!user) return
@@ -286,22 +280,12 @@ async function handleConnected(wallet) {
         }
     }
 
-    // update Supabase users.wallet_address (keep your previous logic)
-    if (user || !user) {
-        const { error } = await supabase
-            .from('users')
-            .update({ wallet_address: parsedAddress })
-            .eq('telegram', user?.id)
-        if (error) {
-            console.error('Error updating wallet_address:', error)
-        }
+    // update Database users.wallet_address
+    if (user) {
+        updateUsersWallet(parsedAddress)
     }
 }
 
-
-// ---------------------
-// Backend-backed balance fetch
-// ---------------------
 async function fetchTonBalance(address) {
     if (!address) return;
     try {
@@ -320,49 +304,11 @@ async function fetchTonBalance(address) {
     }
 }
 
-// ——— Load transactions from Supabase ———
-async function loadTransactions() {
-    if (!user) return
-    // if (!user) return
-    const { data, error } = await supabase
-        .from('transactions')
-        .select('uuid, amount, status, gift_url, created_at, type')
-        .eq('user_id', user?.id)
-        .order('created_at', { ascending: false })
-
-    if (error) {
-        console.error('Error loading transactions:', error)
-    } else {
-        transactions.value = data
-    }
-}
-
 onMounted(async () => {
-    // await loadTransactions()
-    await loadTransactions()
+    if (!user) return
+    await fetchUsersTransactions()
 
-    // Subscribe to realtime updates (Supabase JS v2)
-    if (user) {
-        // Create or reuse a channel
-        const channel = supabase
-            .channel('transactions-' + user?.id)            // a unique name
-            .on(
-                'postgres_changes',                          // listen to Postgres changes
-                {
-                    event: '*',                                // INSERT, UPDATE, DELETE
-                    schema: 'public',                          // your schema
-                    table: 'transactions',
-                    filter: `user_id=eq.${user?.id}`            // only this user’s rows
-                },
-                async (payload) => {
-                    // await loadTransactions()
-                    await loadTransactions()
-                }
-            )
-
-        // finally subscribe
-        channel.subscribe()
-    }
+    await subscribeToTransactions()
 
     spinnerShow.value = false
     transactionsShow.value = true

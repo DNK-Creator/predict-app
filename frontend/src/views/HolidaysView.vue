@@ -52,8 +52,8 @@ import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, onActivated
 // Components / services
 import HolidayCard from '@/components/HolidayCard.vue'
 import HolidayModal from '@/components/HolidayModal.vue'
-import supabase from '@/services/supabase'
 import { useAppStore } from '@/stores/appStore'
+import { fetchAllHolidays } from '@/api/requests'
 
 const app = useAppStore()
 const language = computed(() => app.language)
@@ -181,9 +181,7 @@ function getShortDescription(descriptionValueRu, descriptionValueEn) {
 
 async function fetchAllAndPrepare() {
     try {
-        const { data, error } = await supabase
-            .from('holidays')
-            .select('id, name, name_en, description, description_en, image_path, date')
+        const { data, error } = await fetchAllHolidays()
 
         if (error) {
             console.error('Error loading holidays:', error)

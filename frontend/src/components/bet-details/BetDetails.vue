@@ -61,7 +61,7 @@
                         <div class="chance-row">
                             <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
                                 volume.No).toFixed(2)
-                                }}</span>
+                            }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -91,7 +91,7 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                            }}</span>
+                        }}</span>
                     </div>
                 </div>
 
@@ -169,7 +169,7 @@
                         <div class="giveaway-hint-clip" aria-hidden="true">
                             <div class="giveaway-hint">{{ $t('tickets-left') }}: {{ bet.giveaway_tickets_left }}/{{
                                 bet.giveaway_total_tickets
-                                }}</div>
+                            }}</div>
                         </div>
 
                     </div>
@@ -270,7 +270,7 @@ import {
     getUserLastCommentTime,
     getBetsHolders
 } from '@/services/bets-requests.js'
-import supabase from '@/services/supabase'
+import { getGiftsPrices, getUsersInventory, isBetAvailable } from '@/api/requests'
 import MemoryOrb from './MemoryOrb.vue'
 import CommentItem from '@/components/bet-details/CommentItem.vue'
 import HolderItem from '@/components/bet-details/HolderItem.vue'
@@ -996,8 +996,8 @@ async function loadData(idToLoad) {
         canComment.value = await availableComments(id)
         holders.value = await getBetsHolders(id)
 
-        await loadGifts()
-        await loadRoughPrices()
+        userInventory.value = await getUsersInventory()
+        giftsPrices.value = await getGiftsPrices()
 
         const betResultNorm = normalizeResult(bet.value?.result)
         const userResultNorm = normalizeResult(userBetAmount.value?.result)
@@ -1054,34 +1054,6 @@ onDeactivated(() => {
     }
 })
 
-async function loadRoughPrices() {
-    // if (!user) return
-    const { data, error } = await supabase
-        .from('gift_prices')
-        .select('collection_name, price_ton, lottie_url')
-
-    if (error) {
-        console.error('Error loading gifts:', error)
-    } else {
-        giftsPrices.value = Array.isArray(data) ? data : []
-    }
-}
-
-async function loadGifts() {
-    if (!user) return []
-    const { data, error } = await supabase
-        .from('users')
-        .select('inventory')
-        .eq('telegram', user?.id)
-        .single()
-
-    if (error) {
-        console.error('Error loading gifts:', error)
-    } else {
-        userInventory.value = Array.isArray(data) ? data[0].inventory : data.inventory
-    }
-}
-
 async function validateIdAndApproval(id) {
     // Normalize id to integer (if you use strings for IDs adjust accordingly)
     const numericId = Number(id)
@@ -1093,15 +1065,11 @@ async function validateIdAndApproval(id) {
 
     try {
         // Query only the approval field
-        const { data, error } = await supabase
-            .from('bets')
-            .select('is_approved')
-            .eq('id', numericId)
-            .single()
+        const { data, error } = await isBetAvailable()
 
         if (error) {
             // Not found or DB error -> redirect to main page
-            console.warn('Supabase error when validating bet id:', error)
+            console.warn('Supabase error when validating bet id: ', error)
             router.replace({ path: '/' })
             return false
         }

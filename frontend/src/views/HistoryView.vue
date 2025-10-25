@@ -45,11 +45,11 @@
 </template>
 
 <script setup>
-import supabase from '@/services/supabase'
 import { ref, onMounted, watch, nextTick, onUnmounted, computed } from 'vue'
 import ActivityListItem from '@/components/ActivityListItem.vue'
 import ActivityEventModal from '@/components/ActivityEventModal.vue'
 import { useRouter } from 'vue-router'
+import { fetchBetsHolders } from '@/api/requests'
 
 const router = useRouter()
 
@@ -93,12 +93,7 @@ function formatRangeForPage(pageIndex) {
 
 async function fetchActivityPage(pageIndex) {
     const { from, to } = formatRangeForPage(pageIndex)
-    const { data, error } = await supabase
-        .from('bets_holders')
-        .select('id, stake_with_gifts, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
-        .eq('dont_show', false)
-        .order('created_at', { ascending: false })
-        .range(from, to)
+    const { data, error } = await fetchBetsHolders(from, to)
 
     if (error) throw error
     return data || []

@@ -1,7 +1,7 @@
 // src/stores/appStore.js
 import { defineStore } from 'pinia'
 import supabase from '@/services/supabase.js'
-import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress } from '@/api/requests.js'
+import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, subscribeToPointsChange, getUsersLanguage, changeUsersLanguage, fetchUserReferrals, getUsersTransactions } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
 // inside appStore actions
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
@@ -27,12 +27,13 @@ export const useAppStore = defineStore('app', {
     language: "en",
     points: 0,
     referrals: [],
+    transactions,
     loadingReferrals: false,
     _pointsChannel: null,
     _userChannel: null,
     walletAddress: null,
     demoMode: false,
-    openDepositFlag: false
+    openDepositFlag: false,
   }),
   actions: {
     /* INIT */
@@ -108,8 +109,7 @@ export const useAppStore = defineStore('app', {
       try {
         debug('[app.init] fetching points & subscribing')
         await this.fetchPoints()
-        this.subscribePointChanges()
-        this.subscribeUserChanges()
+        subscribeToPointsChange()
         info('[app.init] points fetched & subscriptions set', { points: this.points })
       } catch (err) {
         warn('[app.init] points/subscriptions failed', { err: err?.message ?? err })
@@ -160,11 +160,7 @@ export const useAppStore = defineStore('app', {
 
         debug('[syncTelegramUsername] attempting DB update', { from: dbName, to: tgName })
 
-        const { error } = await supabase
-          .from('users')
-          .update({ username: tgNameRaw })
-          .eq('telegram', Number(tgUser?.id))
-
+        const { error } = await updateUsername(tgNameRaw)
 
         if (error) {
           console.error('syncTelegramUsername supabase update error', error)
@@ -172,10 +168,8 @@ export const useAppStore = defineStore('app', {
           return false
         }
 
-
         // update in-memory user row too
         try { if (this.user) this.user.username = tgNameRaw } catch (e) { /* ignore */ }
-
 
         info('[syncTelegramUsername] username updated', { old: dbName, new: tgName })
         return true
@@ -199,11 +193,9 @@ export const useAppStore = defineStore('app', {
     async fetchPoints() {
       if (!this.user?.telegram) return
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('points')
-          .eq('telegram', Number(this.user.telegram))
-          .single()
+
+        const { data, error } = await getUsersPoints()
+
         if (error) {
           console.error('fetchPoints error', error)
           return
@@ -220,39 +212,11 @@ export const useAppStore = defineStore('app', {
       this.points = newPoints
     },
 
-    subscribePointChanges() {
-      if (!this.user?.telegram) return
-      // unsubscribe previous if present
-      if (this._pointsChannel) {
-        try { supabase.removeChannel(this._pointsChannel) } catch (e) { /* ignore */ }
-        this._pointsChannel = null
-      }
-
-      const channel = supabase
-        .channel(`points-${this.user.telegram}`)
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'users',
-          filter: `telegram=eq.${this.user.telegram}`,
-        }, payload => {
-          // whenever the user's row changes, re-fetch points
-          this.fetchPoints()
-        })
-        .subscribe()
-
-      this._pointsChannel = channel
-    },
-
     /* LANGUAGE */
     async fetchLanguage() {
       if (!this.user?.telegram) return
       try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('language')
-          .eq('telegram', Number(this.user.telegram))
-          .single()
+        const { data, error } = await getUsersLanguage()
         if (error) {
           console.error('fetchLanguage error', error)
           return
@@ -276,24 +240,17 @@ export const useAppStore = defineStore('app', {
     // Persist language to Supabase and update local state (async)
     async changeLanguage(lang) {
       const code = normalizeLangCode(lang)
-      // optimistic local update so UI reacts immediately
       this.language = code
 
-      // if we have a logged-in DB user row, update the users table
       if (this.user?.telegram) {
         try {
-          const { error } = await supabase
-            .from('users')
-            .update({ language: code })
-            .eq('telegram', Number(this.user.telegram))
+          const { error } = await changeUsersLanguage(code)
 
           if (error) {
             console.error('changeLanguage: supabase update error', error)
-            // revert? keeping optimistic update is fine; caller can react on failure
             return false
           }
 
-          // also keep the in-memory user row in sync if present
           try { this.user.language = code } catch (e) { /* ignore */ }
 
           return true
@@ -305,54 +262,6 @@ export const useAppStore = defineStore('app', {
 
       // no DB user row: just updated local store (useful in early init or anonymous)
       return true
-    },
-
-    subscribeUserChanges() {
-      // subscribe to changes on the user row so we can refresh referrals/bonus when needed
-      if (!this.user?.telegram) return
-
-      if (this._userChannel) {
-        try { supabase.removeChannel(this._userChannel) } catch (e) { /* ignore */ }
-        this._userChannel = null
-      }
-
-      const ch = supabase
-        .channel(`user-${this.user.telegram}`)
-        .on('postgres_changes', {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'users',
-          filter: `telegram=eq.${this.user.telegram}`,
-        }, payload => {
-          // refresh stored user row and referrals if relevant fields changed
-          this.refreshUserRow()
-        })
-        .subscribe()
-
-      this._userChannel = ch
-    },
-
-    async refreshUserRow() {
-      if (!this.user?.telegram) return
-      try {
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .eq('telegram', Number(this.user.telegram))
-          .single()
-
-        if (!error && data) {
-          this.user = data
-          // sync language if user row contains it
-          try {
-            this.language = normalizeLangCode(data?.language ?? this.language)
-          } catch (e) { /* ignore */ }
-          // reload referrals if friends object changed or referred_by logic changed
-          await this.loadReferrals()
-        }
-      } catch (err) {
-        console.error('refreshUserRow error', err)
-      }
     },
 
     /* REFERRALS loader: supports both friends jsonb and referred_by fallback */
@@ -384,11 +293,7 @@ export const useAppStore = defineStore('app', {
           return
         }
 
-        // 2) FALLBACK: fetch users where referred_by == current user's telegram
-        const { data: referredRows, error } = await supabase
-          .from('users')
-          .select('telegram, total_winnings')
-          .eq('referred_by', Number(this.user.telegram))
+        const { data: referredRows, error } = await fetchUserReferrals()
 
         if (error) {
           console.error('loadReferrals fallback query error', error)
@@ -415,19 +320,5 @@ export const useAppStore = defineStore('app', {
         this.loadingReferrals = false
       }
     },
-
-    /* CLEANUP (call on app tear-down) */
-    async dispose() {
-      try {
-        if (this._pointsChannel) {
-          supabase.removeChannel(this._pointsChannel)
-          this._pointsChannel = null
-        }
-        if (this._userChannel) {
-          supabase.removeChannel(this._userChannel)
-          this._userChannel = null
-        }
-      } catch (e) { /* ignore */ }
-    }
   }
 })
