@@ -400,6 +400,29 @@ app.get('/api/tonprice', async (req, res) => {
     }
 });
 
+app.get('/api/telegram/nft/:slug', async (req, res) => {
+    try {
+        const slug = req.params.slug
+        // build Telegram web page URL (the t.me path typically redirects; use full web URL)
+        const url = `https://t.me/nft/${encodeURIComponent(slug)}`
+
+        const upstream = await fetch(url, { redirect: 'follow', headers: { 'User-Agent': 'node-fetch' } })
+        if (!upstream.ok) {
+            return res.status(502).json({ error: 'upstream fetch failed', status: upstream.status })
+        }
+        const html = await upstream.text()
+
+        const parsed = parseTelegramNFT(html)
+
+        // optional: add CORS header for your client (restrict to your origin in production)
+        res.set('Access-Control-Allow-Origin', 'https://myoracleapp.com')
+        return res.json(parsed)
+    } catch (err) {
+        console.error('error fetching/parsing', err)
+        return res.status(500).json({ error: err.message })
+    }
+})
+
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
     try {
