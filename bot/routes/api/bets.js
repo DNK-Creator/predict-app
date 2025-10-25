@@ -105,32 +105,18 @@ router.get('/bets/created', async (req, res) => {
 })
 
 /**
- * GET /api/bets/:id/holders
+ * GET /api/bets/:id(\\d+)/holders
  */
-router.get('/bets/:id/holders', async (req, res) => {
+router.get('/bets/:id(\\d+)/holders', async (req, res) => {
     try {
-        // raw param for logging
-        const rawId = req.params.id
-        console.log('[GET] /api/bets/:id/holders hit, req.params.id=', rawId)
-
-        const id = parseIntOrNull(rawId)
-        // accept zero as valid numeric id; only reject null / NaN
-        if (id == null) {
-            console.warn('Invalid bet id received:', rawId)
-            return res.status(400).json({ error: 'invalid id' })
-        }
-
-        // If your bet_id column is text, coerce to string:
-        const matchValue = String(id)
-
-        // Log query intent
-        console.log(`Fetching bets_holders rows for bet_id=${matchValue}`)
+        // Now use req.betId (already validated)
+        const id = req.betId
+        console.log('[GET] /api/bets/:id/holders hit, betId=', id)
 
         const { data, error } = await supabaseAdmin
             .from('bets_holders')
             .select('id, created_at, user_id, bet_id, stake_with_gifts, giveaway_tickets, side, username, photo_url')
-            // use .eq with the same type as DB likely string; if bet_id is numeric you can use id (Number)
-            .eq('bet_id', matchValue)
+            .eq('bet_id', id) // pass number when column is numeric
             .order('stake_with_gifts', { ascending: false })
 
         if (error) {
@@ -138,7 +124,7 @@ router.get('/bets/:id/holders', async (req, res) => {
             return sendServerError(res, error, 'db_query_failed')
         }
 
-        console.log(`Fetched ${Array.isArray(data) ? data.length : 0} holders for bet_id=${matchValue}`)
+        console.log(`Fetched ${Array.isArray(data) ? data.length : 0} holders for bet_id=${id}`)
         return res.json({ rows: data ?? [] })
     } catch (err) {
         console.error('failed_fetch_bets_holders handler error:', err)
