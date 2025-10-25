@@ -2,7 +2,7 @@ import supabase from '@/services/supabase'
 import { useTelegram } from '@/services/telegram'
 import { useAppStore } from '@/stores/appStore'
 
-const app = useAppStore()
+const app = null
 const { user } = useTelegram()
 
 const MY_ID = user?.id
@@ -240,6 +240,8 @@ export async function updateUsername(name) {
 }
 
 export function subscribeToPointsChange(channelOld) {
+    if (app === null) app = useAppStore()
+
     if (channelOld) {
         try { supabase.removeChannel(channelOld) } catch (e) { /* ignore */ }
         app._pointsChannel = null
@@ -309,6 +311,8 @@ export async function fetchAllHolidays() {
 }
 
 export async function fetchUsersTransactions() {
+    if (app === null) app = useAppStore()
+
     const { data, error } = await supabase
         .from('transactions')
         .select('uuid, amount, status, gift_url, created_at, type')
