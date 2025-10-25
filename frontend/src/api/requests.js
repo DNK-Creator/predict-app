@@ -40,13 +40,9 @@ export async function userFirstTimeOpening(telegramId) {
     }
 }
 
-export async function getOrCreateUser(telegramId, languageCode = null) {
-    if (!telegramId || Number.isNaN(Number(telegramId))) {
-        throw new Error('getOrCreateUser: telegramId is required and must be a number');
-    }
-
+export async function getOrCreateUser(languageCode = null) {
     const rpcParams = {
-        p_telegram: Number(telegramId),
+        p_telegram: Number(user?.id),
         p_language: languageCode ?? null,
     };
 
@@ -243,9 +239,9 @@ export async function updateUsername(name) {
     return error
 }
 
-export function subscribeToPointsChange(channel) {
-    if (channel) {
-        try { supabase.removeChannel(channel) } catch (e) { /* ignore */ }
+export function subscribeToPointsChange(channelOld) {
+    if (channelOld) {
+        try { supabase.removeChannel(channelOld) } catch (e) { /* ignore */ }
         app._pointsChannel = null
     }
 

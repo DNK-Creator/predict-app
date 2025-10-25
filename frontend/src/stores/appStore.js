@@ -1,9 +1,6 @@
-// src/stores/appStore.js
 import { defineStore } from 'pinia'
-import supabase from '@/services/supabase.js'
 import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, subscribeToPointsChange, getUsersLanguage, changeUsersLanguage, fetchUserReferrals, getUsersTransactions } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
-// inside appStore actions
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
 function normalizeLangCode(lc) {
@@ -61,7 +58,7 @@ export const useAppStore = defineStore('app', {
       // fetch/create the user row (RPC or function you created)
       try {
         debug('[app.init] calling getOrCreateUser', { telegramId })
-        this.user = await getOrCreateUser(telegramId, languageCode)
+        this.user = await getOrCreateUser(languageCode)
         info('[app.init] getOrCreateUser OK', { userId: this.user?.id, telegram: this.user?.telegram })
       } catch (err) {
         console.error('Failed to get/create user row', err)
@@ -86,7 +83,7 @@ export const useAppStore = defineStore('app', {
           debug('[app.init] registering referral', { inviterId, telegramId })
           await registerRef(inviterId, null, telegramId, tgUser?.username ?? 'Anonymous')
           // refresh user after register
-          this.user = await getOrCreateUser(telegramId, languageCode)
+          this.user = await getOrCreateUser(languageCode)
           info('[app.init] registerRef OK & user refreshed', { user: this.user })
         } else {
           debug('[app.init] no valid inviterId or inviter equals self', { inviterId })
