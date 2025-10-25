@@ -123,6 +123,8 @@ export async function getBetsHolders(betId) {
     if (betId === undefined || betId === null) return []
     try {
         const resp = await apiFetch(`/api/bets/${encodeURIComponent(betId)}/holders`, { method: 'GET' })
+        console.log('The responce from bets holders is: ' + resp)
+        console.log('The new value for holders.value is: ' + resp.data?.rows ?? [])
         return resp.data?.rows ?? []
     } catch (err) {
         console.error('getBetsHolders error', err)
