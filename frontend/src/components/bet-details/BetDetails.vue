@@ -332,8 +332,8 @@ const holdersList = computed(() => {
                 id: h.id,
                 username: h.username ?? 'Anonymous',
                 photo_url: h.photo_url ?? null,
-                // numeric stake is stored in 'stake' column
-                amount: Number(h.stake ?? 0) || 0,
+                // numeric stake_with_gifts is stored in 'stake_with_gifts' column
+                amount: Number(h.stake_with_gifts ?? 0) || 0,
                 // normalize side to 'yes' | 'no'
                 side: (String(h.side ?? '')).trim().toLowerCase() === 'yes' ? 'yes' : 'no'
             }))
@@ -1065,7 +1065,7 @@ async function validateIdAndApproval(id) {
 
     try {
         // Query only the approval field
-        const { data, error } = await isBetAvailable()
+        const { data, error } = await isBetAvailable(numericId)
 
         if (error) {
             // Not found or DB error -> redirect to main page

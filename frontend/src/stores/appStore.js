@@ -4,6 +4,8 @@ import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddres
 import { useTelegram } from '@/services/telegram.js'
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
+const REFERRAL_COMISSION = 0.1
+
 function normalizeLangCode(lc) {
   if (!lc) return 'en'
   if (typeof lc !== 'string') return 'en'
@@ -25,7 +27,7 @@ export const useAppStore = defineStore('app', {
     language: "en",
     points: 0,
     referrals: [],
-    transactions : [],
+    transactions: [],
     loadingReferrals: false,
     _pointsChannel: null,
     _userChannel: null,
@@ -107,7 +109,7 @@ export const useAppStore = defineStore('app', {
       try {
         debug('[app.init] fetching points & subscribing')
         await this.fetchPoints()
-        subscribeToPointsChange(this)
+        subscribeToPointsChange(this._pointsChannel, this)
         info('[app.init] points fetched & subscriptions set', { points: this.points })
       } catch (err) {
         warn('[app.init] points/subscriptions failed', { err: err?.message ?? err })
@@ -284,7 +286,7 @@ export const useAppStore = defineStore('app', {
               telegram: k,
               username: entry.username ?? (`@${k}`),
               total_winnings: safeTw,
-              commission: +(safeTw * 0.03)
+              commission: +(safeTw * REFERRAL_COMISSION)
             }
           })
           this.loadingReferrals = false
@@ -308,7 +310,7 @@ export const useAppStore = defineStore('app', {
             telegram: String(r.telegram),
             username: `@${r.telegram}`,
             total_winnings: safeTw,
-            commission: +(safeTw * 0.03)
+            commission: +(safeTw * REFERRAL_COMISSION)
           }
         })
       } catch (err) {

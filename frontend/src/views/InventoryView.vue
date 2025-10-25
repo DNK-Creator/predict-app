@@ -39,9 +39,6 @@ async function loadGifts() {
         console.error('Unexpected error in loadGifts:', err)
         displayedGifts.value = []
     }
-    finally {
-        allLoaded.value = true
-    }
 }
 
 /**

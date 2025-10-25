@@ -2,7 +2,8 @@
   <div v-if="loadingStage > 0 && !outsideTelegram" class="app">
     <div class="app-scroll-container" ref="appScrollRef">
       <Header :balance="app.points" :address="walletAddress" @deposit-click="openDepositWindow"
-        @history-click="historyOpenView" @settings-click="openSettings" @wallet-connect="reconnectWallet" />
+        @profile-click="openProfileView" @history-click="historyOpenView" @settings-click="openSettings"
+        @wallet-connect="reconnectWallet" />
 
       <RouterView v-slot="{ Component }">
         <transition name="route-fade" mode="out-in" appear>
@@ -387,6 +388,12 @@ async function handleConnected(wallet) {
 function openDepositWindow() {
   if (!assertInTelegram()) return
   app.openDepositFlag = true
+  if (route.path === '/profile') return
+  router.push({ name: 'profile' })
+}
+
+function openProfileView() {
+  if (!assertInTelegram()) return
   if (route.path === '/profile') return
   router.push({ name: 'profile' })
 }

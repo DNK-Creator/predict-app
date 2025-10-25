@@ -827,13 +827,14 @@ watch(
     height: 88px;
     border-radius: 30%;
     object-fit: cover;
-    margin: 0 auto 12px;
+    margin: 0 auto 0px;
 }
 
 
 .profile-name {
     font-size: 1.5rem;
     margin-bottom: 16px;
+    margin-top: 12px;
     font-family: 'Inter Variable', sans-serif;
     font-weight: 400;
 }

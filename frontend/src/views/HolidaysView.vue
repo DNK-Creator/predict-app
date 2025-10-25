@@ -47,7 +47,7 @@
 
 <script setup>
 // Vue
-import { ref, onMounted, onBeforeUnmount, computed, watch, nextTick, onActivated, onDeactivated } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch, onActivated, onDeactivated } from 'vue'
 
 // Components / services
 import HolidayCard from '@/components/HolidayCard.vue'
@@ -370,126 +370,11 @@ onDeactivated(() => {
     showDisplayed.value = false
 })
 
-onActivated(async () => {
-    // Ensure persisted cache is available (keep-alive flows)
-    try { restorePersistedFirstPage() } catch (e) { /* ignore */ }
-
-    const tab = selectedTab.value || 'active'
-    const key = cacheKey(tab, 0)
-
-    // FAST PATH: if we already have displayed bets for this tab, nothing to do
-    if (Array.isArray(holidays.value) && holidays.value.length > 0 && displayedTab.value === tab) {
-        return
-    }
-
-    // Prevent the empty message while we decide
-    loadingInitial.value = true
-    showDisplayed.value = false
-
-    try {
-        // Check in-memory cache first
-        const cachedEntry = betsCache.get(key)
-        const now = Date.now()
-        const isFresh = cachedEntry && ((now - (cachedEntry.ts || 0)) < CACHE_TTL)
-
-        if (cachedEntry && Array.isArray(cachedEntry.data) && cachedEntry.data.length > 0) {
-            // Show cached immediately (instant UX)
-            holidays.value = cachedEntry.data.slice()
-            incomingBets.value = null
-            showDisplayed.value = true
-            displayedTab.value = tab
-
-            pagesByTab.value[tab] = pagesByTab.value[tab] || 1
-            allLoadedByTab.value[tab] = allLoadedByTab.value[tab] || (cachedEntry.data.length < pageSize)
-            const last = cachedEntry.data[cachedEntry.data.length - 1]
-            if (last) cursorsByTab.value[tab] = { last_total_volume: last.total_volume ?? 0, last_id: Number(last.id) }
-
-            // Attach user bets in background (don't await)
-            fetchAndAttachUserBets(holidays.value).catch(err => console.warn('attach user bets bg failed', err))
-
-            // If cache is fresh -> background refresh is optional (stale-while-revalidate)
-            // If cache is stale -> force a fresh fetch and update UI immediately once it returns
-            if (!isFresh) {
-                // Force a fresh fetch and update UI as soon as it resolves
-                (async () => {
-                    try {
-                        const fresh = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
-                        if (Array.isArray(fresh) && fresh.length > 0) {
-                            // Replace UI immediately (do NOT wait for transitions)
-                            holidays.value = fresh.slice()
-                            incomingBets.value = null
-                            listKey.value = tab + '-refreshed-' + Date.now()
-                            pagesByTab.value[tab] = 1
-                            allLoadedByTab.value[tab] = fresh.length < pageSize
-                            const last2 = fresh[fresh.length - 1]
-                            if (last2) cursorsByTab.value[tab] = { last_total_volume: last2.total_volume ?? 0, last_id: Number(last2.id) }
-                            // attach user bets for the fresh items as well
-                            fetchAndAttachUserBets(holidays.value).catch(() => { })
-                        }
-                    } catch (e) {
-                        console.warn('forced refresh after showing stale cache failed', e)
-                    }
-                })()
-            } else {
-                // Kick off normal background refresh (non-blocking)
-                getCachedBetsPage(tab, 0, { force: false, backgroundRefresh: true }).catch(() => { })
-            }
-            return
-        }
-
-        // If no in-memory cache, check sessionStorage persisted first page (defensive)
-        const raw = sessionStorage.getItem(PERSIST_FIRST_PAGE_KEY)
-        if (raw) {
-            try {
-                const obj = JSON.parse(raw)
-                if (obj && obj[tab] && Array.isArray(obj[tab].data) && ((Date.now() - (obj[tab].ts || 0)) < CACHE_TTL)) {
-                    holidays.value = obj[tab].data.slice()
-                    showDisplayed.value = true
-                    incomingBets.value = null
-                    betsCache.set(key, { data: holidays.value.slice(), ts: obj[tab].ts || Date.now() })
-                    fetchAndAttachUserBets(holidays.value).catch(() => { })
-                        // trigger background forced refresh (replace when fresh)
-                        (async () => {
-                            try {
-                                const fresh = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
-                                if (Array.isArray(fresh) && fresh.length > 0) {
-                                    holidays.value = fresh.slice()
-                                    incomingBets.value = null
-                                    listKey.value = tab + '-refreshed-' + Date.now()
-                                    pagesByTab.value[tab] = 1
-                                    allLoadedByTab.value[tab] = fresh.length < pageSize
-                                    const last2 = fresh[fresh.length - 1]
-                                    if (last2) cursorsByTab.value[tab] = { last_total_volume: last2.total_volume ?? 0, last_id: Number(last2.id) }
-                                    fetchAndAttachUserBets(holidays.value).catch(() => { })
-                                }
-                            } catch (e) { /* ignore forced refresh failures */ }
-                        })()
-                    return
-                }
-            } catch (e) { /* ignore parse errors */ }
-        }
-
-        // still empty fallback: try forced fetch (rare)
-        if ((!holidays.value || holidays.value.length === 0) && !loadingInitial.value) {
-            try {
-                const forced = await getCachedBetsPage(tab, 0, { force: true, backgroundRefresh: false })
-                if (Array.isArray(forced) && forced.length > 0) {
-                    holidays.value = forced.slice()
-                    incomingBets.value = null
-                    showDisplayed.value = true
-                    pagesByTab.value[tab] = 1
-                    allLoadedByTab.value[tab] = forced.length < pageSize
-                    const last = forced[forced.length - 1]
-                    if (last) cursorsByTab.value[tab] = { last_total_volume: last.total_volume ?? 0, last_id: Number(last.id) }
-                }
-            } catch (e) {
-                console.warn('Forced fetch on activation failed', e)
-            }
-        }
-    } catch (e) {
-        console.warn('onActivated handling failed', e)
-    } finally {
-        loadingInitial.value = false
+onActivated(() => {
+    // When component is activated (from keep-alive), ensure we're showing the correct tab
+    if (displayedTab.value !== selectedTab.value) {
+        showDisplayed.value = false
+        preparePagedCacheForTab(selectedTab.value)
     }
 })
 

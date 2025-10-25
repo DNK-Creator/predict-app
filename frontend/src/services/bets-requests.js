@@ -106,9 +106,9 @@ export async function getBetsHolders(betId) {
 
     const { data, error } = await supabase
         .from('bets_holders')
-        .select('id, created_at, user_id, bet_id, stake, giveaway_tickets, side, username, photo_url')
+        .select('id, created_at, user_id, bet_id, stake_with_gifts, giveaway_tickets, side, username, photo_url')
         .eq('bet_id', betId)
-        .order('stake', { ascending: false }) // oldest first; change if you prefer newest first
+        .order('stake_with_gifts', { ascending: false }) // oldest first; change if you prefer newest first
 
     if (error) throw error
     return data || []

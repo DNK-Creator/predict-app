@@ -10,8 +10,8 @@
             </button>
         </div>
         <!-- Else show the user logo -->
-        <img v-else-if="user" :src="user.photo_url" alt="Profile" class="profile-pic" @click="onDepositClick" />
-        <div v-else class="profile-avatar" @click="onDepositClick">
+        <img v-else-if="user" :src="user.photo_url" alt="Profile" class="profile-pic" @click="onProfileClick" />
+        <div v-else class="profile-avatar" @click="onProfileClick">
             {{ (user?.first_name ?? 'A').charAt(0) }}
         </div>
 
@@ -52,7 +52,7 @@ const props = defineProps({
     },
     address: String
 })
-const emit = defineEmits(['settings-click', 'deposit-click', 'wallet-connect', 'history-click'])
+const emit = defineEmits(['settings-click', 'deposit-click', 'profile-click', 'wallet-connect', 'history-click'])
 
 const route = useRoute()
 
@@ -79,6 +79,10 @@ function walletConnect() {
 
 function onDepositClick() {
     emit('deposit-click')
+}
+
+function onProfileClick() {
+    emit('profile-click')
 }
 
 function onHistoryClick() {

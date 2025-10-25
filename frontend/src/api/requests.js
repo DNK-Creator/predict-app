@@ -219,7 +219,7 @@ export async function getUsersInventory() {
     }
 }
 
-export async function isBetAvailable() {
+export async function isBetAvailable(numericId) {
     const { data, error } = await supabase
         .from('bets')
         .select('is_approved')
