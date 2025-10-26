@@ -509,13 +509,10 @@ export async function placeBetNotification(bet_info_payload) {
 
 export async function validateDataOnServer(initDataRaw) {
     try {
+        // Send initData in body (safer than putting it in Authorization header)
         const resp = await apiFetch('/api/telegram/validate', {
             method: 'POST',
-            headers: {
-                'Authorization': `tma ${initDataRaw}`
-            },
-            // body not strictly required, but keep an empty object to match previous behavior
-            body: {}
+            body: { initData: initDataRaw }
         });
         return resp;
     } catch (err) {

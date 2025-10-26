@@ -163,12 +163,17 @@ app.post('/api/telegram/validate', async (req, res) => {
         const dataCheckString = buildDataCheckString(params);
 
         // compute secret_key = HMAC_SHA256(bot_token, "WebAppData")
-        // (bot token is in your `token` const above)
         const secretKey = crypto.createHmac('sha256', token).update('WebAppData').digest();
 
         // compute expected = hex(HMAC_SHA256(data_check_string, secret_key))
         const expected = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
 
+        // DEBUG: log the data_check_string and hashes (safe for short-term debugging)
+        console.log('telegram/validate: data_check_string=', dataCheckString);
+        console.log('telegram/validate: computed expected hash (hex)=', expected);
+        console.log('telegram/validate: received hash (hex)=', receivedHash);
+
+        // compare
         if (!safeEq(expected, receivedHash)) {
             console.warn('telegram/validate: hash mismatch', { expected, receivedHash });
             return res.status(401).json({ error: 'init_data_invalid' });
@@ -280,17 +285,41 @@ const PUBLIC_API_PATHS = [
     '/giftFailed'
 ]
 
-// helper: parse query-string like "a=1&b=2" -> object
+// helper: parse "a=1&b=2" -> object WITHOUT altering the original order
 function parseInitData(raw) {
-    // raw is "key1=value1&key2=value2..."
-    const params = Object.fromEntries(new URLSearchParams(raw));
-    return params;
+    // raw may be the raw query-string produced by Telegram. Example:
+    // "auth_date=1620000000&hash=...&user=%7B%22id%22%3A123%2C%22first_name%22%3A%22Foo%22%7D"
+    if (typeof raw !== 'string') return {};
+    const out = {};
+    // split on '&' and decode keys/values
+    const pairs = raw.split('&');
+    for (const pair of pairs) {
+        if (pair.length === 0) continue;
+        const idx = pair.indexOf('=');
+        if (idx === -1) {
+            // key only
+            const k = decodeURIComponent(pair);
+            out[k] = '';
+            continue;
+        }
+        const k = pair.slice(0, idx);
+        const v = pair.slice(idx + 1);
+        // decodeURIComponent on both (Telegram percent-encodes JSON etc)
+        try {
+            out[decodeURIComponent(k)] = decodeURIComponent(v);
+        } catch (e) {
+            // Fallback: use raw slices if decode fails
+            out[k] = v;
+        }
+    }
+    return out;
 }
 
 // helper: build data_check_string according to Telegram docs
 function buildDataCheckString(params) {
-    // exclude hash and signature
+    // exclude hash and signature (signature not part of protocol but defensive)
     const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
+    // IMPORTANT: use the decoded values (we already used decodeURIComponent)
     return keys.map(k => `${k}=${params[k]}`).join('\n');
 }
 
