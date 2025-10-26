@@ -2,7 +2,7 @@
 import express from "express"
 import Joi from "joi"
 import { createClient } from '@supabase/supabase-js'
-import { requireTelegramSession } from "../../server/middleware/telegramAuth"
+import { requireTelegramSession } from "../../server/middleware/telegramAuth.js"
 
 const router = express.Router()
 
