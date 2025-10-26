@@ -140,142 +140,65 @@ app.options('/api/get-chance', corsPublic);
 
 // Endpoint: validate initData
 // Accepts { initData: '...' } (POST)
-// app.post('/api/telegram/validate', async (req, res) => {
-//     try {
-//         let initDataRaw = null;
-
-//         if (req.body && req.body.initData) {
-//             initDataRaw = req.body.initData;
-//         }
-
-//         if (!initDataRaw) {
-//             return res.status(400).json({ error: 'missing_init_data' });
-//         }
-
-//         const initData = new URLSearchParams(initDataRaw);
-//         initData.sort();
-
-//         const receivedHash = initData.get("hash");
-
-//         if (!receivedHash) {
-//             return res.status(400).json({ error: 'missing_hash' });
-//         }
-
-//         initData.delete("hash");
-
-//         const dataToCheck = [...initData.entries()].map(([key, value]) => key + "=" + value).join("\n");
-
-//         const secretKey = crypto.createHmac("sha256", "WebAppData").update(token).digest();
-
-//         const expectedHash = crypto.createHmac("sha256", secretKey).update(dataToCheck).digest("hex");
-
-//         console.log('telegram/validate: data_check_string=', dataToCheck);
-//         console.log('telegram/validate: expected hash (hex)=', expectedHash);
-//         console.log('telegram/validate: received hash (hex)=', receivedHash);
-
-//         // compare
-//         if (!safeEq(receivedHash, expectedHash)) {
-//             console.warn('telegram/validate: hash mismatch', { expectedHash, receivedHash });
-//             return res.status(401).json({ error: 'init_data_invalid' });
-//         }
-
-//         // optional: check auth_date freshness (prevent replay)
-//         const authDate = Number(dataToCheck.auth_date || 0);
-//         const nowSec = Math.floor(Date.now() / 1000);
-//         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
-//             // reject if older than 12h
-//             console.warn('telegram/validate: auth_date too old or missing', { authDate, nowSec });
-//             return res.status(401).json({ error: 'init_data_expired' });
-//         }
-
-//         // parse user JSON if present
-//         let userObj = null;
-//         if (dataToCheck.user) {
-//             try { userObj = JSON.parse(dataToCheck.user); } catch (e) { /* ignore */ }
-//         }
-
-//         if (!userObj || !userObj.id) {
-//             return res.status(400).json({ error: 'missing_user' });
-//         }
-
-//         // create session token (signed by INTERNAL_SECRET)
-//         const sessionPayload = {
-//             id: Number(userObj.id),
-//             username: userObj.username || null,
-//             first_name: userObj.first_name || null,
-//             language_code: userObj.language_code || null,
-//             photo_url: userObj.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
-//         };
-
-//         const sessionToken = createSessionToken(sessionPayload, 1000 * 60 * 30); // 30 minutes
-
-//         // return token and parsed user (we don't return the raw initData back)
-//         res.json({ ok: true, token: sessionToken, user: sessionPayload });
-//     } catch (err) {
-//         console.error('telegram/validate error', err);
-//         return res.status(500).json({ error: 'internal_error' });
-//     }
-// });
-
-// POST /api/telegram/validate
 app.post('/api/telegram/validate', async (req, res) => {
     try {
         let initDataRaw = null;
+
         if (req.body && req.body.initData) {
             initDataRaw = req.body.initData;
         }
+
         if (!initDataRaw) {
             return res.status(400).json({ error: 'missing_init_data' });
         }
 
-        // parse into decoded strings object
-        const params = parseInitData(initDataRaw);
+        const initData = new URLSearchParams(initDataRaw);
+        initData.sort();
 
-        const receivedHash = params.hash;
+        const receivedHash = initData.get("hash");
+
         if (!receivedHash) {
             return res.status(400).json({ error: 'missing_hash' });
         }
 
-        // Build data_check_string from all keys except 'hash' and 'signature', in ASCII order
-        const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
-        const dataCheckString = keys.map(k => `${k}=${params[k]}`).join('\n');
+        initData.delete("hash");
 
-        // Derive secret_key and expected hash *correctly*
-        // secret_key = HMAC_SHA256(bot_token, "WebAppData")
-        // expected = hex(HMAC_SHA256(data_check_string, secret_key))
-        const secretKey = crypto.createHmac('sha256', token).update('WebAppData').digest();
-        const expectedHash = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+        const dataToCheck = [...initData.entries()].map(([key, value]) => key + "=" + value).join("\n");
 
-        // Optional debug (short-term only)
-        console.log('telegram/validate: data_check_string=\n', dataCheckString);
+        const secretKey = crypto.createHmac("sha256", "WebAppData").update(token).digest();
+
+        const expectedHash = crypto.createHmac("sha256", secretKey).update(dataToCheck).digest("hex");
+
+        console.log('telegram/validate: data_check_string=', dataToCheck);
         console.log('telegram/validate: expected hash (hex)=', expectedHash);
         console.log('telegram/validate: received hash (hex)=', receivedHash);
 
-        // Timing-safe comparison
-        if (!safeEq(expectedHash, receivedHash)) {
+        // compare
+        if (!safeEq(receivedHash, expectedHash)) {
             console.warn('telegram/validate: hash mismatch', { expectedHash, receivedHash });
             return res.status(401).json({ error: 'init_data_invalid' });
         }
 
-        // Now read auth_date from parsed params (this was the bug before!)
-        const authDate = Number(params.auth_date || 0);
+        // optional: check auth_date freshness (prevent replay)
+        const authDate = Number(initData.auth_date || 0);
         const nowSec = Math.floor(Date.now() / 1000);
-        // 12 hours tolerance per Telegram recommendation (adjust if needed)
         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
+            // reject if older than 12h
             console.warn('telegram/validate: auth_date too old or missing', { authDate, nowSec });
             return res.status(401).json({ error: 'init_data_expired' });
         }
 
-        // parse user JSON string (if present) — but DO NOT re-stringify this for HMAC
+        // parse user JSON if present
         let userObj = null;
-        if (params.user) {
-            try { userObj = JSON.parse(params.user); } catch (e) { /* ignore parse error */ }
+        if (initData.user) {
+            try { userObj = JSON.parse(initData.user); } catch (e) { /* ignore */ }
         }
+
         if (!userObj || !userObj.id) {
             return res.status(400).json({ error: 'missing_user' });
         }
 
-        // create session token (signed)
+        // create session token (signed by INTERNAL_SECRET)
         const sessionPayload = {
             id: Number(userObj.id),
             username: userObj.username || null,
@@ -283,10 +206,11 @@ app.post('/api/telegram/validate', async (req, res) => {
             language_code: userObj.language_code || null,
             photo_url: userObj.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
         };
+
         const sessionToken = createSessionToken(sessionPayload, 1000 * 60 * 30); // 30 minutes
 
-        // Success
-        return res.json({ ok: true, token: sessionToken, user: sessionPayload });
+        // return token and parsed user (we don't return the raw initData back)
+        res.json({ ok: true, token: sessionToken, user: sessionPayload });
     } catch (err) {
         console.error('telegram/validate error', err);
         return res.status(500).json({ error: 'internal_error' });
