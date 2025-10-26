@@ -139,48 +139,48 @@ const corsPublic = cors({
 app.options('/api/get-chance', corsPublic);
 
 // Endpoint: validate initData
-// Accepts Authorization: tma <initDataRaw> OR body { initData: '...' } (POST)
+// Accepts { initData: '...' } (POST)
 app.post('/api/telegram/validate', async (req, res) => {
     try {
-        const authHeader = (req.headers.authorization || '').trim();
         let initDataRaw = null;
-        if (authHeader.startsWith('tma ')) {
-            initDataRaw = authHeader.slice(4);
-        } else if (req.body && req.body.initData) {
+
+        if (req.body && req.body.initData) {
             initDataRaw = req.body.initData;
         }
+
         if (!initDataRaw) {
             return res.status(400).json({ error: 'missing_init_data' });
         }
 
-        // parse params
-        const params = parseInitData(initDataRaw);
-        const receivedHash = params.hash;
+        const initData = new URLSearchParams(initDataRaw);
+        initData.sort();
+
+        const receivedHash = initData.get("hash");
+
         if (!receivedHash) {
             return res.status(400).json({ error: 'missing_hash' });
         }
 
-        // build data_check_string exactly as telegram requires
-        const dataCheckString = buildDataCheckString(params);
+        initData.delete("hash");
 
-        // compute secret_key = HMAC_SHA256(bot_token, "WebAppData")
-        const secretKey = crypto.createHmac('sha256', token).update('WebAppData').digest();
+        const dataToCheck = [...initData.entries()].map(([key, value]) => key + "=" + value).join("\n");
 
-        // compute expected = hex(HMAC_SHA256(data_check_string, secret_key))
-        const expected = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+        const secretKey = crypto.createHmac("sha256", "WebAppData").update(token).digest();
 
-        console.log('telegram/validate: data_check_string=', dataCheckString);
-        console.log('telegram/validate: expected hash (hex)=', expected);
+        const expectedHash = crypto.createHmac("sha256", secretKey).update(dataToCheck).digest("hex");
+
+        console.log('telegram/validate: data_check_string=', dataToCheck);
+        console.log('telegram/validate: expected hash (hex)=', expectedHash);
         console.log('telegram/validate: received hash (hex)=', receivedHash);
 
         // compare
-        if (!safeEq(expected, receivedHash)) {
-            console.warn('telegram/validate: hash mismatch', { expected, receivedHash });
+        if (!safeEq(receivedHash, expectedHash)) {
+            console.warn('telegram/validate: hash mismatch', { expectedHash, receivedHash });
             return res.status(401).json({ error: 'init_data_invalid' });
         }
 
         // optional: check auth_date freshness (prevent replay)
-        const authDate = Number(params.auth_date || 0);
+        const authDate = Number(initData.auth_date || 0);
         const nowSec = Math.floor(Date.now() / 1000);
         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
             // reject if older than 12h
@@ -191,7 +191,7 @@ app.post('/api/telegram/validate', async (req, res) => {
         // parse user JSON if present
         let userObj = null;
         if (params.user) {
-            try { userObj = JSON.parse(params.user); } catch (e) { /* ignore */ }
+            try { userObj = JSON.parse(initData.user); } catch (e) { /* ignore */ }
         }
 
         if (!userObj || !userObj.id) {
@@ -206,6 +206,7 @@ app.post('/api/telegram/validate', async (req, res) => {
             language_code: userObj.language_code || null,
             photo_url: userObj.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
         };
+
         const sessionToken = createSessionToken(sessionPayload, 1000 * 60 * 30); // 30 minutes
 
         // return token and parsed user (we don't return the raw initData back)
