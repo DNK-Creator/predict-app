@@ -189,75 +189,6 @@ const apiLimiter = rateLimit({
 
 // START THE SECTION VALIDATION FOR RAW DATA SESSION
 
-// --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
-const PUBLIC_API_PATHS = [
-    '/tonprice',
-    '/telegram/validate',
-    '/telegram/nft',
-    '/get-chance',
-    '/gifts/prices',
-    '/bets-holders',
-    '/holidays',
-    '/invoice',
-    '/pay-withdraw',
-    '/notify-handpicking',
-    '/balance',
-    '/giftHandle',
-    '/giftFailed'
-]
-
-// helper: parse query-string like "a=1&b=2" -> object
-function parseInitData(raw) {
-    // raw is "key1=value1&key2=value2..."
-    const params = Object.fromEntries(new URLSearchParams(raw));
-    return params;
-}
-
-// helper: build data_check_string according to Telegram docs
-function buildDataCheckString(params) {
-    // exclude hash and signature
-    const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
-    return keys.map(k => `${k}=${params[k]}`).join('\n');
-}
-
-// secure equal, safe against timing attacks
-function safeEq(a, b) {
-    try {
-        const A = Buffer.from(String(a));
-        const B = Buffer.from(String(b));
-        if (A.length !== B.length) return false;
-        return crypto.timingSafeEqual(A, B);
-    } catch (e) {
-        return false;
-    }
-}
-
-app.use('/api', (req, res, next) => {
-    try {
-        const p = String(req.path || '').toLowerCase();
-
-        const allowed = PUBLIC_API_PATHS.some(pub => {
-            // normalize pub just in case
-            const pubPath = String(pub || '').toLowerCase();
-            // exact match (e.g. '/tonprice')
-            if (p === pubPath) return true;
-            // prefix match (allows '/telegram/nft/<slug>' but not '/telegram/nftish')
-            if (p.startsWith(pubPath + '/')) return true;
-            return false;
-        });
-
-        if (allowed) return next();
-        return requireTelegramSession(req, res, next);
-    } catch (e) {
-        // fail safe: require auth on unexpected errors
-        return requireTelegramSession(req, res, next);
-    }
-});
-
-app.use('/api/', apiLimiter)
-app.use('/api', usersApiRouter)
-app.use('/api', betsApiRouter)
-
 // Endpoint: validate initData
 // Accepts Authorization: tma <initDataRaw> OR body { initData: '...' } (POST)
 app.post('/api/telegram/validate', async (req, res) => {
@@ -331,6 +262,75 @@ app.post('/api/telegram/validate', async (req, res) => {
         return res.status(500).json({ error: 'internal_error' });
     }
 });
+
+// --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
+const PUBLIC_API_PATHS = [
+    '/tonprice',
+    '/telegram/validate',
+    '/telegram/nft',
+    '/get-chance',
+    '/gifts/prices',
+    '/bets-holders',
+    '/holidays',
+    '/invoice',
+    '/pay-withdraw',
+    '/notify-handpicking',
+    '/balance',
+    '/giftHandle',
+    '/giftFailed'
+]
+
+// helper: parse query-string like "a=1&b=2" -> object
+function parseInitData(raw) {
+    // raw is "key1=value1&key2=value2..."
+    const params = Object.fromEntries(new URLSearchParams(raw));
+    return params;
+}
+
+// helper: build data_check_string according to Telegram docs
+function buildDataCheckString(params) {
+    // exclude hash and signature
+    const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
+    return keys.map(k => `${k}=${params[k]}`).join('\n');
+}
+
+// secure equal, safe against timing attacks
+function safeEq(a, b) {
+    try {
+        const A = Buffer.from(String(a));
+        const B = Buffer.from(String(b));
+        if (A.length !== B.length) return false;
+        return crypto.timingSafeEqual(A, B);
+    } catch (e) {
+        return false;
+    }
+}
+
+app.use('/api', (req, res, next) => {
+    try {
+        const p = String(req.path || '').toLowerCase();
+
+        const allowed = PUBLIC_API_PATHS.some(pub => {
+            // normalize pub just in case
+            const pubPath = String(pub || '').toLowerCase();
+            // exact match (e.g. '/tonprice')
+            if (p === pubPath) return true;
+            // prefix match (allows '/telegram/nft/<slug>' but not '/telegram/nftish')
+            if (p.startsWith(pubPath + '/')) return true;
+            return false;
+        });
+
+        if (allowed) return next();
+        return requireTelegramSession(req, res, next);
+    } catch (e) {
+        // fail safe: require auth on unexpected errors
+        return requireTelegramSession(req, res, next);
+    }
+});
+
+app.use('/api/', apiLimiter)
+app.use('/api', usersApiRouter)
+app.use('/api', betsApiRouter)
 
 // END THE VALIDATION RAW DATA SESSION
 
