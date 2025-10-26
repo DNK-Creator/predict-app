@@ -61,7 +61,7 @@
                         <div class="chance-row">
                             <span class="volume-value" v-if="volume.Yes && volume.No">{{ Number(volume.Yes +
                                 volume.No).toFixed(2)
-                            }}</span>
+                                }}</span>
                             <span class="volume-value" v-else-if="volume.Yes">{{ Number(volume.Yes).toFixed(2) }}</span>
                             <span class="volume-value" v-else-if="volume.No">{{ Number(volume.No).toFixed(2) }}</span>
                             <span class="volume-value" v-else>0</span>
@@ -91,7 +91,7 @@
                         <span class="info-value">{{ timeRemaining }}</span>
                         <span v-if="timeRemaining !== 'Closed' && timeRemaining !== 'Закрыто'" class="info-hint">{{
                             $t('time-left')
-                        }}</span>
+                            }}</span>
                     </div>
                 </div>
 
@@ -169,7 +169,7 @@
                         <div class="giveaway-hint-clip" aria-hidden="true">
                             <div class="giveaway-hint">{{ $t('tickets-left') }}: {{ bet.giveaway_tickets_left }}/{{
                                 bet.giveaway_total_tickets
-                            }}</div>
+                                }}</div>
                         </div>
 
                     </div>
@@ -1037,6 +1037,7 @@ async function onBetPlaced() {
     }
     volume.value = bet.value.volume_with_gifts
     userBetAmount.value = await getUserBetAmount(betId.value)
+    holders.value = await getBetsHolders(betId.value)
 }
 
 // If component is used inside <KeepAlive>, onActivated runs when it becomes active again
@@ -1214,7 +1215,11 @@ async function loadMoreComments() {
 
 // wrapper to attempt posting and handle server cooldown error
 async function tryPostComment() {
-    if (isSendDisabled.value) return
+    if (isSendDisabled.value) {
+        let msgTxt = app.language === 'ru' ? 'Комментирование вам сейчас недоступно.' : 'Commenting is not available to you right now.'
+        toast.warn(msgTxt)
+        return
+    }
     await postComment()
 }
 
@@ -1266,6 +1271,9 @@ async function postComment() {
 
         // reset input
         newComment.value = ''
+
+        let successTxt = app.language === 'ru' ? 'Комментарий успешно опубликован.' : 'Comment is published.'
+        toast.info(successTxt)
 
         // update last comment timestamp and restart client cooldown from now
         lastCommentAt.value = new Date().toISOString()

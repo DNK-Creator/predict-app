@@ -50,7 +50,8 @@
                 <div class="spacer"></div>
 
                 <!-- INVENTORY -->
-                <div v-if="source.length > 0" class="gifts-list" v-bind="containerProps" role="list" tabindex="0" aria-live="polite">
+                <div v-if="source.length > 0" class="gifts-list" v-bind="containerProps" role="list" tabindex="0"
+                    aria-live="polite">
                     <div class="gifts-wrapper" v-bind="wrapperProps">
                         <!-- each virtual item is a row (data === array of up to COLUMNS gifts) -->
                         <div v-for="{ index, data: row } in list" :key="index" class="gift-row"
@@ -946,6 +947,13 @@ const validAmount = computed(() => {
 async function placeBet() {
     if (!amount.value && (!selectedGifts.value || selectedGifts.value.length === 0)) return
     if (loading.value) return
+
+    if (Number(amount.value) > app.points) {
+        let msgError = app.language === 'ru' ? 'Недостаточно TON, чтобы поставить ставку.' : 'Not enough TON to place a bet.'
+        toast.warn(msgError)
+        return
+    }
+
     loading.value = true
 
     // Take backups for rollback
@@ -970,7 +978,7 @@ async function placeBet() {
 
         const messageText = app.language === 'ru' ? 'Ставка успешно поставлена!' : 'Bet placed successfully!'
         toast.success(messageText)
-        emit('placed', { side: props.side, amount: Number(amount.value || 0) })
+        emit('placed')
         close()
     } catch (err) {
         // rollback optimistic changes if any

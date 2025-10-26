@@ -326,8 +326,8 @@ async function onWithdraw(amount) {
     toast.success(successText);
 
     try {
-        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
-            `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
+        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${Number(amount_cut).toFixed(2)} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
+            `💎 Request to withdraw ${Number(amount_cut).toFixed(2)} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
         fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)

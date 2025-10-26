@@ -161,13 +161,13 @@ async function onWithdraw(amount) {
     if (!user) return
     const amount_cut = amount - 0.01
     if (amount_cut <= 0.05) return
-    if (appStoreObj.points < amount) {
-        let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+    if (app.points < amount) {
+        let errorText = app.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
         toast.error(errorText);
         return;
     }
 
-    const parsedAddress = (Address.parse(appStoreObj.walletAddress)).toString({ urlSafe: true, bounceable: false });
+    const parsedAddress = (Address.parse(app.walletAddress)).toString({ urlSafe: true, bounceable: false });
     const idempotencyKey = uuidv4();
 
     // POST to your server endpoint
@@ -178,7 +178,7 @@ async function onWithdraw(amount) {
     } catch (err) {
         // network-level error (DNS, offline, CORS, etc.)
         console.error('Something went wrong while withdrawing.')
-        const netMsg = appStoreObj.language === 'ru' ? 'Ошибка при попытке соединения для вывода.' : 'Network error while trying to withdraw.'
+        const netMsg = app.language === 'ru' ? 'Ошибка при попытке соединения для вывода.' : 'Network error while trying to withdraw.'
         toast.error(netMsg)
         return
     }
@@ -214,25 +214,25 @@ async function onWithdraw(amount) {
         };
 
         if (errCode && errorMap[errCode]) {
-            const msg = appStoreObj.language === 'ru' ? errorMap[errCode].ru : errorMap[errCode].en;
+            const msg = app.language === 'ru' ? errorMap[errCode].ru : errorMap[errCode].en;
             toast.error(msg);
         } else {
             // unknown server error: show message returned by server if any, else generic
             const serverMsg = (data && (data.message || data.raw || data.error)) ? (data.message || data.raw || data.error) : 'unknown';
-            const defaultMsg = appStoreObj.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: ';
+            const defaultMsg = app.language === 'ru' ? 'Ошибка вывода: ' : 'Withdrawal failed: ';
             toast.error(defaultMsg + serverMsg);
         }
         return;
     }
 
     // optimistic update or fetch fresh user points from server
-    appStoreObj.points = Number((appStoreObj.points - amount).toFixed(2));
-    let successText = appStoreObj.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
+    app.points = Number((app.points - amount).toFixed(2));
+    let successText = app.language === 'ru' ? 'Запрос на вывод сохранён.' : 'Withdrawal request saved.'
     toast.success(successText);
 
     try {
-        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${amount_cut} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
-            `💎 Request to withdraw ${amount_cut} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
+        let botMessageText = app.language === 'ru' ? `💎 Запрос на вывод ${Number(amount_cut).toFixed(2)} TON сохранён.\nТекущий баланс: ${app.points} TON` :
+            `💎 Request to withdraw ${Number(amount_cut).toFixed(2)} TON is saved.\nCurrent balance: ${app.points} TON`
         fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
