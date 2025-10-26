@@ -179,8 +179,13 @@ app.post('/api/telegram/validate', async (req, res) => {
             return res.status(401).json({ error: 'init_data_invalid' });
         }
 
-        // optional: check auth_date freshness (prevent replay)
-        const authDate = Number(initData.auth_date || 0);
+        // CORRECTED: Get auth_date and user using .get() method
+        const authDate = Number(initData.get("auth_date") || 0);
+        const userStr = initData.get("user");
+
+        console.log('telegram/validate: auth_date=', authDate);
+        console.log('telegram/validate: user string=', userStr);
+
         const nowSec = Math.floor(Date.now() / 1000);
         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
             // reject if older than 12h
@@ -190,8 +195,13 @@ app.post('/api/telegram/validate', async (req, res) => {
 
         // parse user JSON if present
         let userObj = null;
-        if (initData.user) {
-            try { userObj = JSON.parse(initData.user); } catch (e) { /* ignore */ }
+        if (userStr) {
+            try {
+                userObj = JSON.parse(userStr);
+                console.log('telegram/validate: parsed user object=', userObj);
+            } catch (e) {
+                console.warn('telegram/validate: failed to parse user JSON', e);
+            }
         }
 
         if (!userObj || !userObj.id) {
