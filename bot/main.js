@@ -180,7 +180,7 @@ app.post('/api/telegram/validate', async (req, res) => {
         }
 
         // optional: check auth_date freshness (prevent replay)
-        const authDate = Number(initData.auth_date || 0);
+        const authDate = Number(dataToCheck.auth_date || 0);
         const nowSec = Math.floor(Date.now() / 1000);
         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
             // reject if older than 12h
@@ -190,8 +190,8 @@ app.post('/api/telegram/validate', async (req, res) => {
 
         // parse user JSON if present
         let userObj = null;
-        if (params.user) {
-            try { userObj = JSON.parse(initData.user); } catch (e) { /* ignore */ }
+        if (dataToCheck.user) {
+            try { userObj = JSON.parse(dataToCheck.user); } catch (e) { /* ignore */ }
         }
 
         if (!userObj || !userObj.id) {
