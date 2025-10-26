@@ -187,28 +187,24 @@ const apiLimiter = rateLimit({
     legacyHeaders: false
 })
 
-app.use('/api/', apiLimiter)
-app.use('/api', usersApiRouter)
-app.use('/api', betsApiRouter)
-
 // START THE SECTION VALIDATION FOR RAW DATA SESSION
 
 // --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
 const PUBLIC_API_PATHS = [
-    '/api/tonprice',
-    '/api/telegram/validate',
-    '/api/telegram/nft',
-    '/api/get-chance',
-    '/api/gifts/prices',
-    '/api/bets-holders',
-    '/api/holidays',
-    '/api/invoice',
-    '/api/pay-withdraw',
-    '/api/notify-handpicking',
-    '/api/balance',
-    '/api/giftHandle',
-    '/api/giftFailed'
-];
+    '/tonprice',
+    '/telegram/validate',
+    '/telegram/nft',
+    '/get-chance',
+    '/gifts/prices',
+    '/bets-holders',
+    '/holidays',
+    '/invoice',
+    '/pay-withdraw',
+    '/notify-handpicking',
+    '/balance',
+    '/giftHandle',
+    '/giftFailed'
+]
 
 // helper: parse query-string like "a=1&b=2" -> object
 function parseInitData(raw) {
@@ -235,6 +231,32 @@ function safeEq(a, b) {
         return false;
     }
 }
+
+app.use('/api', (req, res, next) => {
+    try {
+        const p = String(req.path || '').toLowerCase();
+
+        const allowed = PUBLIC_API_PATHS.some(pub => {
+            // normalize pub just in case
+            const pubPath = String(pub || '').toLowerCase();
+            // exact match (e.g. '/tonprice')
+            if (p === pubPath) return true;
+            // prefix match (allows '/telegram/nft/<slug>' but not '/telegram/nftish')
+            if (p.startsWith(pubPath + '/')) return true;
+            return false;
+        });
+
+        if (allowed) return next();
+        return requireTelegramSession(req, res, next);
+    } catch (e) {
+        // fail safe: require auth on unexpected errors
+        return requireTelegramSession(req, res, next);
+    }
+});
+
+app.use('/api/', apiLimiter)
+app.use('/api', usersApiRouter)
+app.use('/api', betsApiRouter)
 
 // Endpoint: validate initData
 // Accepts Authorization: tma <initDataRaw> OR body { initData: '...' } (POST)
@@ -307,28 +329,6 @@ app.post('/api/telegram/validate', async (req, res) => {
     } catch (err) {
         console.error('telegram/validate error', err);
         return res.status(500).json({ error: 'internal_error' });
-    }
-});
-
-app.use('/api', (req, res, next) => {
-    try {
-        const p = String(req.path || '').toLowerCase();
-
-        const allowed = PUBLIC_API_PATHS.some(pub => {
-            // normalize pub just in case
-            const pubPath = String(pub || '').toLowerCase();
-            // exact match (e.g. '/tonprice')
-            if (p === pubPath) return true;
-            // prefix match (allows '/telegram/nft/<slug>' but not '/telegram/nftish')
-            if (p.startsWith(pubPath + '/')) return true;
-            return false;
-        });
-
-        if (allowed) return next();
-        return requireTelegramSession(req, res, next);
-    } catch (e) {
-        // fail safe: require auth on unexpected errors
-        return requireTelegramSession(req, res, next);
     }
 });
 

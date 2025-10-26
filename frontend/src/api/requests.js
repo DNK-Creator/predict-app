@@ -61,10 +61,16 @@ export async function apiFetch(path, {
             opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json';
         }
 
-        // attach session token if available (centralized auth)
+        // attach session token if available — but DO NOT overwrite an explicit Authorization header
         const sessionToken = getSessionToken();
         if (sessionToken) {
-            opts.headers['Authorization'] = `Bearer ${sessionToken}`;
+            // detect if caller already set an Authorization header (case-insensitive)
+            const hasAuthHeader = Object.keys(opts.headers || {}).some(h => h.toLowerCase() === 'authorization' && String(opts.headers[h] || '').trim().length > 0);
+            if (!hasAuthHeader) {
+                opts.headers['Authorization'] = `Bearer ${sessionToken}`;
+            } else {
+                // if caller intentionally set Authorization (e.g. "tma <initData>"), don't override it
+            }
         }
 
         const resp = await fetch(url, opts);
