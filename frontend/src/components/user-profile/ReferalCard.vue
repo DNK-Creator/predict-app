@@ -95,7 +95,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount, defineEmits } from 'vue'
 import { useAppStore } from '@/stores/appStore'
-import { getUsersByTelegrams } from '@/api/requests'
+import { getUsersReferrals } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
 import shareIcon from '@/assets/icons/Share_Icon.png'
@@ -197,7 +197,7 @@ async function loadFriendsDetails() {
     loading.value = true
     try {
         // fetch referred users rows (get their total_winnings)
-        const rows = await getUsersByTelegrams(keys)
+        const rows = await getUsersReferrals()
         // map by telegram for quick lookup
         const map = new Map(rows.map(r => [String(r.telegram), r]))
 

@@ -9,6 +9,8 @@ import rateLimit from 'express-rate-limit'
 import { createClient } from '@supabase/supabase-js'
 import { v4 as uuidv4 } from 'uuid'
 import crypto from 'crypto'
+import { createSessionToken, requireTelegramSession } from './server/middleware/telegramAuth.js'
+import { verifyGiftWorkerSignature } from './server/middleware/verifyGiftWorker.js';
 import usersApiRouter from './routes/api/users.js'
 import betsApiRouter from './routes/api/bets.js'
 
@@ -188,6 +190,148 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter)
 app.use('/api', usersApiRouter)
 app.use('/api', betsApiRouter)
+
+// START THE SECTION VALIDATION FOR RAW DATA SESSION
+
+// --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
+const PUBLIC_API_PATHS = [
+    '/tonprice',
+    '/telegram/validate',
+    '/telegram/nft',
+    '/get-chance',
+    '/gifts/prices',
+    '/bets-holders',
+    '/holidays',
+    '/invoice',
+    '/pay-withdraw',
+    '/notify-handpicking',
+    '/balance',
+    '/giftHandle',
+    '/giftFailed'
+];
+
+// helper: parse query-string like "a=1&b=2" -> object
+function parseInitData(raw) {
+    // raw is "key1=value1&key2=value2..."
+    const params = Object.fromEntries(new URLSearchParams(raw));
+    return params;
+}
+
+// helper: build data_check_string according to Telegram docs
+function buildDataCheckString(params) {
+    // exclude hash and signature
+    const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
+    return keys.map(k => `${k}=${params[k]}`).join('\n');
+}
+
+// secure equal, safe against timing attacks
+function safeEq(a, b) {
+    try {
+        const A = Buffer.from(String(a));
+        const B = Buffer.from(String(b));
+        if (A.length !== B.length) return false;
+        return crypto.timingSafeEqual(A, B);
+    } catch (e) {
+        return false;
+    }
+}
+
+// Endpoint: validate initData
+// Accepts Authorization: tma <initDataRaw> OR body { initData: '...' } (POST)
+app.post('/api/telegram/validate', async (req, res) => {
+    try {
+        const authHeader = (req.headers.authorization || '').trim();
+        let initDataRaw = null;
+        if (authHeader.startsWith('tma ')) {
+            initDataRaw = authHeader.slice(4);
+        } else if (req.body && req.body.initData) {
+            initDataRaw = req.body.initData;
+        }
+        if (!initDataRaw) {
+            return res.status(400).json({ error: 'missing_init_data' });
+        }
+
+        // parse params
+        const params = parseInitData(initDataRaw);
+        const receivedHash = params.hash;
+        if (!receivedHash) {
+            return res.status(400).json({ error: 'missing_hash' });
+        }
+
+        // build data_check_string exactly as telegram requires
+        const dataCheckString = buildDataCheckString(params);
+
+        // compute secret_key = HMAC_SHA256(bot_token, "WebAppData")
+        // (bot token is in your `token` const above)
+        const secretKey = crypto.createHmac('sha256', token).update('WebAppData').digest();
+
+        // compute expected = hex(HMAC_SHA256(data_check_string, secret_key))
+        const expected = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+
+        if (!safeEq(expected, receivedHash)) {
+            console.warn('telegram/validate: hash mismatch', { expected, receivedHash });
+            return res.status(401).json({ error: 'init_data_invalid' });
+        }
+
+        // optional: check auth_date freshness (prevent replay)
+        const authDate = Number(params.auth_date || 0);
+        const nowSec = Math.floor(Date.now() / 1000);
+        if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
+            // reject if older than 12h
+            console.warn('telegram/validate: auth_date too old or missing', { authDate, nowSec });
+            return res.status(401).json({ error: 'init_data_expired' });
+        }
+
+        // parse user JSON if present
+        let userObj = null;
+        if (params.user) {
+            try { userObj = JSON.parse(params.user); } catch (e) { /* ignore */ }
+        }
+
+        if (!userObj || !userObj.id) {
+            return res.status(400).json({ error: 'missing_user' });
+        }
+
+        // create session token (signed by INTERNAL_SECRET)
+        const sessionPayload = {
+            id: Number(userObj.id),
+            username: userObj.username || null,
+            first_name: userObj.first_name || null,
+            language_code: userObj.language_code || null
+        };
+        const sessionToken = createSessionToken(sessionPayload, 1000 * 60 * 30); // 30 minutes
+
+        // return token and parsed user (we don't return the raw initData back)
+        res.json({ ok: true, token: sessionToken, user: sessionPayload });
+    } catch (err) {
+        console.error('telegram/validate error', err);
+        return res.status(500).json({ error: 'internal_error' });
+    }
+});
+
+app.use('/api', (req, res, next) => {
+    try {
+        const p = String(req.path || '').toLowerCase();
+
+        const allowed = PUBLIC_API_PATHS.some(pub => {
+            // normalize pub just in case
+            const pubPath = String(pub || '').toLowerCase();
+            // exact match (e.g. '/tonprice')
+            if (p === pubPath) return true;
+            // prefix match (allows '/telegram/nft/<slug>' but not '/telegram/nftish')
+            if (p.startsWith(pubPath + '/')) return true;
+            return false;
+        });
+
+        if (allowed) return next();
+        return requireTelegramSession(req, res, next);
+    } catch (e) {
+        // fail safe: require auth on unexpected errors
+        return requireTelegramSession(req, res, next);
+    }
+});
+
+// END THE VALIDATION RAW DATA SESSION
 
 /*
   Handles the pre_checkout_query event.
@@ -430,8 +574,15 @@ app.get('/api/telegram/nft/:slug', async (req, res) => {
 // POST /api/bet-placed
 app.post('/api/bet-placed', async (req, res) => {
     try {
-        const { telegram, bet_id, side, stake, placed_gifts, chat_id } = req.body || {};
-        if (!telegram || !bet_id || !side || (stake === undefined || stake === null)) {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            // requireTelegramSession should normally prevent this; 401 is appropriate
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+        const chat_id = 'myoracle_chat'
+
+        const { bet_id, side, stake, placed_gifts } = req.body || {};
+        if (!bet_id || !side || (stake === undefined || stake === null)) {
             return res.status(400).json({ error: 'telegram, bet_id, side, stake required' });
         }
 
@@ -625,33 +776,34 @@ app.post('/api/bet-placed', async (req, res) => {
 // POST /api/create-event
 app.post('/api/create-event', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const chat_id = '-1002951097413'
-        const { telegram, name, descriptionCondition, descriptionPeriod, descriptionContext, side, stake, gifts_bet } = req.body || {};
+        const { name, descriptionCondition, descriptionPeriod, descriptionContext, side, stake, gifts_bet } = req.body || {};
 
         // Normalize gifts array early and sanitize items early
         const gifts = Array.isArray(gifts_bet) ? gifts_bet : [];
 
-        if (
-            !telegram || !name || !descriptionCondition || !descriptionPeriod || !side ||
+        if (!name || !descriptionCondition || !descriptionPeriod || !side ||
             (
                 // stake is "missing" if undefined, null or empty string
                 (stake === undefined || stake === null || String(stake).trim() === '') &&
                 gifts.length === 0
-            )
-        ) {
+            )) {
             return res.status(400).json({
                 ok: false,
                 error: 'validation_error',
-                message: 'telegram, name, descriptionCondition, descriptionPeriod, side, stake required (stake may be omitted if gifts_bet provided)'
+                message: 'name, descriptionCondition, stake or gifts_bet, descriptionPeriod, side are required'
             });
         }
 
-        // Helper: capitalize first letter (Unicode aware) and keep leading punctuation/quotes
         const capitalizeFirstLetter = (s = '') => {
             return String(s).replace(/(^\s*["'«“‘]?)(\p{L})/u, (m, p1, p2) => p1 + p2.toUpperCase());
         };
 
-        // Helper: format a core sentence: trim, capitalize first letter, ensure ending dot.
         const formatCoreSentence = (raw = '') => {
             let s = String(raw || '').trim();
             if (!s) return null;
@@ -673,7 +825,6 @@ app.post('/api/create-event', async (req, res) => {
             return s;
         };
 
-        // Build description from the three pieces
         const condSanitized = sanitizeDescriptionCondition(descriptionCondition);
         const condSentence = formatCoreSentence(condSanitized);
         const periodSentence = formatCoreSentence(descriptionPeriod);
@@ -700,7 +851,7 @@ app.post('/api/create-event', async (req, res) => {
         const { data: userRow, error: userErr } = await supabaseAdmin
             .from('users')
             .select('id, username, telegram, points, placed_bets, inventory')
-            .eq('telegram', Number(telegram))
+            .eq('telegram', telegram)
             .maybeSingle();
 
         if (userErr) {
@@ -775,7 +926,7 @@ app.post('/api/create-event', async (req, res) => {
                     prizes_given: false,
                     creator_telegram: telegram,
                     status: 'Waiting',
-                    creator_gifts_bet: placedGifts // <-- added creator_gifts_bet column
+                    creator_gifts_bet: placedGifts
                 }
             ])
             .select();
@@ -830,7 +981,7 @@ app.post('/api/create-event', async (req, res) => {
         const { data: newUserRow, error: updateUserErr } = await supabaseAdmin
             .from('users')
             .update(updatePayload)
-            .eq('telegram', Number(telegram))
+            .eq('telegram', telegram)
             .select()
             .maybeSingle();
 
@@ -851,7 +1002,6 @@ app.post('/api/create-event', async (req, res) => {
         res.status(200).json({
             ok: true,
             data: {
-                event: Array.isArray(newEventRow) ? newEventRow[0] : newEventRow,
                 user: newUserRow
             }
         });
@@ -921,6 +1071,74 @@ app.post('/api/create-event', async (req, res) => {
     }
 });
 
+/**
+ * GET /api/gifts/prices
+ */
+app.get('/api/gifts/prices', async (req, res) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('gift_prices')
+            .select('*')
+
+        if (error) {
+            console.error('gifts prices error', error)
+            return res.status(500).json({ error: 'db_error', details: error.message })
+        }
+
+        return res.json({ prices: data ?? [] })
+    } catch (err) {
+        console.error('gifts prices handler error', err)
+        return res.status(500).json({ error: 'internal', details: String(err) })
+    }
+})
+
+/**
+ * GET /api/bets-holders?from=0&to=19
+ */
+app.get('/api/bets-holders', async (req, res) => {
+    try {
+        const from = parseIntOrNull(req.query.from) ?? 0
+        const to = parseIntOrNull(req.query.to) ?? (from + 19)
+        const { data, error } = await supabaseAdmin
+            .from('bets_holders')
+            .select('id, stake_with_gifts, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
+            .eq('dont_show', false)
+            .order('created_at', { ascending: false })
+            .range(from, to)
+
+        if (error) {
+            console.error('bets-holders error', error)
+            return res.status(500).json({ error: 'db_error', details: error.message })
+        }
+
+        return res.json({ rows: data ?? [] })
+    } catch (err) {
+        console.error('bets-holders handler error', err)
+        return res.status(500).json({ error: 'internal', details: String(err) })
+    }
+})
+
+/**
+ * GET /api/holidays
+ */
+app.get('/api/holidays', async (req, res) => {
+    try {
+        const { data, error } = await supabaseAdmin
+            .from('holidays')
+            .select('id, name, name_en, description, description_en, image_path, date')
+
+        if (error) {
+            console.error('holidays error', error)
+            return res.status(500).json({ error: 'db_error', details: error.message })
+        }
+
+        return res.json({ rows: data ?? [] })
+    } catch (err) {
+        console.error('holidays handler error', err)
+        return res.status(500).json({ error: 'internal', details: String(err) })
+    }
+})
+
 app.get("/api/get-chance", async (req, res) => {
     console.log('Hit /api/get-chance')
     try {
@@ -968,7 +1186,7 @@ export async function createInvoiceLink(amount) {
 
 // POST /api/giftFailed
 // body: { owner_telegram: number|string, gift: { uuid, telegram_message_id, gift_id_long, saved_id, slug, name, model, number, value }, reason?: string, attempted_at?: string }
-app.post("/api/giftFailed", async (req, res) => {
+app.post("/api/giftFailed", verifyGiftWorkerSignature, async (req, res) => {
     console.log("[BACKEND HIT] /api/giftFailed");
     try {
         const body = req.body ?? {};
@@ -1165,6 +1383,11 @@ export async function payForWithdrawals(gifts) {
 app.post("/api/withdraw-gifts", async (req, res) => {
     console.log("[BACKEND HIT] /api/withdraw-gifts");
     try {
+        const recipient = Number(req.user?.id);
+        if (!recipient || Number.isNaN(recipient)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const body = req.body ?? {};
 
         // Basic validation
@@ -1172,31 +1395,16 @@ app.post("/api/withdraw-gifts", async (req, res) => {
             return res.status(400).json({ ok: false, error: "empty_payload" });
         }
         const requestedGifts = Array.isArray(body.gifts) ? body.gifts : [];
-        const recipient = body.recipient ?? body.to ?? null;
 
-        if (!recipient) {
-            return res.status(400).json({ ok: false, error: "missing_recipient" });
-        }
         if (requestedGifts.length === 0) {
             return res.status(400).json({ ok: false, error: "no_gifts_provided" });
         }
-
-        // Resolve who is making the request (the owner of the gifts).
-        // Prefer authenticated user (req.user.telegram) — adjust to your auth system.
-        // const requesterTelegram =
-        //     (req.user && req.user.telegram) ||
-        //     Number(body.requester_telegram ?? body.requester?.telegram ?? body.senderTelegram ?? body.ownerTelegram) ||
-        //     null;
-
-        // if (!requesterTelegram || Number.isNaN(requesterTelegram)) {
-        //     return res.status(401).json({ ok: false, error: "missing_requester_telegram" });
-        // }
 
         // Fetch the user's inventory from Supabase
         const { data: userRow, error: userErr } = await supabaseAdmin
             .from("users")
             .select("id, telegram, language, inventory, updated_at")
-            .eq("telegram", Number(recipient))
+            .eq("telegram", recipient)
             .maybeSingle();
 
         if (userErr) {
@@ -1277,7 +1485,7 @@ app.post("/api/withdraw-gifts", async (req, res) => {
                 const { data: freshUser, error: freshErr } = await supabaseAdmin
                     .from("users")
                     .select("id, telegram, inventory, updated_at")
-                    .eq("telegram", Number(recipient))
+                    .eq("telegram", recipient)
                     .maybeSingle();
 
                 if (freshErr) {
@@ -1528,7 +1736,7 @@ app.post("/api/withdraw-gifts", async (req, res) => {
 });
 
 // POST /api/giftHandle
-app.post("/api/giftHandle", async (req, res) => {
+app.post("/api/giftHandle", verifyGiftWorkerSignature, async (req, res) => {
     console.log("[BACKEND HIT] /api/giftHandle");
     try {
         const rec = req.body ?? {};
@@ -1790,9 +1998,14 @@ app.post("/api/notify-handpicking", notifyLimiter, verifySignature, async (req, 
 app.post("/api/botmessage", async (req, res) => {
     console.log("Hit /api/botmessage");
     try {
-        const { messageText, userID } = req.body;
-        if (!messageText || !userID) {
-            return res.status(400).json({ error: "messageText and userID required" });
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
+        const { messageText } = req.body;
+        if (!messageText) {
+            return res.status(400).json({ error: "messageText required" });
         }
 
         if (!token) {
@@ -1803,7 +2016,7 @@ app.post("/api/botmessage", async (req, res) => {
         const tgUrl = `https://api.telegram.org/bot${encodeURIComponent(token)}/sendMessage`;
 
         const payload = {
-            chat_id: String(userID),
+            chat_id: String(telegram),
             text: messageText,
             parse_mode: 'HTML', // optionally; or 'MarkdownV2' / omit
             reply_markup: {
@@ -1822,19 +2035,22 @@ app.post("/api/botmessage", async (req, res) => {
         const tgData = await tgResp.json().catch(() => null);
         if (!tgResp.ok) {
             console.error("Telegram API error:", tgResp.status, tgData);
-            return res.status(502).json({ error: "Telegram API error", status: tgResp.status, details: tgData });
+            return res.status(502).json({ error: "Telegram API error" });
         }
 
-        return res.status(200).json({ ok: true, result: tgData?.result });
+        return res.status(200).json({ ok: true });
     } catch (err) {
-        console.error('Unexpected error in /api/botmessage:', err);
-        return res.status(500).json({ error: "failed to send bot message", details: String(err) });
+        console.error('Unexpected error in /api/botmessage');
+        return res.status(500).json({ error: "failed to send bot message" });
     }
 });
 
 app.post('/api/withdraw', async (req, res) => {
     try {
-        const { telegram, amount, amount_cut, address, idempotencyKey } = req.body;
+        // canonical telegram id comes from validated session, NOT request body
+        const telegram = Number(req.user?.id);
+        const { amount, amount_cut, address, idempotencyKey } = req.body;
+
         if (!telegram || !amount || !address) return res.status(400).json({ error: 'missing parameters' });
 
         const rpc = await supabaseAdmin.rpc('submit_withdrawal', {
@@ -1863,6 +2079,10 @@ app.post('/api/withdraw', async (req, res) => {
 
 app.post('/api/deposit-intent', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
         // log incoming raw payload (helpful in debugging)
         console.log('[deposit-intent] incoming payload:', req.body);
 
@@ -1877,12 +2097,13 @@ app.post('/api/deposit-intent', async (req, res) => {
             return res.status(400).json({ error: 'Invalid amount', received: rawAmount });
         }
 
-        const { user_id, usersWallet } = req.body ?? {};
         const MAX_AMOUNT = Number(process.env.MAX_DEPOSIT_AMOUNT || 99999);
         if (amount > MAX_AMOUNT) {
             console.warn('[deposit-intent] amount too large:', amount);
             return res.status(400).json({ error: `Amount too large (max ${MAX_AMOUNT})` });
         }
+
+        const { usersWallet } = req.body ?? {};
 
         const uuid = uuidv4();
         const depositAddress = HOT_WALLET;
@@ -1893,7 +2114,7 @@ app.post('/api/deposit-intent', async (req, res) => {
 
         const insertRow = {
             uuid,
-            user_id: user_id ?? null,
+            user_id: telegram,
             amount,
             status: 'Незавершенное пополнение',
             type: 'Deposit',
@@ -1921,17 +2142,51 @@ app.post('/api/deposit-intent', async (req, res) => {
     }
 });
 
-
-// ---------- POST /api/deposit-cancel ----------
-app.post('/api/deposit-cancel', async (req, res) => {
+// POST /api/deposit-cancel
+// body: { txId }
+app.post('/api/deposit-cancel', requireTelegramSession, async (req, res) => {
     try {
-        const { txId } = req.body;
+        const { txId } = req.body ?? {};
         if (!txId) return res.status(400).json({ error: 'txId required' });
 
-        // Only update pending, unhandled deposits to "Отмененное пополнение"
-        // We intentionally do not set handled = true — so if a user actually sends funds later,
-        // the worker can still process the on-chain deposit.
-        const { data, error } = await supabaseAdmin
+        // canonical authenticated telegram id from the session middleware
+        const authTelegram = Number(req.user?.id);
+        if (!authTelegram || Number.isNaN(authTelegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
+        // 1) fetch the transaction row (read)
+        const { data: txRow, error: txErr } = await supabaseAdmin
+            .from('transactions')
+            .select('uuid, user_id, status, handled')
+            .eq('uuid', txId)
+            .maybeSingle();
+
+        if (txErr) {
+            console.error('deposit-cancel: error fetching transaction', txErr);
+            return res.status(500).json({ error: 'db_error' });
+        }
+        if (!txRow) {
+            // not found
+            return res.status(404).json({ error: 'not_found' });
+        }
+
+        // 2) Verify owner matches authenticated telegram id
+        // Note: your transactions.user_id stores the telegram id in previous code paths,
+        // so compare directly. Convert both to Number for safety.
+        const txUserId = txRow.user_id == null ? null : Number(txRow.user_id);
+        if (txUserId !== authTelegram) {
+            return res.status(403).json({ error: 'forbidden' });
+        }
+
+        // 3) Check if already handled or not pending
+        if (txRow.handled === true) {
+            // Already handled - cannot cancel
+            return res.status(409).json({ error: 'already_handled' });
+        }
+
+        // 4) Attempt conditional update (only update rows that are still unhandled)
+        const { data: updated, error: updErr } = await supabaseAdmin
             .from('transactions')
             .update({
                 status: 'Отмененное пополнение',
@@ -1939,37 +2194,36 @@ app.post('/api/deposit-cancel', async (req, res) => {
             })
             .eq('uuid', txId)
             .is('handled', false)
-            .select()
+            .select('uuid, status')
             .single();
 
-        if (error) {
-            // If not found, the transaction might already be handled/processed
-            console.warn('deposit-cancel: update returned error', error);
-            return res.status(404).json({ error: 'Not found or already processed' });
+        if (updErr) {
+            // This can happen if the row was concurrently processed/handled between the read and update
+            console.warn('deposit-cancel: update returned error', updErr);
+            // Return a helpful response: either already processed or generic DB error
+            // If concurrency caused the row to be processed, return 409 conflict
+            return res.status(409).json({ error: 'Not found or already processed', details: updErr.message ?? updErr });
         }
 
-        return res.json({ ok: true, uuid: data.uuid, status: data.status });
+        // success
+        return res.json({ ok: true, uuid: updated.uuid, status: updated.status });
     } catch (err) {
         console.error('deposit-cancel error', err);
-        return res.status(500).json({ error: 'Internal server error' });
+        return res.status(500).json({ error: 'internal_error' });
     }
 });
 
-// Add near your other routes (requires these to be defined above):
-// import { v4 as uuidv4 } from 'uuid'  // you already have this
-// ensure supabaseAdmin is available (server-side client)
-
 app.post('/api/stars-payment', async (req, res) => {
     try {
-        // Expect body: { amountStars: number|string } - amount in "stars"
-        const raw = req.body?.amountStars ?? req.body?.amount ?? null;
-        const telegramId = req.body?.user_id ?? req.body?.telegram ?? null;
-        if (raw === null || raw === undefined) {
-            return res.status(400).json({ ok: false, error: 'missing_amount' });
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
         }
 
-        if (telegramId == null || telegramId == undefined) {
-            return res.status(400).json({ ok: false, error: 'no user identificator' });
+        // Expect body: { amountStars: number|string } - amount in "stars"
+        const raw = req.body?.amountStars ?? req.body?.amount ?? null;
+        if (raw === null || raw === undefined) {
+            return res.status(400).json({ ok: false, error: 'missing_amount' });
         }
 
         const amountStarsNum = Number(raw);
@@ -1978,30 +2232,50 @@ app.post('/api/stars-payment', async (req, res) => {
         }
 
         // round to 2 decimals like you requested
-        const amountStarsRounded = Number(amountStarsNum.toFixed(2))
+        const amountStarsRounded = Number(amountStarsNum.toFixed(2));
 
-        // convert to TON (and points) by dividing by 300
-        const amountTON = Number((amountStarsRounded / 300).toFixed(2)) // keep reasonable precision for TON
+        // --- NEW LOGIC: compute TON per star from current TON price (uses your existing getTonPriceUsd + TARGET_USDT)
+        // tonPerStar = TARGET_USDT / tonPriceUsd
+        let tonPerStar = null;
+        let usedFallbackRate = false;
+
+        try {
+            const tonPriceUsd = await getTonPriceUsd(); // reuses your function above
+            if (!Number.isFinite(tonPriceUsd) || tonPriceUsd <= 0) {
+                throw new Error('invalid tonPriceUsd');
+            }
+            tonPerStar = TARGET_USDT / tonPriceUsd;
+        } catch (priceErr) {
+            // fallback behavior: keep old fixed conversion 250 stars == 1 TON
+            console.error('stars-payment: failed to fetch TON price, falling back to fixed rate (250 stars = 1 TON)', priceErr);
+            tonPerStar = 1 / 250; // previous behaviour
+            usedFallbackRate = true;
+        }
+
+        // compute amountTON from stars
+        // use high precision for TON internally (2 decimal places) to avoid rounding tiny amounts to zero
+        const amountTON = Number((amountStarsRounded * tonPerStar).toFixed(2));
 
         // fetch user row by telegram
         const { data: userRow, error: userErr } = await supabaseAdmin
             .from('users')
             .select('*')
-            .eq('telegram', Number(telegramId))
-            .maybeSingle()
+            .eq('telegram', telegram)
+            .maybeSingle();
 
         if (userErr) {
-            console.error('stars-payment: supabase users select error', userErr)
-            return res.status(500).json({ ok: false, error: 'db_error' })
+            console.error('stars-payment: supabase users select error', userErr);
+            return res.status(500).json({ ok: false, error: 'db_error' });
         }
         if (!userRow) {
-            return res.status(404).json({ ok: false, error: 'user_not_found' })
+            return res.status(404).json({ ok: false, error: 'user_not_found' });
         }
 
         // compute new points value (points column appears numeric)
-        const oldPoints = Number(userRow.points ?? 0)
-        const pointsToAdd = amountTON // as you requested: add TON-equivalent to points
-        const newPoints = Number((oldPoints + pointsToAdd).toFixed(2))
+        // we store points with reasonable precision (2 decimals) because TON amounts can be small
+        const oldPoints = Number(userRow.points ?? 0);
+        const pointsToAdd = amountTON; // add TON-equivalent to points
+        const newPoints = Number((oldPoints + pointsToAdd).toFixed(2));
 
         // update user points
         const { data: updUser, error: updErr } = await supabaseAdmin
@@ -2009,60 +2283,64 @@ app.post('/api/stars-payment', async (req, res) => {
             .update({ points: newPoints })
             .eq('id', userRow.id)
             .select()
-            .single()
+            .single();
 
         if (updErr) {
-            console.error('stars-payment: supabase users update error', updErr)
-            return res.status(500).json({ ok: false, error: 'db_error_update_user' })
+            console.error('stars-payment: supabase users update error', updErr);
+            return res.status(500).json({ ok: false, error: 'db_error_update_user' });
         }
 
         // insert transaction row
-        const txUuid = uuidv4()
+        const txUuid = uuidv4();
         const insertRow = {
             uuid: txUuid,
-            user_id: Number(telegramId),
-            amount: amountTON, // amount IN TON as requested
+            user_id: telegram,
+            amount: amountTON, // amount IN TON as requested (8 decimals)
             status: 'Успешное пополнение',
             type: 'Deposit',
             deposit_address: null,
             sender_wallet: null,
             created_at: new Date().toISOString()
-        }
+        };
 
         const { data: txData, error: txErr } = await supabaseAdmin
             .from('transactions')
             .insert(insertRow)
             .select()
-            .single()
+            .single();
 
         if (txErr) {
-            console.error('stars-payment: transactions insert error', txErr)
-            // attempt to rollback user points update? For now return error and log
-            return res.status(500).json({ ok: false, error: 'db_error_insert_transaction' })
+            console.error('stars-payment: transactions insert error', txErr);
+            // note: we don't rollback the user points here; you can add compensation logic if needed
+            return res.status(500).json({ ok: false, error: 'db_error_insert_transaction' });
         }
 
         console.log('stars-payment: processed', {
-            telegram: telegramId,
+            telegram,
             user_id: userRow.id,
             amountStars: amountStarsRounded,
+            tonPerStar,
             amountTON,
             newPoints,
-            txUuid
-        })
+            txUuid,
+            usedFallbackRate
+        });
 
         return res.json({
             ok: true,
             amountStars: amountStarsRounded,
+            tonPerStar,
             amountTON,
             pointsAdded: pointsToAdd,
             newPoints,
-            transaction_uuid: txUuid
-        })
+            transaction_uuid: txUuid,
+            usedFallbackRate // useful for diagnostics on client side / logs
+        });
     } catch (err) {
-        console.error('stars-payment unexpected error', err)
-        return res.status(500).json({ ok: false, error: 'internal_error', details: String(err) })
+        console.error('stars-payment unexpected error', err);
+        return res.status(500).json({ ok: false, error: 'internal_error', details: String(err) });
     }
-})
+});
 
 const balanceCache = new Map()
 const BALANCE_TTL_MS = 30 * 1000 // 15 seconds
@@ -2151,11 +2429,13 @@ app.get('/api/balance', async (req, res) => {
     }
 })
 
-// ---------- GET /api/channelMembership?userId=... ----------
+// ---------- GET /api/channelMembership ----------
 app.get('/api/channelMembership', async (req, res) => {
     try {
-        const userId = String(req.query.userId || '').trim()
-        if (!userId) return res.status(400).json({ error: 'userId query param required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         if (!token) {
             return res.status(500).json({ error: 'Bot not configured to check member' })
@@ -2165,7 +2445,7 @@ app.get('/api/channelMembership', async (req, res) => {
 
         const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
             `?chat_id=${encodeURIComponent(formattedChatId)}` +
-            `&user_id=${encodeURIComponent(userId)}`;
+            `&user_id=${encodeURIComponent(telegram)}`;
 
 
         const response = await fetch(url);
@@ -2201,7 +2481,6 @@ app.get('/api/channelMembership', async (req, res) => {
         return res.status(500).json({ error: 'Failed to check channel membership', details: String(err) });
     }
 })
-
 
 // helper to pull deep-link payload from "/start ABC123"
 function extractPayload(ctx) {
@@ -2303,7 +2582,6 @@ async function handleStart(ctx) {
         }
     }
 }
-
 
 async function handleNewUser(ctx) {
     try {

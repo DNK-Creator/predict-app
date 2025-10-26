@@ -2,6 +2,7 @@
 import express from "express"
 import Joi from "joi"
 import { createClient } from '@supabase/supabase-js'
+import { requireTelegramSession } from "../../server/middleware/telegramAuth"
 
 const router = express.Router()
 
@@ -89,40 +90,47 @@ router.get('/bets/past', async (req, res) => {
     }
 })
 
-/**
- * GET /api/bets/created?telegram=123&offset=0&limit=8
- */
-router.get('/bets/created', async (req, res) => {
+// GET /api/bets/created?offset=0&limit=8
+router.get('/bets/created', requireTelegramSession, async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            // requireTelegramSession should normally prevent this; 401 is appropriate
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
-        const offset = parseIntOrNull(req.query.offset) ?? 0
-        const limit = parseIntOrNull(req.query.limit) ?? 8
-        const to = offset + limit - 1
+        // parse & sanitize pagination
+        const offset = Math.max(0, parseIntOrNull(req.query.offset) ?? 0);
+        let limit = parseIntOrNull(req.query.limit) ?? 8;
+        limit = Math.max(1, Math.min(limit, 20)); // enforce sensible max (20)
+
+        const to = offset + limit - 1;
 
         const { data, error } = await supabaseAdmin
             .from('bets')
             .select('id, name, name_en, description, creator_first_stake, creator_side, is_approved, status')
             .eq('creator_telegram', telegram)
             .order('creator_first_stake', { ascending: false })
-            .range(offset, to)
+            .range(offset, to);
 
-        if (error) return sendServerError(res, error, 'db_query_failed')
-        return res.json({ rows: data ?? [] })
+        if (error) return sendServerError(res, error, 'db_query_failed');
+        return res.json({ rows: data ?? [] });
     } catch (err) {
-        return sendServerError(res, err, 'failed_fetch_created_bets')
+        return sendServerError(res, err, 'failed_fetch_created_bets');
     }
-})
+});
 
 /**
- * GET /api/bets/user-active?telegram=123
+ * GET /api/bets/user-active
  * returns bets with user's stake merged in
  */
-router.get('/bets/user-active', async (req, res) => {
+router.get('/bets/user-active', requireTelegramSession, async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            // requireTelegramSession should normally prevent this; 401 is appropriate
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         // 1) fetch user's placed_bets
         const { data: profile, error: profileErr } = await supabaseAdmin
@@ -165,12 +173,15 @@ router.get('/bets/user-active', async (req, res) => {
 })
 
 /**
- * GET /api/bets/user-history?telegram=123
+ * GET /api/bets/user-history
  */
-router.get('/bets/user-history', async (req, res) => {
+router.get('/bets/user-history', requireTelegramSession, async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            // requireTelegramSession should normally prevent this; 401 is appropriate
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data: profile, error: profileErr } = await supabaseAdmin
             .from('users')
@@ -215,57 +226,101 @@ router.get('/bets/user-history', async (req, res) => {
     }
 })
 
-/**
- * POST /api/bets/place
- * body: { p_telegram, p_bet_id, p_side, p_stake, p_photo_url, p_username, p_placed_gifts }
- * Calls RPC place_bet_rpc and returns the structured result
- */
-router.post('/bets/place', async (req, res) => {
+// POST /api/bets/place
+// body: { p_bet_id, p_side, p_stake, p_photo_url, p_username, p_placed_gifts }
+// Calls RPC place_bet_rpc and returns structured result
+router.post('/bets/place', requireTelegramSession, async (req, res) => {
     try {
-        const schema = Joi.object({
-            p_telegram: Joi.number().required(),
-            p_bet_id: Joi.number().required(),
-            p_side: Joi.string().required(),
-            p_stake: Joi.string().allow('', null).optional(),
-            p_photo_url: Joi.string().allow(null, '').optional(),
-            p_username: Joi.string().allow(null, '').optional(),
-            p_placed_gifts: Joi.any().optional()
-        })
-        const { error: valErr, value } = schema.validate(req.body)
-        if (valErr) return res.status(400).json({ error: valErr.message })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+        const sessionUsername = req.user?.username ?? 'unknown-predictor'
 
-        const { data, error } = await supabaseAdmin.rpc('place_bet_rpc', value)
+        const sessionPhotoUrl = req.user?.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
 
-        if (error) {
-            // If Postgres function raises an error with message, forward as 400 for business errors (adjust as needed)
-            console.error('place_bet_rpc error', error)
-            return res.status(500).json({ error: 'rpc_failed', details: error.message })
+        // If client still sends p_telegram, ensure it matches the validated one (defensive)
+        if (req.body && req.body.p_telegram !== undefined) {
+            const provided = Number(req.body.p_telegram);
+            if (Number.isNaN(provided) || provided !== telegram) {
+                return res.status(403).json({ error: 'telegram_mismatch' });
+            }
+            // we will ignore client p_telegram and use server one below
         }
 
-        const row = Array.isArray(data) ? data[0] : data
+        // Validate request body
+        const schema = Joi.object({
+            p_bet_id: Joi.number().required(),
+            p_side: Joi.string().required(),
+            p_stake: Joi.alternatives().try(Joi.number(), Joi.string()).allow(null, '').optional(),
+            p_placed_gifts: Joi.any().optional()
+        }).options({ stripUnknown: true, convert: true }); // strip unknown fields, allow coercion
 
-        // Return normalized object similar to what client expects
+        const { error: valErr, value } = schema.validate(req.body || {});
+        if (valErr) return res.status(400).json({ error: valErr.message });
+
+        // Build RPC payload by inserting server-validated telegram
+        const payload = {
+            p_telegram: telegram,
+            // ensure numeric id for rpc
+            p_bet_id: Number(value.p_bet_id),
+            p_side: value.p_side,
+            // keep stake as provided (string or number), or null
+            p_stake: value.p_stake ?? null,
+            p_photo_url: sessionPhotoUrl,
+            p_username: sessionUsername,
+            p_placed_gifts: value.p_placed_gifts ?? null
+        };
+
+        // If p_placed_gifts is an object/array, stringify it so RPC receiving JSONB works reliably
+        if (payload.p_placed_gifts != null && typeof payload.p_placed_gifts !== 'string') {
+            try {
+                payload.p_placed_gifts = JSON.stringify(payload.p_placed_gifts);
+            } catch (e) {
+                // fallback: remove placed_gifts to avoid RPC error
+                console.warn('Failed to stringify p_placed_gifts, dropping it', e);
+                payload.p_placed_gifts = null;
+            }
+        }
+
+        // Call RPC
+        const { data, error } = await supabaseAdmin.rpc('place_bet_rpc', payload);
+
+        if (error) {
+            // RPC/business errors: log & forward sensible info
+            console.error('place_bet_rpc error', error);
+            return res.status(500).json({ error: 'rpc_failed', details: error.message });
+        }
+
+        const row = Array.isArray(data) ? data[0] : data;
+
+        // Normalize response like before
         return res.json({
             placed_bets: row?.placed_bets ?? [],
             points: parseFloat(row?.points ?? 0),
             volume: row?.volume ?? {},
             tickets: Number(row?.user_tickets ?? 0),
             raw: row
-        })
+        });
     } catch (err) {
-        return sendServerError(res, err, 'failed_place_bet')
+        return sendServerError(res, err, 'failed_place_bet');
     }
-})
+});
 
 /**
- * GET /api/bets/available-comments?telegram=123&betId=5
+ * GET /api/bets/available-comments?betId=5
  * returns { available: true/false }
  */
-router.get('/bets/available-comments', async (req, res) => {
+router.get('/bets/available-comments', requireTelegramSession, async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const betId = parseIntOrNull(req.query.betId)
-        if (!telegram || betId == null) return res.status(400).json({ error: 'telegram and betId required' })
+
+        if (betId == null) return res.status(400).json({ error: 'betId required' })
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -287,24 +342,26 @@ router.get('/bets/available-comments', async (req, res) => {
  * GET /api/bets/user-bet-amount?telegram=123&betId=5
  * returns { stake, placed_gifts, result }
  */
-router.get('/bets/user-bet-amount', async (req, res) => {
+router.get('/bets/user-bet-amount', requireTelegramSession, async (req, res) => {
     try {
         // Log raw incoming query (very helpful for debugging)
         console.log('[DEBUG] GET /api/bets/user-bet-amount raw query:', req.query)
 
-        // Accept either string or array form (express may parse repeated keys into arrays)
-        const rawTelegram = Array.isArray(req.query.telegram) ? req.query.telegram[0] : req.query.telegram
-        const rawBetId = Array.isArray(req.query.betId) ? req.query.betId[0] : req.query.betId
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
-        const telegram = parseIntOrNull(rawTelegram)
+        // Accept either string or array form (express may parse repeated keys into arrays)
+        const rawBetId = Array.isArray(req.query.betId) ? req.query.betId[0] : req.query.betId
         const betId = parseIntOrNull(rawBetId)
 
         // Defensive validation: explicitly check for null/NaN
-        if (telegram == null || betId == null) {
-            console.warn('[WARN] user-bet-amount missing/invalid params', { rawTelegram, rawBetId, telegram, betId })
+        if (betId == null) {
+            console.warn('[WARN] user-bet-amount missing/invalid params', { rawBetId, betId })
             return res.status(400).json({
-                error: 'telegram and betId required',
-                received: { rawTelegram, rawBetId, telegram, betId }
+                error: 'betId required',
+                received: { rawBetId, betId }
             })
         }
 
@@ -334,13 +391,15 @@ router.get('/bets/user-bet-amount', async (req, res) => {
 })
 
 /**
- * GET /api/user/last-comment?telegram=123
+ * GET /api/user/last-comment
  * returns { last_commented_at: ISOstring or null }
  */
-router.get('/user/last-comment', async (req, res) => {
+router.get('/user/last-comment', requireTelegramSession, async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -355,85 +414,132 @@ router.get('/user/last-comment', async (req, res) => {
     }
 })
 
-/**
- * POST /api/comments
- * body: { betId, text, commentId, usersStake, telegram }
- * Enforces cooldown using users.last_commented_at; updates it on success
- */
-router.post('/comments', async (req, res) => {
+// POST /api/comments
+// body: { betId, text, commentId, usersStake, /* no telegram */ }
+router.post('/comments', requireTelegramSession, async (req, res) => {
     try {
+        // canonical Telegram id & username come from the validated session
+        const telegram = Number(req.user?.id);
+        const sessionUsername = req.user?.username ?? 'unknown-predictor';
+        const sessionPhotoUrl = req.user?.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
+
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
+        // Defensive: if client still sends telegram, ensure it matches server one
+        if (req.body && req.body.telegram !== undefined) {
+            const provided = Number(req.body.telegram);
+            if (Number.isNaN(provided) || provided !== telegram) {
+                return res.status(403).json({ error: 'telegram_mismatch' });
+            }
+            // ignore body.telegram from here on
+        }
+
+        // Validate incoming body (no telegram allowed here)
         const schema = Joi.object({
-            betId: Joi.number().allow(null),
-            text: Joi.string().required(),
+            betId: Joi.number().integer().allow(null),
+            text: Joi.string().min(1).max(200).required(),
             commentId: Joi.string().required(),
             usersStake: Joi.any().optional(),
-            telegram: Joi.number().required()
-        })
-        const { error: valErr, value } = schema.validate(req.body)
-        if (valErr) return res.status(400).json({ error: valErr.message })
+        }).options({ stripUnknown: true, convert: true });
 
-        const { betId, text, commentId, usersStake, telegram } = value
+        const { error: valErr, value } = schema.validate(req.body || {});
+        if (valErr) return res.status(400).json({ error: valErr.message });
 
-        // fetch user row
-        const { data: usr, error: userErr } = await supabaseAdmin
-            .from('users')
-            .select('last_commented_at, telegram')
-            .eq('telegram', telegram)
-            .maybeSingle()
+        const betId = value.betId ?? null;
+        const text = String(value.text).trim();
+        const commentId = String(value.commentId);
+        let usersStake = value.usersStake ?? null;
 
-        if (userErr) return sendServerError(res, userErr, 'db_profile_fetch_failed')
-
-        const COOLDOWN_SECONDS = 30 * 60 // 1800 seconds
-        if (usr?.last_commented_at) {
-            const lastTs = new Date(usr.last_commented_at).getTime()
-            const elapsedSec = Math.floor((Date.now() - lastTs) / 1000)
-            if (elapsedSec < COOLDOWN_SECONDS) {
-                const remaining = COOLDOWN_SECONDS - elapsedSec
-                return res.status(403).json({ error: 'COOLDOWN', remaining })
+        // Sanitize / coerce usersStake: if it's an object/array, stringify for stable DB storage
+        if (usersStake != null && typeof usersStake === 'object') {
+            try {
+                usersStake = JSON.stringify(usersStake);
+            } catch (e) {
+                console.warn('Could not stringify usersStake; dropping to null', e);
+                usersStake = null;
             }
         }
 
-        const payload = {
-            id: commentId,
-            bet_id: betId ?? null,
-            text,
-            user_id: usr?.telegram ?? telegram,
-            username: req.body.username ?? null,
-            photo_url: req.body.photo_url ?? null,
-            created_at: new Date().toISOString(),
-            users_stake: usersStake ?? null
+        // fetch user row to read last_commented_at and placed_bets (use server canonical telegram)
+        const { data: usr, error: userErr } = await supabaseAdmin
+            .from('users')
+            .select('last_commented_at, placed_bets, telegram')
+            .eq('telegram', telegram)
+            .maybeSingle();
+
+        if (userErr) return sendServerError(res, userErr, 'db_profile_fetch_failed');
+
+        const placed = Array.isArray(usr?.placed_bets) ? usr.placed_bets : []
+        const has = placed.some(b => Number(b.bet_id) === Number(betId))
+        const isAlright = Boolean(has)
+
+        if (isAlright === false) {
+            return res.status(403).json({ error: 'NO_BET' });
         }
 
-        // insert comment
+        const COOLDOWN_SECONDS = 30 * 60; // 30 minutes
+        if (usr?.last_commented_at) {
+            const lastTs = new Date(usr.last_commented_at).getTime();
+            const elapsedSec = Math.floor((Date.now() - lastTs) / 1000);
+            if (elapsedSec < COOLDOWN_SECONDS) {
+                const remaining = COOLDOWN_SECONDS - elapsedSec;
+                return res.status(403).json({ error: 'COOLDOWN', remaining });
+            }
+        }
+
+        // Prefer session username (trustworthy); fallback to client-provided username if present
+        const usernameToStore = sessionUsername;
+        const photoUrlToStore = sessionPhotoUrl;
+
+        // Build payload for DB insert
+        const payload = {
+            id: commentId,
+            bet_id: betId,
+            text,
+            user_id: telegram,
+            username: usernameToStore,
+            photo_url: photoUrlToStore,
+            created_at: new Date().toISOString(),
+            users_stake: usersStake
+        };
+
+        // Insert comment
         const { data: inserted, error: insertErr } = await supabaseAdmin
             .from('comments')
             .insert(payload)
-            .single()
+            .single();
 
-        if (insertErr) return sendServerError(res, insertErr, 'db_insert_failed')
+        if (insertErr) return sendServerError(res, insertErr, 'db_insert_failed');
 
-        // update last_commented_at
+        // Update last_commented_at (best-effort; log if it fails)
         const { error: updateErr } = await supabaseAdmin
             .from('users')
             .update({ last_commented_at: new Date().toISOString() })
-            .eq('telegram', telegram)
+            .eq('telegram', telegram);
 
-        if (updateErr) console.warn('Could not update users.last_commented_at:', updateErr)
+        if (updateErr) console.warn('Could not update users.last_commented_at:', updateErr);
 
-        return res.json({ comment: inserted })
+        return res.json({ comment: inserted });
     } catch (err) {
-        return sendServerError(res, err, 'failed_post_comment')
+        return sendServerError(res, err, 'failed_post_comment');
     }
-})
+});
 
 /**
- * DELETE /api/comments/:id?telegram=123
+ * DELETE /api/comments/:id
  * Only allows deletion by the comment owner and within 48h window
  */
-router.delete('/comments/:id', async (req, res) => {
+router.delete('/comments/:id', requireTelegramSession, async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const commentId = req.params.id
-        const telegram = parseIntOrNull(req.query.telegram)
+
         if (!commentId || !telegram) return res.status(400).json({ error: 'id and telegram are required' })
 
         const { data, error } = await supabaseAdmin
@@ -471,32 +577,31 @@ router.delete('/comments/:id', async (req, res) => {
     }
 })
 
-/**
- * GET /api/comments?betId=5&page=0&pageSize=10
- */
-router.get('/comments', async (req, res) => {
+// GET /api/bets/:betId/comments?page=0&pageSize=10
+router.get('/bets/:betId/comments', async (req, res) => {
     try {
-        const betId = parseIntOrNull(req.query.betId)
-        if (betId == null) return res.status(400).json({ error: 'betId required' })
+        const betId = parseIntOrNull(req.params.betId);
+        if (betId == null) return res.status(400).json({ error: 'betId required' });
 
-        const page = Math.max(0, parseIntOrNull(req.query.page) ?? 0)
-        const pageSize = Math.max(1, Math.min(100, parseIntOrNull(req.query.pageSize) ?? 10))
-        const from = page * pageSize
-        const to = from + pageSize - 1
+        const page = Math.max(0, parseIntOrNull(req.query.page) ?? 0);
+        const pageSize = Math.max(1, Math.min(100, parseIntOrNull(req.query.pageSize) ?? 10));
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
 
         const { data, error } = await supabaseAdmin
             .from('comments')
             .select('id, text, user_id, username, created_at, photo_url, users_stake')
             .eq('bet_id', betId)
             .order('created_at', { ascending: false })
-            .range(from, to)
+            .range(from, to);
 
-        if (error) return sendServerError(res, error, 'db_comments_fetch_failed')
-        return res.json({ rows: data ?? [] })
+        if (error) return sendServerError(res, error, 'db_comments_fetch_failed');
+        return res.json({ rows: data ?? [] });
     } catch (err) {
-        return sendServerError(res, err, 'failed_fetch_comments')
+        return sendServerError(res, err, 'failed_fetch_comments');
     }
-})
+});
+
 
 /**
  * GET /api/bet/:id/availability

@@ -6,52 +6,104 @@ const { user } = useTelegram()
 const MY_ID = user?.id
 const BACKEND_URL = 'https://api.myoracleapp.com'
 
-async function apiFetch(path, { method = 'GET', body = null, signal = null, headers = {} } = {}) {
-    const url = `${BACKEND_URL}${path}`
-    const controller = new AbortController()
-    const timeoutMs = 10000 // default timeout 10s; caller can pass signal to cancel earlier
+// helper: read token saved by App.vue
+function getSessionToken() {
+    try {
+        if (typeof window === 'undefined') return null;
+        return localStorage.getItem('tg_session');
+    } catch (e) {
+        return null;
+    }
+}
 
-    // If caller passed a signal, we want to race signals (caller signal OR our timeout)
-    let racedSignal = controller.signal
+export async function apiFetch(path, {
+    method = 'GET',
+    body = null,
+    signal = null,
+    headers = {},
+    timeoutMs = 10000
+} = {}) {
+    const url = `${BACKEND_URL}${path}`;
+
+    // internal controller that we will actually pass to fetch.
+    const controller = new AbortController();
+    const internalSignal = controller.signal;
+
+    // If caller passed a signal, wire it to abort our controller so
+    // fetch sees controller.signal and will be aborted on either event.
+    let removeCallerListener = null;
     if (signal) {
-        // race: if caller aborts, we abort our controller
-        signal.addEventListener('abort', () => controller.abort())
+        // If already aborted, abort our controller immediately
+        if (signal.aborted) {
+            controller.abort();
+        } else {
+            const onCallerAbort = () => controller.abort();
+            signal.addEventListener('abort', onCallerAbort, { once: true });
+            // store removal helper in case environment doesn't support { once } or for extra safety
+            removeCallerListener = () => {
+                try { signal.removeEventListener('abort', onCallerAbort); } catch (e) { /* ignore */ }
+            };
+        }
     }
 
-    const id = setTimeout(() => controller.abort(), timeoutMs)
+    // timeout that aborts our controller
+    const timeoutId = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
     try {
-        const opts = { method, headers: { ...headers }, signal: racedSignal }
+        const opts = {
+            method,
+            headers: { ...headers },
+            signal: internalSignal
+        };
+
         if (body != null) {
-            opts.body = typeof body === 'string' ? body : JSON.stringify(body)
-            opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json'
+            opts.body = typeof body === 'string' ? body : JSON.stringify(body);
+            opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json';
         }
 
-        const resp = await fetch(url, opts)
+        // attach session token if available (centralized auth)
+        const sessionToken = getSessionToken();
+        if (sessionToken) {
+            opts.headers['Authorization'] = `Bearer ${sessionToken}`;
+        }
 
-        // try parse JSON if possible
-        const text = await resp.text().catch(() => null)
-        let json = null
-        try { json = text ? JSON.parse(text) : null } catch (err) { json = null }
+        const resp = await fetch(url, opts);
+
+        // try parse JSON safely
+        const text = await resp.text().catch(() => null);
+        let json = null;
+        try { json = text ? JSON.parse(text) : null; } catch (e) { json = null; }
 
         if (!resp.ok) {
-            const err = new Error(`HTTP ${resp.status}`)
-            err.status = resp.status
-            err.body = json ?? text
-            throw err
+            const err = new Error(`HTTP ${resp.status}`);
+            err.status = resp.status;
+            // include parsed JSON when possible, else raw text
+            err.body = json ?? text;
+            throw err;
         }
 
-        return { ok: true, status: resp.status, data: json, rawText: text }
+        return { ok: true, status: resp.status, data: json, rawText: text };
     } catch (err) {
-        // unify AbortError message
+        // normalize AbortError -> consistent error object with name 'AbortError'
         if (err.name === 'AbortError') {
-            const e = new Error('Request aborted/timed out')
-            e.name = 'AbortError'
-            throw e
+            const e = new Error('Request aborted/timed out');
+            e.name = 'AbortError';
+            throw e;
         }
-        throw err
+
+        // preserve structured info if present, else normalize
+        if (err.status || err.body) {
+            // rethrow preserving shape
+            throw err;
+        }
+
+        const e = new Error(err.message ?? 'Network error');
+        e.original = err;
+        throw e;
     } finally {
-        clearTimeout(id)
+        // cleanup
+        if (timeoutId) clearTimeout(timeoutId);
+        if (removeCallerListener) removeCallerListener();
     }
 }
 
@@ -84,17 +136,14 @@ export async function getOrCreateUser(languageCode = null) {
     }
 }
 
-export async function registerRef(inviterTelegram, inviterUsername, inviteeTelegram, inviteeUsername) {
-    if (!inviterTelegram || !inviteeTelegram) {
-        console.warn('registerRef: missing inviter or invitee id', inviterTelegram, inviteeTelegram)
+export async function registerRef(inviterTelegram) {
+    if (!inviterTelegram) {
+        console.warn('registerRef: missing inviter id', inviterTelegram)
         return
     }
     try {
         const payload = {
-            inviter_telegram: Number(inviterTelegram),
-            inviter_username: inviterUsername ?? 'Anonymous',
-            invitee_telegram: Number(inviteeTelegram),
-            invitee_username: inviteeUsername ?? 'Anonymous'
+            inviter_telegram: Number(inviterTelegram)
         }
         const { data } = await apiFetch('/api/user/register-ref', { method: 'POST', body: payload })
         return data?.result ?? null
@@ -148,13 +197,31 @@ export async function getUsersWalletAddress() {
     }
 }
 
-export async function getUsersByTelegrams(telegrams = []) {
-    if (!Array.isArray(telegrams) || telegrams.length === 0) return []
+export async function withdrawUserTon(amount, amount_cut, parsedAddress, idempotencyKey) {
     try {
-        const { data } = await apiFetch('/api/users/by-telegrams', { method: 'POST', body: { telegrams } })
-        return data?.rows ?? []
+        const { status, data } = await apiFetch('/api/withdraw', {
+            method: 'POST',
+            body: {
+                // optional: no telegram here, consider omitting this and use req.user on server
+                amount,
+                amount_cut,
+                address: parsedAddress,
+                idempotencyKey
+            }
+        });
+        return { ok: true, status, data };
     } catch (err) {
-        console.error('getUsersByTelegrams error', err)
+        console.error('withdrawUserTon error', err);
+        return { ok: false, error: err };
+    }
+}
+
+export async function getUsersReferrals() {
+    try {
+        const resp = await apiFetch('/api/user/referrals', { method: 'GET' })
+        return Array.isArray(resp.data?.rows) ? resp.data.rows : []
+    } catch (err) {
+        console.error('getUsersReferrals error:', err)
         return []
     }
 }
@@ -275,153 +342,178 @@ export async function fetchUsersTransactions(appObj) {
 }
 
 export async function checkUserInChannel() {
-    const url = `${BACKEND_URL}/api/channelMembership?userId=${user?.id}`
-    const resp = await fetch(url)
-
-    return resp
+    try {
+        // server expects query param userId; we keep same argument behavior
+        const resp = await apiFetch(`/api/channelMembership`, { method: 'GET' });
+        // return apiFetch result (ok, status, data, rawText)
+        return resp;
+    } catch (err) {
+        console.error('checkUserInChannel error', err);
+        throw err;
+    }
 }
 
 export async function fetchTonPrice() {
-    const resp = await fetch(`${BACKEND_URL}/api/tonprice`)
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/tonprice', { method: 'GET' });
+        return resp; // { ok, status, data, rawText }
+    } catch (err) {
+        console.error('fetchTonPrice error', err);
+        throw err;
+    }
 }
 
 export async function getGiftInfo(gift_slug) {
-    const resp = await fetch(`${BACKEND_URL}/api/telegram/nft/${encodeURIComponent(gift_slug)}`)
-
-    return resp
+    try {
+        const resp = await apiFetch(`/api/telegram/nft/${encodeURIComponent(gift_slug)}`, { method: 'GET' });
+        return resp;
+    } catch (err) {
+        console.error('getGiftInfo error', err);
+        throw err;
+    }
 }
 
 export async function withdrawUsersGifts(withdrawal_payload) {
-    const resp = await fetch(`${BACKEND_URL}/api/withdraw-gifts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(withdrawal_payload),
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/withdraw-gifts', {
+            method: 'POST',
+            body: withdrawal_payload
+        });
+        return resp;
+    } catch (err) {
+        console.error('withdrawUsersGifts error', err);
+        throw err;
+    }
 }
 
 export async function payStarsForWithdrawal(stars_payload) {
-    const resp = await fetch(`${BACKEND_URL}/api/pay-withdraw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(stars_payload)
-    })
-
-    return resp
-}
-
-export async function withdrawUserTon(amount, amount_cut, parsedAddress, idempotencyKey) {
-    const resp = await fetch(`${BACKEND_URL}/api/withdraw`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            telegram: user?.id,
-            amount,
-            amount_cut,
-            address: parsedAddress,
-            idempotencyKey
-        })
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/pay-withdraw', {
+            method: 'POST',
+            body: stars_payload
+        });
+        return resp;
+    } catch (err) {
+        console.error('payStarsForWithdrawal error', err);
+        throw err;
+    }
 }
 
 export async function depositUserStars(amountStarsRounded) {
-    const resp = await fetch(`${BACKEND_URL}/api/stars-payment`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amountStars: amountStarsRounded, user_id: user?.id })
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/stars-payment', {
+            method: 'POST',
+            body: { amountStars: amountStarsRounded }
+        });
+        return resp;
+    } catch (err) {
+        console.error('depositUserStars error', err);
+        throw err;
+    }
 }
 
 export async function createDepositIntent(controller, amount, userParsedAddr) {
-    const resp = await fetch(`${BACKEND_URL}/api/deposit-intent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount, user_id: user?.id, usersWallet: userParsedAddr }),
-        signal: controller.signal,
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/deposit-intent', {
+            method: 'POST',
+            body: { amount, usersWallet: userParsedAddr },
+            // pass the controller.signal to allow caller cancellation
+            signal: controller?.signal ?? null
+        });
+        return resp;
+    } catch (err) {
+        console.error('createDepositIntent error', err);
+        throw err;
+    }
 }
 
 export async function cancelDepositIntent(controller, txId) {
-    const resp = await fetch(`${BACKEND_URL}/api/deposit-cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ txId }),
-        signal: controller.signal,
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/deposit-cancel', {
+            method: 'POST',
+            body: { txId },
+            signal: controller?.signal ?? null
+        });
+        return resp;
+    } catch (err) {
+        console.error('cancelDepositIntent error', err);
+        throw err;
+    }
 }
 
 export async function fetchUsersBalanceWalletTon(address, { signal = null, timeoutMs = 10000 } = {}) {
-    if (!address) throw new Error('address required')
-
-    const url = `${BACKEND_URL}/api/balance?address=${encodeURIComponent(address)}`
-    const controller = new AbortController()
-    const finalSignal = signal ?? controller.signal
-    const id = setTimeout(() => controller.abort(), timeoutMs)
-
+    if (!address) throw new Error('address required');
     try {
-        const resp = await fetch(url, { method: 'GET', signal: finalSignal })
-        return resp
+        const resp = await apiFetch(`/api/balance?address=${encodeURIComponent(address)}`, {
+            method: 'GET',
+            signal,
+            timeoutMs
+        });
+        return resp;
     } catch (err) {
-        // Normalize abort error
+        // Normalize abort error to keep previous behaviour consistent
         if (err.name === 'AbortError') {
-            const e = new Error('Request aborted/timed out')
-            e.name = 'AbortError'
-            throw e
+            const e = new Error('Request aborted/timed out');
+            e.name = 'AbortError';
+            throw e;
         }
-        throw err
-    } finally {
-        clearTimeout(id)
+        throw err;
     }
 }
 
 export async function sendBotMessage(messageText) {
-    const resp = await fetch(`${BACKEND_URL}/api/botmessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageText, userID: user?.id }),
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/botmessage', {
+            method: 'POST',
+            body: { messageText }
+        });
+        return resp;
+    } catch (err) {
+        console.error('sendBotMessage error', err);
+        throw err;
+    }
 }
 
 export async function createStarsDepositLink(amount) {
-    const resp = await fetch(`${BACKEND_URL}/api/invoice`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount }),
-    })
-
-    return resp
+    try {
+        const resp = await apiFetch('/api/invoice', {
+            method: 'POST',
+            body: { amount }
+        });
+        return resp;
+    } catch (err) {
+        console.error('createStarsDepositLink error', err);
+        throw err;
+    }
 }
 
 export async function placeBetNotification(bet_info_payload) {
-    const resp = await fetch(`${BACKEND_URL}/api/bet-placed`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: bet_info_payload,
-    })
-
-    return resp
+    try {
+        // If bet_info_payload is already a string (rare), apiFetch will pass it through.
+        const resp = await apiFetch('/api/bet-placed', {
+            method: 'POST',
+            body: bet_info_payload
+        });
+        return resp;
+    } catch (err) {
+        console.error('placeBetNotification error', err);
+        throw err;
+    }
 }
 
-export async function createNewEvent(controller, payload) {
-    const resp = await fetch(`${BACKEND_URL}/api/create-event`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify(payload)
-    })
-
-    return resp
+export async function validateDataOnServer(initDataRaw) {
+    try {
+        const resp = await apiFetch('/api/telegram/validate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `tma ${initDataRaw}`
+            },
+            // body not strictly required, but keep an empty object to match previous behavior
+            body: {}
+        });
+        return resp;
+    } catch (err) {
+        console.error('validateDataOnServer error', err);
+        throw err;
+    }
 }

@@ -48,7 +48,7 @@ import { onMounted, onBeforeUnmount, ref, watch, nextTick, computed } from 'vue'
 import { debug, info, warn, error, group, groupEnd, wrapAsync, installGlobalErrorHandlers } from '@/services/debugLogger'
 import { initLayout, disposeLayout, updateLayoutVars } from '@/services/useLayoutChanges' // ensure updateLayoutVars is exported
 import { getReferralFromUrl } from './services/urlParamsParse'
-import { userFirstTimeOpening, updateUsersWallet, checkUserInChannel } from './api/requests'
+import { userFirstTimeOpening, updateUsersWallet, checkUserInChannel, validateDataOnServer } from './api/requests'
 import { useAppStore } from '@/stores/appStore.js'
 import { useTelegram } from '@/services/telegram.js'
 import { Address } from '@ton/core'
@@ -551,6 +551,48 @@ onMounted(async () => {
   } catch (e) {
     console.warn('[App] tg.ready() failed or threw', { err: e?.message ?? e, stack: e?.stack })
     return
+  }
+
+  if (testingLocally.value === false) {
+    try {
+      const initDataRaw = tg?.initData ?? null;
+      if (!initDataRaw) {
+        console.error('Missing initData — outside Telegram?');
+        outsideTelegram.value = true;
+        overlayVisible.value = true;
+        return;
+      }
+
+      // Validate on server (Authorization: tma <initDataRaw>)
+      const validateResp = await validateDataOnServer(initDataRaw);
+
+      if (!validateResp.ok) {
+        console.error('Telegram initData validation failed', await validateResp.text());
+        outsideTelegram.value = true;
+        overlayVisible.value = true;
+        return;
+      }
+
+      const payload = await validateResp.json();
+      if (!payload?.token || !payload?.user) {
+        console.error('Telegram validate returned invalid payload', payload);
+        outsideTelegram.value = true;
+        overlayVisible.value = true;
+        return;
+      }
+
+      localStorage.setItem('tg_session', payload.token);
+
+      // optionally expose parsed user on window for quick client-side checks (never trust client)
+      window.__tg_user = payload.user;
+
+      // now safe to continue
+    } catch (e) {
+      console.error('Error validating Telegram initData', e);
+      outsideTelegram.value = true;
+      overlayVisible.value = true;
+      return;
+    }
   }
 
   loadingStage.value = 1

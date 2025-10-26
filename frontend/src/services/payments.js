@@ -19,8 +19,7 @@ export async function fetchBotMessageTransaction(messageText) {
             console.warn('botmessage endpoint returned non-OK', resp.status, err);
             return false;
         }
-        const json = await resp.json().catch(() => null);
-        return json;
+        return true;
     } catch (e) {
         console.error('fetchBotMessageTransaction error', e);
         return false;

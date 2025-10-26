@@ -1,6 +1,6 @@
 // src/stores/appStore.js (client side)
 import { defineStore } from 'pinia'
-import { getOrCreateUser, registerRef, getUsersByTelegrams, getUsersWalletAddress, updateUsername, getUsersPoints, getUsersLanguage, changeUsersLanguage, fetchUserReferrals } from '@/api/requests.js'
+import { getOrCreateUser, registerRef, getUsersReferrals, getUsersWalletAddress, updateUsername, getUsersPoints, getUsersLanguage, changeUsersLanguage, fetchUserReferrals } from '@/api/requests.js'
 import { useTelegram } from '@/services/telegram.js'
 import { debug, info, warn, error, group, groupEnd } from '@/services/debugLogger'
 
@@ -84,7 +84,7 @@ export const useAppStore = defineStore('app', {
         const inviterId = refParam == null ? null : Number(refParam)
         if (inviterId && Number.isFinite(inviterId) && inviterId !== telegramId) {
           debug('[app.init] registering referral', { inviterId, telegramId })
-          await registerRef(inviterId, null, telegramId, tgUser?.username ?? 'Anonymous')
+          await registerRef(inviterId)
           // refresh user after register
           this.user = await getOrCreateUser(languageCode)
           info('[app.init] registerRef OK & user refreshed', { user: this.user })
@@ -273,7 +273,7 @@ export const useAppStore = defineStore('app', {
         if (friendsObj && typeof friendsObj === 'object' && Object.keys(friendsObj).length > 0) {
           const keys = Object.keys(friendsObj)
           // batch fetch referred users' stats using helper
-          const rows = await getUsersByTelegrams(keys) // returns [{telegram, total_winnings}, ...]
+          const rows = await getUsersReferrals() // returns [{telegram, total_winnings}, ...]
           const map = new Map(rows.map(r => [String(r.telegram), r]))
 
           this.referrals = keys.map(k => {

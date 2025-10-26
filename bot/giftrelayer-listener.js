@@ -1,19 +1,18 @@
 // giftrelayer-listener.js
 // ESM worker: listens for gift events on a service user account (MTProto / GramJS)
-// Requirements: TG_API_ID, TG_API_HASH, TG_STRING_SESSION, BACKEND_FAILED_URL
+// Requirements: TG_API_ID, TG_API_HASH, TG_STRING_SESSION
 
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
 import { Raw } from "telegram/events/index.js";
 import fetch from "node-fetch";
 import { v4 as uuidv4 } from "uuid";
+import crypto from 'crypto'
 
 // ---- config / env ----
 const apiId = Number(process.env.TG_API_ID || 0);
 const apiHash = process.env.TG_API_HASH || "";
 const stringSession = process.env.TG_STRING_SESSION || "";
-// Worker will call BACKEND_FAILED_URL for failed gifts.
-const BACKEND_FAILED_URL = process.env.BACKEND_FAILED_URL || "https://api.myoracleapp.com/api/giftFailed";
 const DEBUG = (process.env.GIFTR_DEBUG || "1") === "1";
 
 // Dedupe processed messages (keeps memory bounded)
@@ -33,17 +32,53 @@ function log(...args) {
     if (DEBUG) console.log('[giftrelayer]', ...args);
 }
 
-async function persistGiftRecord(record) {
+// deterministic canonical JSON stringifier
+function canonicalize(obj) {
+    if (obj === null || typeof obj !== 'object') {
+        // primitives: JSON.stringify produces stable representation
+        return JSON.stringify(obj);
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalize).join(',') + ']';
+    }
+    // object: sort keys
+    const keys = Object.keys(obj).sort();
+    return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
+}
+
+function signPayload(secret, payloadObj) {
+    const canonical = canonicalize(payloadObj);
+    const ts = String(Date.now()); // milliseconds since epoch
+    const data = `${ts}.${canonical}`;
+    const h = crypto.createHmac('sha256', secret).update(data).digest('hex');
+    return { signature: h, timestamp: ts, canonical }; // canonical optionally for local logging
+}
+
+export async function persistGiftRecord(record) {
     try {
+        const secret = process.env.GIFT_WORKER_SECRET;
+        if (!secret) throw new Error('GIFT_WORKER_SECRET not set in worker env');
+
+        const { signature, timestamp } = signPayload(secret, record);
+
         const resp = await fetch('https://api.myoracleapp.com/api/giftHandle', {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(record),
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Gift-Signature': signature,
+                'X-Gift-Timestamp': timestamp,
+                // optional id if you operate multiple workers
+                'X-Gift-Worker-Id': process.env.GIFT_WORKER_ID || 'worker-1'
+            },
+            body: JSON.stringify(record)
         });
+
         if (!resp.ok) {
-            console.warn('[giftrelayer] backend relay non-ok', resp.status);
+            console.warn('[giftrelayer] backend relay non-ok', resp.status, await resp.text().catch(() => null));
+        } else {
+            // success
         }
-        log('Transfered gift record to backend:', record ?? '(unknown)');
+        console.log('Transfered gift record to backend:', record ?? '(unknown)');
         return;
     } catch (err) {
         console.error('[giftrelayer] persistGiftRecord error', err);
@@ -53,11 +88,23 @@ async function persistGiftRecord(record) {
 // Notify backend that a gift failed and should be returned to inventory
 async function notifyBackendGiftFailed(info) {
     try {
-        const resp = await fetch(BACKEND_FAILED_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(info),
+        const secret = process.env.GIFT_WORKER_SECRET;
+        if (!secret) throw new Error('GIFT_WORKER_SECRET not set in worker env');
+
+        const { signature, timestamp } = signPayload(secret, info);
+
+        const resp = await fetch('https://api.myoracleapp.com/api/giftHandle', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Gift-Signature': signature,
+                'X-Gift-Timestamp': timestamp,
+                // optional id if you operate multiple workers
+                'X-Gift-Worker-Id': process.env.GIFT_WORKER_ID || 'worker-1'
+            },
+            body: JSON.stringify(info)
         });
+
         if (!resp.ok) {
             log('[giftrelayer] notify backend failed non-ok', resp.status, await resp.text().catch(() => '<no-body>'));
         } else {

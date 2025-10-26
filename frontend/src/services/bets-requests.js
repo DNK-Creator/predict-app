@@ -1,103 +1,66 @@
 // src/services/bets-requests.js
-import { createNewEvent, placeBetNotification } from '@/api/requests'
+import { apiFetch, placeBetNotification } from '@/api/requests'
 import { useTelegram } from '@/services/telegram'
 
 const { user } = useTelegram()
-const BACKEND_URL = 'https://api.myoracleapp.com'
 
 /**
- * Small fetch helper: timeout + JSON parsing + unified error shape.
- * Accepts `signal` to allow the caller to pass AbortController.
+ * Create bet request — uses shared apiFetch which attaches Authorization header and enforces timeout.
+ * Returns { ok: true, status, data } on success, or { ok: false, status, error, message, data? } on failure.
  */
-async function apiFetch(path, { method = 'GET', body = null, signal = null, headers = {}, timeoutMs = 10000 } = {}) {
-    const url = `${BACKEND_URL}${path}`
-    const controller = new AbortController()
-    const finalSignal = signal ?? controller.signal
-    const id = setTimeout(() => controller.abort(), timeoutMs)
-
-    try {
-        const opts = { method, headers: { ...headers }, signal: finalSignal }
-        if (body != null) {
-            opts.body = typeof body === 'string' ? body : JSON.stringify(body)
-            opts.headers['Content-Type'] = opts.headers['Content-Type'] || 'application/json'
-        }
-        const resp = await fetch(url, opts)
-        const text = await resp.text().catch(() => null)
-        let json = null
-        try { json = text ? JSON.parse(text) : null } catch (e) { json = null }
-
-        if (!resp.ok) {
-            const err = new Error(`HTTP ${resp.status}`)
-            err.status = resp.status
-            err.body = json ?? text
-            throw err
-        }
-        return { ok: true, status: resp.status, data: json, rawText: text }
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            const e = new Error('Request aborted/timed out')
-            e.name = 'AbortError'
-            throw e
-        }
-
-        // If fetch's response created an error earlier we set err.status/body there,
-        // but ensure we pass it through and include textual body if available.
-        // Some bundlers present Response-derived errors differently; normalize:
-        const e = new Error(err.message || 'Network error')
-        e.original = err
-        // preserve status/body if present
-        if (err.status) e.status = err.status
-        if (err.body) e.body = err.body
-        throw e
-    } finally {
-        clearTimeout(id)
-    }
-}
-
 export async function requestCreateBet(eventObj, { timeoutMs = 10000 } = {}) {
-    if (!user) return
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
+    if (!user) {
+        return { ok: false, status: 0, error: 'no_user', message: 'No telegram user available' }
+    }
+
+    // Build payload defensively
+    const payload = {
+        name: String(eventObj?.name ?? '').trim(),
+        descriptionCondition: String(eventObj?.descriptionCondition ?? '').trim(),
+        descriptionPeriod: String(eventObj?.descriptionPeriod ?? '').trim(),
+        descriptionContext: String(eventObj?.descriptionContext ?? '').trim(),
+        side: String(eventObj?.side ?? '').trim(),
+        stake: String(Number(eventObj?.stake ?? 0).toFixed(2)),
+        gifts_bet: eventObj?.gifts_bet ?? null
+    }
 
     try {
-        const payload = {
-            telegram: Number(user?.id),
-            name: String(eventObj.name),
-            descriptionCondition: String(eventObj.descriptionCondition),
-            descriptionPeriod: String(eventObj.descriptionPeriod),
-            descriptionContext: String(eventObj.descriptionContext),
-            side: String(eventObj.side),
-            stake: String(Number(eventObj.stake).toFixed(2)),
-            gifts_bet: eventObj.gifts_bet
+        const resp = await apiFetch('/api/create-event', {
+            method: 'POST',
+            body: payload,
+            timeoutMs
+        })
+
+        // success
+        if (resp && resp.ok) {
+            return { ok: true, status: resp.status, data: resp.data }
         }
 
-        // createNewEvent (in src/api/requests.js) calls /api/create-event
-        const resp = await createNewEvent(controller, payload)
-
-        clearTimeout(id);
-
-        let body = null;
-        try { body = await resp.json(); } catch (e) { body = null; }
-
-        if (resp.ok) {
-            return { ok: true, status: resp.status, data: body };
+        // defensive: handle unexpected non-throwing resp shape (unlikely)
+        return {
+            ok: false,
+            status: resp?.status ?? 0,
+            error: resp?.data?.error ?? 'server_error',
+            message: resp?.data?.message ?? 'Server returned an error',
+            data: resp?.data ?? null
         }
-
-        const errCode = body?.error || 'server_error';
-        const message = body?.message || (body?.error_description || 'Server returned an error');
-        return { ok: false, status: resp.status, error: errCode, message, data: body };
-
     } catch (err) {
-        clearTimeout(id);
-        if (err.name === 'AbortError') {
-            return { ok: false, status: 0, error: 'timeout', message: 'Request timed out' };
+        // timeout / abort
+        if (err && err.name === 'AbortError') {
+            return { ok: false, status: 0, error: 'timeout', message: 'Request timed out' }
         }
-        return { ok: false, status: 0, error: 'network_error', message: String(err.message || err) };
+
+        // if apiFetch threw a structured error (with status/body), preserve it
+        const status = err?.status ?? 0
+        const body = err?.body ?? null
+        const errCode = body?.error ?? 'network_error'
+        const message = body?.message ?? (err?.message ?? 'Network error')
+
+        return { ok: false, status, error: errCode, message, data: body }
     }
 }
 
 export async function fetchActiveBets({ offset = 0, limit = 10 } = {}) {
-    const to = offset + limit - 1
     try {
         const resp = await apiFetch(`/api/bets/active?offset=${offset}&limit=${limit}`, { method: 'GET' })
         return resp.data?.rows ?? []
@@ -118,13 +81,14 @@ export async function fetchPastBets({ offset = 0, limit = 8 } = {}) {
 }
 
 export async function fetchCreatedEvents({ offset = 0, limit = 8 } = {}) {
-    if (!user) return []
     try {
-        const resp = await apiFetch(`/api/bets/created?telegram=${encodeURIComponent(user?.id)}&offset=${offset}&limit=${limit}`, { method: 'GET' })
-        return resp.data?.rows ?? []
+        const resp = await apiFetch(`/api/bets/created?offset=${encodeURIComponent(offset)}&limit=${encodeURIComponent(limit)}`, {
+            method: 'GET'
+        });
+        return resp.data?.rows ?? [];
     } catch (err) {
-        console.error('fetchCreatedEvents error', err)
-        throw err
+        console.error('fetchCreatedEvents error', err);
+        throw err;
     }
 }
 
@@ -144,7 +108,7 @@ export async function getBetsHolders(betId) {
 export async function getUsersActiveBets() {
     if (!user) return []
     try {
-        const resp = await apiFetch(`/api/bets/user-active?telegram=${encodeURIComponent(user?.id)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/bets/user-active`, { method: 'GET' })
         return resp.data?.rows ?? []
     } catch (err) {
         console.error('getUsersActiveBets error', err)
@@ -155,7 +119,7 @@ export async function getUsersActiveBets() {
 export async function getUsersHistoryBets() {
     if (!user) return []
     try {
-        const resp = await apiFetch(`/api/bets/user-history?telegram=${encodeURIComponent(user?.id)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/bets/user-history`, { method: 'GET' })
         return resp.data?.rows ?? []
     } catch (err) {
         console.error('getUsersHistoryBets error', err)
@@ -180,27 +144,22 @@ export async function placeBetRequest(betId, side, stake, placed_gifts) {
 
     try {
         const body = {
-            p_telegram: Number(user?.id),
             p_bet_id: Number(betId),
             p_side: String(side),
             p_stake: stake ? String(Number(stake).toFixed(2)) : null,
-            p_photo_url: user?.photo_url ?? null,
-            p_username: user?.username ?? 'Anonymous',
             p_placed_gifts: placed_gifts ?? null
         }
 
         const resp = await apiFetch('/api/bets/place', { method: 'POST', body })
-        const { placed_bets = [], points = 0, volume = {}, tickets = 0, raw } = resp.data ?? {}
+        const { placed_bets = [], points = 0, volume = {}, tickets = 0 } = resp.data ?? {}
 
         // Send notification (existing client function calls backend /api/bet-placed)
         try {
             const payload = JSON.stringify({
-                telegram: Number(user?.id ?? 0),
                 bet_id: Number(betId),
                 side: String(side),
                 stake: String(Number(stake).toFixed(2)),
-                placed_gifts: placed_gifts,
-                chat_id: '@myoracle_chat'
+                placed_gifts: placed_gifts
             })
             // placeBetNotification (from src/api/requests) posts to /api/bet-placed
             await placeBetNotification(payload)
@@ -226,7 +185,7 @@ let _cachedBets = null
 async function _refreshCachedBets() {
     if (!user) return []
     try {
-        const resp = await apiFetch(`/api/user/placed-bets?telegram=${encodeURIComponent(user?.id)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/user/placed-bets`, { method: 'GET' })
         // server should return { placed_bets: [...] } but in case return array
         _cachedBets = resp.data?.placed_bets ?? resp.data ?? []
     } catch (err) {
@@ -247,7 +206,7 @@ export async function availableComments(betId) {
 export async function getUserBetAmount(betId) {
     if (!user) return
     try {
-        const resp = await apiFetch(`/api/bets/user-bet-amount?telegram=${encodeURIComponent(user?.id)}&betId=${encodeURIComponent(betId)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/bets/user-bet-amount?betId=${encodeURIComponent(betId)}`, { method: 'GET' })
         return resp.data ?? { stake: 0, placed_gifts: [], result: "0" }
     } catch (err) {
         console.error('getUserBetAmount error', err)
@@ -261,7 +220,7 @@ export async function getUserBetAmount(betId) {
 export async function getUserLastCommentTime(userTelegramId) {
     if (!userTelegramId) return null
     try {
-        const resp = await apiFetch(`/api/user/last-comment?telegram=${encodeURIComponent(userTelegramId)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/user/last-comment`, { method: 'GET' })
         return resp.data?.last_commented_at ?? null
     } catch (err) {
         console.error('getUserLastCommentTime error:', err)
@@ -276,10 +235,7 @@ export async function postNewComment(betId, text, commentId, usersStake = null) 
             betId,
             text,
             commentId,
-            usersStake,
-            telegram: Number(user?.id),
-            username: user?.username ?? 'Anonymous',
-            photo_url: user?.photo_url ?? null
+            usersStake
         }
         const resp = await apiFetch('/api/comments', { method: 'POST', body })
         return resp.data?.comment ?? null
@@ -299,7 +255,7 @@ export async function postNewComment(betId, text, commentId, usersStake = null) 
 export async function deleteComment(commentId) {
     if (!user) return
     try {
-        const resp = await apiFetch(`/api/comments/${encodeURIComponent(commentId)}?telegram=${encodeURIComponent(user?.id)}`, { method: 'DELETE' })
+        const resp = await apiFetch(`/api/comments/${encodeURIComponent(commentId)}`, { method: 'DELETE' })
         return resp.data?.deleted === true
     } catch (err) {
         if (err.status === 403 && err.body && err.body.error === 'DELETION_EXPIRED') {
@@ -314,7 +270,8 @@ export async function deleteComment(commentId) {
 
 export async function getComments(betId, page = 0, pageSize = 10) {
     try {
-        const resp = await apiFetch(`/api/comments?betId=${encodeURIComponent(betId)}&page=${page}&pageSize=${pageSize}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/bets/${betId}/comments?page=${page}&pageSize=${pageSize}`, { method: 'GET' })
+
         return resp.data?.rows ?? []
     } catch (err) {
         console.error('getComments error', err)

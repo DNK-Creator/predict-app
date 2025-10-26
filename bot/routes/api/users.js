@@ -2,6 +2,7 @@
 import express from "express"
 import Joi from "joi"
 import { createClient } from '@supabase/supabase-js'
+import { requireTelegramSession } from "../../server/middleware/telegramAuth"
 
 const router = express.Router()
 
@@ -17,16 +18,15 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false }
 })
 
-function parseIntOrNull(v) {
-    if (v == null) return null
-    const n = Number(v)
-    return Number.isFinite(n) ? n : null
-}
+router.use(requireTelegramSession)
 
-// GET /api/user/placed-bets?telegram=123
+// GET /api/user/placed-bets
 router.get('/user/placed-bets', async (req, res) => {
-    const telegram = parseIntOrNull(req.query.telegram)
-    if (!telegram) return res.status(400).json({ error: 'telegram required' })
+    const telegram = Number(req.user?.id);
+    if (!telegram || Number.isNaN(telegram)) {
+        return res.status(401).json({ error: 'unauthenticated' });
+    }
+
     const { data, error } = await supabaseAdmin
         .from('users')
         .select('placed_bets')
@@ -37,13 +37,15 @@ router.get('/user/placed-bets', async (req, res) => {
 })
 
 /**
- * GET /api/user/first-time?telegram=123
+ * GET /api/user/first-time
  * Response: { isFirstTime: boolean }
  */
 router.get('/user/first-time', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram query required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         // check existence
         const { data, error, count } = await supabaseAdmin
@@ -72,14 +74,17 @@ router.get('/user/first-time', async (req, res) => {
  */
 router.post('/user/get-or-create', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
         const schema = Joi.object({
-            telegram: Joi.number().required(),
             language: Joi.string().allow(null, '').optional()
         })
         const { error: validationError, value } = schema.validate(req.body)
         if (validationError) return res.status(400).json({ error: validationError.message })
 
-        const { telegram, language } = value
+        const { language } = value
         const rpcParams = { p_telegram: Number(telegram), p_language: language ?? null }
         const { data, error } = await supabaseAdmin.rpc('get_or_create_user', rpcParams)
 
@@ -97,50 +102,92 @@ router.post('/user/get-or-create', async (req, res) => {
     }
 })
 
-/**
- * POST /api/user/register-ref
- * body: { inviter_telegram, inviter_username, invitee_telegram, invitee_username }
- * calls register_ref rpc
- */
+// POST /api/user/register-ref
+// body: { inviter_telegram }  -- only inviter id expected from client
 router.post('/user/register-ref', async (req, res) => {
     try {
+        // canonical invitee comes from session
+        const inviteeTelegram = Number(req.user?.id);
+        const inviteeUsername = req.user?.username ?? null;
+
+        if (!inviteeTelegram || Number.isNaN(inviteeTelegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
+        // Validate inviter param (client may pass inviter_telegram)
         const schema = Joi.object({
-            inviter_telegram: Joi.number().required(),
-            inviter_username: Joi.string().allow('').optional(),
-            invitee_telegram: Joi.number().required(),
-            invitee_username: Joi.string().allow('').optional()
-        })
-        const { error: validationError, value } = schema.validate(req.body)
-        if (validationError) return res.status(400).json({ error: validationError.message })
+            inviter_telegram: Joi.number().required().invalid(inviteeTelegram) // disallow self-referral at validation level
+        }).options({ stripUnknown: true, convert: true });
 
+        const { error: validationError, value } = schema.validate(req.body || {});
+        if (validationError) {
+            // If user attempted to refer self, Joi.invalid triggers, map message
+            const msg = validationError.message || 'invalid_input';
+            if (msg.includes('invalid value')) {
+                return res.status(400).json({ error: 'invalid_inviter' });
+            }
+            return res.status(400).json({ error: msg });
+        }
+
+        const inviterTelegram = Number(value.inviter_telegram);
+
+        // Basic check: inviter != invitee (already handled above, but double-check defensively)
+        if (inviterTelegram === inviteeTelegram) {
+            return res.status(400).json({ error: 'self_referral_not_allowed' });
+        }
+
+        // Check invitee has not already been referred
+        const { data: inviteeRow, error: invRowErr } = await supabaseAdmin
+            .from('users')
+            .select('telegram, referred_by')
+            .eq('telegram', inviteeTelegram)
+            .maybeSingle();
+
+        if (invRowErr) {
+            console.error('register-ref: db fetch invitee error', invRowErr);
+            return res.status(500).json({ error: 'db_error', details: invRowErr.message });
+        }
+        if (inviteeRow && inviteeRow.referred_by) {
+            // Already has a referrer — don't allow re-registering
+            return res.status(409).json({ error: 'already_referred' });
+        }
+
+        const inviteeUsernameCanonical = inviteeUsername ?? (req.body.invitee_username ?? 'Anonymous');
+
+        // Build params for RPC using canonical server-side values
         const params = {
-            inviter_telegram: Number(value.inviter_telegram),
-            inviter_username: value.inviter_username ?? 'Anonymous',
-            invitee_telegram: Number(value.invitee_telegram),
-            invitee_username: value.invitee_username ?? 'Anonymous'
+            inviter_telegram: Number(inviterTelegram),
+            invitee_telegram: Number(inviteeTelegram),
+            invitee_username: String(inviteeUsernameCanonical)
+        };
+
+        // Call the register_ref RPC (your DB function)
+        const { data: rpcData, error: rpcErr } = await supabaseAdmin.rpc('register_ref', params);
+
+        if (rpcErr) {
+            // Map some expected business errors if your RPC returns specific messages
+            console.error('register_ref rpc error', rpcErr);
+            // if rpcErr.message includes known token, map to 400/409 etc.
+            return res.status(500).json({ error: 'rpc_error', details: rpcErr.message });
         }
 
-        const { data, error } = await supabaseAdmin.rpc('register_ref', params)
-        if (error) {
-            console.error('register_ref rpc error', error)
-            return res.status(500).json({ error: 'rpc_error', details: error.message })
-        }
-
-        return res.json({ result: data })
+        return res.json({ result: rpcData });
     } catch (err) {
-        console.error('register-ref error', err)
-        return res.status(500).json({ error: 'internal', details: String(err) })
+        console.error('register-ref handler error', err);
+        return res.status(500).json({ error: 'internal', details: String(err) });
     }
-})
+});
 
 /**
- * GET /api/user/points?telegram=...
+ * GET /api/user/points
  * returns { row: { points } }
  */
 router.get('/user/points', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -161,14 +208,16 @@ router.get('/user/points', async (req, res) => {
 })
 
 /**
- * GET /api/user/bets-summary?telegram=...
+ * GET /api/user/bets-summary
  * returns { countBets, totalVolume }
  * expects users.placed_bets JSONB array with objects like { side, stake }
  */
 router.get('/user/bets-summary', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -192,12 +241,14 @@ router.get('/user/bets-summary', async (req, res) => {
 })
 
 /**
- * GET /api/user/won-bets-count?telegram=...
+ * GET /api/user/won-bets-count
  */
 router.get('/user/won-bets-count', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -218,12 +269,14 @@ router.get('/user/won-bets-count', async (req, res) => {
 })
 
 /**
- * GET /api/user/wallet-address?telegram=...
+ * GET /api/user/wallet-address
  */
 router.get('/user/wallet-address', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -244,49 +297,23 @@ router.get('/user/wallet-address', async (req, res) => {
 })
 
 /**
- * POST /api/users/by-telegrams
- * body: { telegrams: [123, 456] }
- */
-router.post('/users/by-telegrams', async (req, res) => {
-    try {
-        const schema = Joi.object({ telegrams: Joi.array().items(Joi.number()).min(1).required() })
-        const { error: validationError, value } = schema.validate(req.body)
-        if (validationError) return res.status(400).json({ error: validationError.message })
-
-        const ids = Array.from(new Set(value.telegrams.map(Number))).filter(n => Number.isFinite(n))
-        if (ids.length === 0) return res.json({ rows: [] })
-
-        const { data, error } = await supabaseAdmin
-            .from('users')
-            .select('telegram, total_winnings')
-            .in('telegram', ids)
-
-        if (error) {
-            console.error('by-telegrams error', error)
-            return res.status(500).json({ error: 'db_error', details: error.message })
-        }
-
-        return res.json({ rows: data ?? [] })
-    } catch (err) {
-        console.error('by-telegrams handler error', err)
-        return res.status(500).json({ error: 'internal', details: String(err) })
-    }
-})
-
-/**
  * POST /api/user/update-wallet
- * body: { telegram, wallet_address }
+ * body: { wallet_address }
  */
 router.post('/user/update-wallet', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const schema = Joi.object({
-            telegram: Joi.number().required(),
             wallet_address: Joi.string().allow('', null).required()
         })
         const { error: validationError, value } = schema.validate(req.body)
         if (validationError) return res.status(400).json({ error: validationError.message })
 
-        const { telegram, wallet_address } = value
+        const { wallet_address } = value
         const { data, error } = await supabaseAdmin
             .from('users')
             .update({ wallet_address })
@@ -305,33 +332,14 @@ router.post('/user/update-wallet', async (req, res) => {
 })
 
 /**
- * GET /api/gifts/prices
- */
-router.get('/gifts/prices', async (req, res) => {
-    try {
-        const { data, error } = await supabaseAdmin
-            .from('gift_prices')
-            .select('*')
-
-        if (error) {
-            console.error('gifts prices error', error)
-            return res.status(500).json({ error: 'db_error', details: error.message })
-        }
-
-        return res.json({ prices: data ?? [] })
-    } catch (err) {
-        console.error('gifts prices handler error', err)
-        return res.status(500).json({ error: 'internal', details: String(err) })
-    }
-})
-
-/**
- * GET /api/user/inventory?telegram=...
+ * GET /api/user/inventory
  */
 router.get('/user/inventory', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -353,18 +361,23 @@ router.get('/user/inventory', async (req, res) => {
 
 /**
  * POST /api/user/update-username
- * body: { telegram, username }
+ * body: { username }
  */
 router.post('/user/update-username', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const schema = Joi.object({
-            telegram: Joi.number().required(),
             username: Joi.string().required()
         })
+
         const { error: validationError, value } = schema.validate(req.body)
         if (validationError) return res.status(400).json({ error: validationError.message })
 
-        const { telegram, username } = value
+        const { username } = value
         const { error } = await supabaseAdmin
             .from('users')
             .update({ username })
@@ -383,12 +396,15 @@ router.post('/user/update-username', async (req, res) => {
 })
 
 /**
- * GET /api/user/language?telegram=...
+ * GET /api/user/language
  */
 router.get('/user/language', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const { data, error } = await supabaseAdmin
             .from('users')
             .select('language')
@@ -408,18 +424,23 @@ router.get('/user/language', async (req, res) => {
 
 /**
  * POST /api/user/change-language
- * body: { telegram, language }
+ * body: { language }
  */
 router.post('/user/change-language', async (req, res) => {
     try {
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
+
         const schema = Joi.object({
-            telegram: Joi.number().required(),
             language: Joi.string().allow('', null).required()
         })
         const { error: validationError, value } = schema.validate(req.body)
         if (validationError) return res.status(400).json({ error: validationError.message })
 
-        const { telegram, language } = value
+        const { language } = value
+
         const { error } = await supabaseAdmin
             .from('users')
             .update({ language })
@@ -438,12 +459,14 @@ router.post('/user/change-language', async (req, res) => {
 })
 
 /**
- * GET /api/user/referrals?telegram=...
+ * GET /api/user/referrals
  */
 router.get('/user/referrals', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('users')
@@ -463,59 +486,14 @@ router.get('/user/referrals', async (req, res) => {
 })
 
 /**
- * GET /api/bets-holders?from=0&to=19
- */
-router.get('/bets-holders', async (req, res) => {
-    try {
-        const from = parseIntOrNull(req.query.from) ?? 0
-        const to = parseIntOrNull(req.query.to) ?? (from + 19)
-        const { data, error } = await supabaseAdmin
-            .from('bets_holders')
-            .select('id, stake_with_gifts, multiplier, bet_status, gifts_bet, bet_id, bet_name, bet_name_en, username, side, created_at, photo_url')
-            .eq('dont_show', false)
-            .order('created_at', { ascending: false })
-            .range(from, to)
-
-        if (error) {
-            console.error('bets-holders error', error)
-            return res.status(500).json({ error: 'db_error', details: error.message })
-        }
-
-        return res.json({ rows: data ?? [] })
-    } catch (err) {
-        console.error('bets-holders handler error', err)
-        return res.status(500).json({ error: 'internal', details: String(err) })
-    }
-})
-
-/**
- * GET /api/holidays
- */
-router.get('/holidays', async (req, res) => {
-    try {
-        const { data, error } = await supabaseAdmin
-            .from('holidays')
-            .select('id, name, name_en, description, description_en, image_path, date')
-
-        if (error) {
-            console.error('holidays error', error)
-            return res.status(500).json({ error: 'db_error', details: error.message })
-        }
-
-        return res.json({ rows: data ?? [] })
-    } catch (err) {
-        console.error('holidays handler error', err)
-        return res.status(500).json({ error: 'internal', details: String(err) })
-    }
-})
-
-/**
- * GET /api/user/transactions?telegram=...
+ * GET /api/user/transactions
  */
 router.get('/user/transactions', async (req, res) => {
     try {
-        const telegram = parseIntOrNull(req.query.telegram)
-        if (!telegram) return res.status(400).json({ error: 'telegram required' })
+        const telegram = Number(req.user?.id);
+        if (!telegram || Number.isNaN(telegram)) {
+            return res.status(401).json({ error: 'unauthenticated' });
+        }
 
         const { data, error } = await supabaseAdmin
             .from('transactions')

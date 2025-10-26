@@ -177,13 +177,6 @@ async function withdrawGifts() {
         return;
     }
 
-    const recipientId = user?.id;
-    if (!recipientId) {
-        const messageText = app.language === 'ru' ? "Телеграм айди получателя не найден." : "Recipient Telegram ID not found.";
-        toast.error(messageText);
-        return;
-    }
-
     // build compact payload
     const giftsPayload = selectedGifts.value.map(g => ({
         uuid: g.uuid ?? null,
@@ -194,7 +187,6 @@ async function withdrawGifts() {
     }));
 
     const payload = {
-        recipient: recipientId,
         gifts: giftsPayload
     }
 
