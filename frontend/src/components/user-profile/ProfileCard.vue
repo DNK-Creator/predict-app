@@ -357,7 +357,7 @@ async function handleConnected(wallet) {
 
             // fetch balance
             try {
-                const tonBal = await fetchTonBalance(parsedAddress)
+                const tonBal = await fetchTonBalance(parsedAddress, { timeoutMs: 8_000 })
                 walletBalance.value = typeof tonBal === 'number' ? +tonBal.toFixed(2) : null
             } catch (err) {
                 console.warn('Failed to fetch TON balance', err)
@@ -627,23 +627,93 @@ async function reconnectWallet() {
     }
 }
 
-async function fetchTonBalance(address) {
-    if (!address) return;
+// higher-level helper that returns numeric TON (or null) and validates
+export async function fetchTonBalance(address, { timeoutMs = 10000 } = {}) {
+    if (!address) return null
+
     try {
-        const resp = fetchUsersBalanceWalletTon(address)
-        if (resp === null) return
+        const resp = await fetchUsersBalanceWalletTon(address, { timeoutMs })
+
+        // network-level failure (fetch returned null) — treat as error
+        if (!resp) return null
+
+        const text = await resp.text().catch(() => null)
+        let json = null
+        try { json = text ? JSON.parse(text) : null } catch (_) { json = null }
 
         if (!resp.ok) {
-            const err = await resp.json().catch(() => null);
-            throw new Error(err?.error || `Balance endpoint error ${resp.status}`);
+            // Attach server body to an Error for easier debugging in UI
+            const err = new Error(`Balance endpoint error ${resp.status}`)
+            err.status = resp.status
+            err.body = json ?? text
+            throw err
         }
 
-        const json = await resp.json();
-        // backend returns { balance: number } in TON
-        return Number(json.balance);
+        // OK — server returned JSON. Accept either
+        // - { balance: number } OR
+        // - { balance: "123456789012345" } (string nanotons) OR
+        // - { balance_ton: "0.123456789" } (string TON) — be flexible
+
+        if (!json || (typeof json !== 'object')) {
+            throw new Error('Invalid balance response format')
+        }
+
+        // Prefer explicit TON string/number if present
+        if (json.balance_ton != null) {
+            // server provided TON already (string or number)
+            const asNum = typeof json.balance_ton === 'number' ? json.balance_ton : Number(String(json.balance_ton))
+            if (Number.isFinite(asNum)) return asNum
+            // if not finite, return string balance
+            return String(json.balance_ton)
+        }
+
+        // If server returned balance field in TON numeric form (legacy)
+        if (json.balance != null && typeof json.balance === 'number') {
+            if (Number.isFinite(json.balance)) return json.balance
+            return null
+        }
+
+        // If server returned nanotons as string/number -> convert safely
+        // backend may send "nanotons" or "balance_nano"
+        const maybeNano = json.nanotons ?? json.balance_nanotons ?? json.balance_raw ?? json.balance
+        if (maybeNano != null) {
+            const nanoStr = String(maybeNano).trim()
+            if (!/^\d+$/.test(nanoStr)) {
+                // not a simple integer string, try parseFloat fallback
+                const parsed = Number(nanoStr)
+                if (Number.isFinite(parsed)) return parsed / 1e9
+                throw new Error('Invalid numeric balance from server')
+            }
+
+            // It is an integer string (safe to handle here).
+            // If it's small enough, convert to Number. If large, produce decimal string to avoid precision loss.
+            try {
+                // Use BigInt to compute exact TON string
+                const nanoBig = BigInt(nanoStr)
+                const whole = nanoBig / 1_000_000_000n
+                const frac = nanoBig % 1_000_000_000n
+                // produce float if safe (< 1e15 or so), otherwise return string
+                const maybeNumber = Number(whole) + Number(frac) / 1e9
+                if (Number.isSafeInteger(Number(whole)) && Number.isFinite(maybeNumber)) {
+                    return maybeNumber
+                } else {
+                    // Return human-friendly string TON "123.000000123"
+                    return `${whole.toString()}.${String(frac).padStart(9, '0')}`
+                }
+            } catch (e) {
+                // BigInt not available? fallback
+                const parsed = Number(nanoStr)
+                if (Number.isFinite(parsed)) return parsed / 1e9
+                throw new Error('Cannot parse balance')
+            }
+        }
+
+        // Nothing matched
+        throw new Error('Balance field not found in response')
     } catch (err) {
-        console.error('fetchTonBalance error', err);
-        throw err;
+        // rethrow so callers can handle; log for debugging if desired
+        console.error('fetchTonBalance error', err)
+        throw err
     }
 }
 
@@ -745,7 +815,7 @@ watch(
         try {
             let freshBal
             try {
-                freshBal = await fetchTonBalance(addr)
+                freshBal = await fetchTonBalance(addr, { timeoutMs: 8_000 })
             } catch (err) {
                 console.error('Backend not reachable or server error while fetchign TON : ' + err)
                 return

@@ -216,32 +216,6 @@ router.get('/bets/user-history', async (req, res) => {
 })
 
 /**
- * GET /api/bets/:id
- * returns full bet row
- */
-router.get('/bets/:id', async (req, res) => {
-    try {
-        const id = parseIntOrNull(req.params.id)
-        if (!id) return res.status(400).json({ error: 'invalid id' })
-
-        const { data, error } = await supabaseAdmin
-            .from('bets')
-            .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume_with_gifts, close_time, current_odds, giveaway_total_tickets, giveaway_tickets_left, giveaway_prize_image, giveaway_prize_name, giveaway_chat_link, giveaway_gift_value')
-            .eq('id', id)
-            .single()
-
-        if (error) {
-            if (error.code === 'PGRST116') return res.status(404).json({ error: 'not_found' })
-            return sendServerError(res, error, 'db_bet_fetch_failed')
-        }
-
-        return res.json({ row: data ?? null })
-    } catch (err) {
-        return sendServerError(res, err, 'failed_fetch_bet_by_id')
-    }
-})
-
-/**
  * POST /api/bets/place
  * body: { p_telegram, p_bet_id, p_side, p_stake, p_photo_url, p_username, p_placed_gifts }
  * Calls RPC place_bet_rpc and returns the structured result
@@ -571,6 +545,32 @@ router.get('/bets/get-holders/:id', async (req, res) => {
     } catch (err) {
         console.error('failed_fetch_bets_holders handler error:', err)
         return sendServerError(res, err, 'failed_fetch_bets_holders')
+    }
+})
+
+/**
+ * GET /api/bets/information/:id
+ * returns full bet row
+ */
+router.get('/bets/information/:id', async (req, res) => {
+    try {
+        const id = parseIntOrNull(req.params.id)
+        if (!id) return res.status(400).json({ error: 'invalid id' })
+
+        const { data, error } = await supabaseAdmin
+            .from('bets')
+            .select('id, name, name_en, description, description_en, image_path, inside_image, result, prizes_given, date, volume_with_gifts, close_time, current_odds, giveaway_total_tickets, giveaway_tickets_left, giveaway_prize_image, giveaway_prize_name, giveaway_chat_link, giveaway_gift_value')
+            .eq('id', id)
+            .single()
+
+        if (error) {
+            if (error.code === 'PGRST116') return res.status(404).json({ error: 'not_found' })
+            return sendServerError(res, error, 'db_bet_fetch_failed')
+        }
+
+        return res.json({ row: data ?? null })
+    } catch (err) {
+        return sendServerError(res, err, 'failed_fetch_bet_by_id')
     }
 })
 

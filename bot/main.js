@@ -2064,53 +2064,92 @@ app.post('/api/stars-payment', async (req, res) => {
     }
 })
 
+const balanceCache = new Map()
+const BALANCE_TTL_MS = 30 * 1000 // 15 seconds
+
 // ---------- GET /api/balance?address=... ----------
 app.get('/api/balance', async (req, res) => {
     try {
-        console.log('FETCH TON BALANCE HIT /API/BALANCE')
-        const address = String(req.query.address || '').trim();
-        if (!address) {
-            console.log('Fetch ton balance ERROR : ' + 'address query param required')
-            return res.status(400).json({ error: 'address query param required' });
-        }
-
+        const address = String(req.query.address || '').trim()
+        if (!address) return res.status(400).json({ error: 'address query param required' })
 
         if (!TONCENTER_API_KEY) {
-            console.log('Fetch ton balance ERROR : ' + 'Server not configured to fetch balances')
-            return res.status(500).json({ error: 'Server not configured to fetch balances' });
+            return res.status(500).json({ error: 'Server not configured to fetch balances' })
         }
 
-        // call TONCenter (server-side) to fetch address balance (nanotons)
-        const url = `${TONCENTER_API_BASE}/getAddressBalance`;
-        const resp = await axios.get(url, {
-            params: {
-                address,
-                api_key: TONCENTER_API_KEY
-            },
-            timeout: 10_000
-        });
+        // cache hit?
+        const cached = balanceCache.get(address)
+        if (cached && (Date.now() - cached.fetchedAt) < BALANCE_TTL_MS) {
+            return res.json(cached.value)
+        }
+
+        const url = `${TONCENTER_API_BASE}/getAddressBalance`
+        let resp
+        try {
+            resp = await axios.get(url, {
+                params: { address, api_key: TONCENTER_API_KEY },
+                timeout: 10_000
+            })
+        } catch (err) {
+            console.warn('toncenter request failed', err?.message ?? err)
+            return res.status(502).json({ error: 'Upstream error' })
+        }
 
         if (resp.status !== 200 || !resp.data) {
-            console.warn('toncenter/balance non-200', resp.status, resp.data);
-            return res.status(502).json({ error: 'Upstream error' });
+            console.warn('toncenter/balance non-200', resp.status, resp.data)
+            return res.status(502).json({ error: 'Upstream error' })
         }
 
-        // TonCenter returns result as string of nanotons usually in resp.data.result
-        const raw = resp.data?.result;
-        const nano = Number(raw);
-        if (Number.isNaN(nano)) {
-            console.warn('balance parse failed', raw);
-            return res.status(502).json({ error: 'Invalid balance format from provider' });
+        // resp.data.result is expected to be a string integer representing nanotons
+        const raw = resp.data?.result
+        if (raw == null) {
+            console.warn('toncenter returned empty result', resp.data)
+            return res.status(502).json({ error: 'Invalid upstream response' })
         }
 
-        const balanceTON = nano / 1e9;
-        return res.json({ balance: balanceTON });
+        const nanoStr = String(raw).trim()
+        if (!/^\d+$/.test(nanoStr)) {
+            // If provider returns something unexpected try numeric fallback
+            const maybe = Number(nanoStr)
+            if (!Number.isFinite(maybe)) {
+                console.warn('balance parse failed', raw)
+                return res.status(502).json({ error: 'Invalid balance format from provider' })
+            }
+            // fallback: provider actually returned number (unlikely)
+            const balanceTON = maybe / 1e9
+            const result = { nanotons: String(Math.trunc(maybe)), balance: balanceTON, balance_ton: String(balanceTON) }
+            balanceCache.set(address, { fetchedAt: Date.now(), value: result })
+            return res.json(result)
+        }
+
+        // Use BigInt for exact math
+        const nanoBig = BigInt(nanoStr)
+        const whole = nanoBig / 1_000_000_000n
+        const frac = nanoBig % 1_000_000_000n
+        const balanceTonStr = `${whole.toString()}.${String(frac).padStart(9, '0')}`
+
+        // convert to Number only when safe (<= 1e12 TON or so)
+        let balanceNumber = null
+        try {
+            const maybeNum = Number(whole) + Number(frac) / 1e9
+            if (Number.isFinite(maybeNum)) balanceNumber = maybeNum
+        } catch (e) {
+            balanceNumber = null
+        }
+
+        const result = {
+            nanotons: nanoStr,          // exact upstream integer as string
+            balance_ton: balanceTonStr, // exact decimal representation as string
+            balance: balanceNumber      // numeric TON when safe (may be null)
+        }
+
+        balanceCache.set(address, { fetchedAt: Date.now(), value: result })
+        return res.json(result)
     } catch (err) {
-        console.error('balance endpoint error', err?.response?.data ?? err?.message ?? err);
-        // bubble upstream error message cautiously
-        return res.status(500).json({ error: 'Failed to fetch balance' });
+        console.error('balance endpoint error', err?.response?.data ?? err?.message ?? err)
+        return res.status(500).json({ error: 'Failed to fetch balance' })
     }
-});
+})
 
 // ---------- GET /api/channelMembership?userId=... ----------
 app.get('/api/channelMembership', async (req, res) => {

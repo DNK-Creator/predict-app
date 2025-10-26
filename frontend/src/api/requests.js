@@ -361,18 +361,28 @@ export async function cancelDepositIntent(controller, txId) {
     return resp
 }
 
-export async function fetchUsersBalanceWalletTon(address) {
-    const url = `${BACKEND_URL}/api/balance?address=${encodeURIComponent(address)}`;
+export async function fetchUsersBalanceWalletTon(address, { signal = null, timeoutMs = 10000 } = {}) {
+    if (!address) throw new Error('address required')
 
-    let resp
+    const url = `${BACKEND_URL}/api/balance?address=${encodeURIComponent(address)}`
+    const controller = new AbortController()
+    const finalSignal = signal ?? controller.signal
+    const id = setTimeout(() => controller.abort(), timeoutMs)
+
     try {
-        resp = await fetch(url)
+        const resp = await fetch(url, { method: 'GET', signal: finalSignal })
+        return resp
     } catch (err) {
-        resp = null
-        console.error('Error while fetching users ton balance on the wallet: ' + err)
+        // Normalize abort error
+        if (err.name === 'AbortError') {
+            const e = new Error('Request aborted/timed out')
+            e.name = 'AbortError'
+            throw e
+        }
+        throw err
+    } finally {
+        clearTimeout(id)
     }
-
-    return resp
 }
 
 export async function sendBotMessage(messageText) {

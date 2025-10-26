@@ -165,7 +165,7 @@ export async function getUsersHistoryBets() {
 
 export async function getBetById(betId) {
     try {
-        const resp = await apiFetch(`/api/bets/${encodeURIComponent(betId)}`, { method: 'GET' })
+        const resp = await apiFetch(`/api/bets/information/${encodeURIComponent(betId)}`, { method: 'GET' })
         return resp.data?.row ?? null
     } catch (err) {
         console.error('getBetById error', err)
