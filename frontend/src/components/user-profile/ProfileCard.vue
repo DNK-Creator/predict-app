@@ -628,7 +628,7 @@ async function reconnectWallet() {
 }
 
 // higher-level helper that returns numeric TON (or null) and validates
-export async function fetchTonBalance(address, { timeoutMs = 10000 } = {}) {
+async function fetchTonBalance(address, { timeoutMs = 10000 } = {}) {
     if (!address) return null
 
     try {
