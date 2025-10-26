@@ -195,19 +195,19 @@ app.use('/api', betsApiRouter)
 
 // --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
 const PUBLIC_API_PATHS = [
-    '/tonprice',
-    '/telegram/validate',
-    '/telegram/nft',
-    '/get-chance',
-    '/gifts/prices',
-    '/bets-holders',
-    '/holidays',
-    '/invoice',
-    '/pay-withdraw',
-    '/notify-handpicking',
-    '/balance',
-    '/giftHandle',
-    '/giftFailed'
+    '/api/tonprice',
+    '/api/telegram/validate',
+    '/api/telegram/nft',
+    '/api/get-chance',
+    '/api/gifts/prices',
+    '/api/bets-holders',
+    '/api/holidays',
+    '/api/invoice',
+    '/api/pay-withdraw',
+    '/api/notify-handpicking',
+    '/api/balance',
+    '/api/giftHandle',
+    '/api/giftFailed'
 ];
 
 // helper: parse query-string like "a=1&b=2" -> object
@@ -297,7 +297,8 @@ app.post('/api/telegram/validate', async (req, res) => {
             id: Number(userObj.id),
             username: userObj.username || null,
             first_name: userObj.first_name || null,
-            language_code: userObj.language_code || null
+            language_code: userObj.language_code || null,
+            photo_url: userObj.photo_url ?? 'https://gybesttgrbhaakncfagj.supabase.co/storage/v1/object/public/holidays-images/TiredPepeResized.png'
         };
         const sessionToken = createSessionToken(sessionPayload, 1000 * 60 * 30); // 30 minutes
 

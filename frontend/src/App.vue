@@ -563,7 +563,6 @@ onMounted(async () => {
         return;
       }
 
-      // Validate on server (Authorization: tma <initDataRaw>)
       const validateResp = await validateDataOnServer(initDataRaw);
 
       if (!validateResp.ok) {
