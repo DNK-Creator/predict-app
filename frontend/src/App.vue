@@ -218,9 +218,6 @@ function closeChannelModal() {
   showChannelFollowModal.value = false
 }
 
-/* Clicking subscribe should try to open the channel and then close modal.
-   Optionally you may want to re-check membership afterwards with checkChannelMembership()
-*/
 async function onSubscribeToChannel() {
   if (!assertInTelegram()) return
   try {
@@ -485,41 +482,6 @@ function updateBackButtonForRoute(route) {
   }
 }
 
-// ---------------------
-// Backend-backed channel membership check
-// ---------------------
-async function checkChannelMembership() {
-  // user may be null/undefined; we'll still call backend with a missing id check
-  const userId = encodeURIComponent(String(user?.id ?? ''));
-
-  if (!userId) {
-    // If you prefer: return false silently instead of hitting backend
-    console.warn('checkChannelMembership called without user id');
-    return false;
-  }
-
-  try {
-    const resp = await checkUserInChannel()
-    if (!resp.ok) {
-      // try to show any helpful server error, but return false to the caller
-      const body = await resp.json().catch(() => null);
-      console.error('Membership endpoint error', resp.status, body);
-      return false;
-    }
-
-    const json = await resp.json().catch(() => null);
-    if (!json || typeof json.isMember !== 'boolean') {
-      console.error('Unexpected response shape from membership endpoint', json);
-      return false;
-    }
-
-    return json.isMember;
-  } catch (err) {
-    console.error('checkChannelMembership error', err);
-    return false;
-  }
-}
-
 const testingLocally = ref(false)
 
 onMounted(async () => {
@@ -629,8 +591,7 @@ onMounted(async () => {
   loadingStage.value = 2
 
   try {
-    // pass user id if you have it; else userFirstTimeOpening will use the current user from useTelegram()
-    const isFirst = await userFirstTimeOpening(user?.id)
+    const isFirst = await userFirstTimeOpening()
     userFirstTime.value = Boolean(isFirst)
     debug('[App] userFirstTime set', { userFirstTime: userFirstTime.value })
   } catch (e) {
@@ -641,13 +602,29 @@ onMounted(async () => {
 
   if (userFirstTime.value === false) {
     try {
-      // pass user id if you have it; else userFirstTimeOpening will use the current user from useTelegram()
-      const followsChannel = await checkChannelMembership()
-      userFollowsChannel.value = Boolean(followsChannel)
+      const response = await checkUserInChannel()
+
+      // Check if the request was successful
+      if (!response.ok) {
+        console.error('[App] Channel membership check failed with status:', response.status);
+        userFollowsChannel.value = false;
+        return;
+      }
+
+      // The data is already parsed in response.data
+      const membershipData = response.data;
+
+      // Check if we got the expected structure
+      if (typeof membershipData?.isMember === 'boolean') {
+        userFollowsChannel.value = Boolean(membershipData.isMember);
+        console.log('[App] User channel membership:', userFollowsChannel.value);
+      } else {
+        console.error('[App] Invalid channel membership response structure:', membershipData);
+        userFollowsChannel.value = false;
+      }
     } catch (e) {
-      // Conservative fallback: not first time (do not block init)
-      console.error('[App] userChannelMembership check failed, defaulting to false', e)
-      userFollowsChannel.value = false
+      console.error('[App] userChannelMembership check failed, defaulting to false', e);
+      userFollowsChannel.value = false;
     }
   }
 

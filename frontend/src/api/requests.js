@@ -113,15 +113,9 @@ export async function apiFetch(path, {
     }
 }
 
-export async function userFirstTimeOpening(telegramId) {
-    const idToCheck = telegramId ?? user?.id ?? null
-    if (!idToCheck) {
-        console.warn('userFirstTimeOpening called without a telegram id; returning false')
-        return false
-    }
-
+export async function userFirstTimeOpening() {
     try {
-        const { data } = await apiFetch(`/api/user/first-time?telegram=${encodeURIComponent(idToCheck)}`)
+        const { data } = await apiFetch(`/api/user/first-time`)
         // server returns { isFirstTime: boolean }
         return Boolean(data?.isFirstTime)
     } catch (err) {
