@@ -214,10 +214,6 @@ app.post('/api/telegram/validate', async (req, res) => {
 
         const expectedHash = crypto.createHmac("sha256", secretKey).update(dataToCheck).digest("hex");
 
-        console.log('telegram/validate: data_check_string=', dataToCheck);
-        console.log('telegram/validate: expected hash (hex)=', expectedHash);
-        console.log('telegram/validate: received hash (hex)=', receivedHash);
-
         // compare
         if (!safeEq(receivedHash, expectedHash)) {
             console.warn('telegram/validate: hash mismatch', { expectedHash, receivedHash });
@@ -227,9 +223,6 @@ app.post('/api/telegram/validate', async (req, res) => {
         // CORRECTED: Get auth_date and user using .get() method
         const authDate = Number(initData.get("auth_date") || 0);
         const userStr = initData.get("user");
-
-        console.log('telegram/validate: auth_date=', authDate);
-        console.log('telegram/validate: user string=', userStr);
 
         const nowSec = Math.floor(Date.now() / 1000);
         if (!authDate || Math.abs(nowSec - authDate) > (60 * 60 * 12)) {
@@ -243,7 +236,6 @@ app.post('/api/telegram/validate', async (req, res) => {
         if (userStr) {
             try {
                 userObj = JSON.parse(userStr);
-                console.log('telegram/validate: parsed user object=', userObj);
             } catch (e) {
                 console.warn('telegram/validate: failed to parse user JSON', e);
             }
@@ -321,8 +313,6 @@ app.use('/api', (req, res, next) => {
             if (p.startsWith(pubPath + '/')) return true;
             return false;
         });
-
-        console.log(`IS THAT (${p}) REQUEST PUBLIC OR NEEDS CHECKING: ` + allowed)
 
         if (allowed) return next();
         return requireTelegramSession(req, res, next);
@@ -491,28 +481,21 @@ async function fetchWithTimeout(url, timeoutMs) {
 async function getTonPriceUsd() {
     const now = Date.now();
     if (cached.value && (now - cached.fetchedAt) < CACHE_TTL_MS) {
-        console.log('returning cached value for ton price')
         return cached.value;
     }
-
-    console.log('from getTonprice usd fetch coingecko url')
 
     const resp = await fetchWithTimeout(COINGECKO_URL, FETCH_TIMEOUT_MS);
 
     if (!resp.ok) {
         const txt = await resp.text().catch(() => '');
-        console.log('responce from coingecko is not okay')
         throw new Error(`CoinGecko responded ${resp.status}: ${txt}`);
     }
 
     const data = await resp.json();
 
-    console.log('got correct responce from coingecko')
-
     // validate shape
     const priceUsd = data?.market_data?.current_price?.usd;
     if (priceUsd == null || Number.isNaN(Number(priceUsd))) {
-        console.log('something wrong with the priceUsd getting from data')
         throw new Error('CoinGecko response missing market_data.current_price.usd');
     }
 
@@ -522,8 +505,6 @@ async function getTonPriceUsd() {
     cached.value = numericPrice;
     cached.fetchedAt = Date.now();
     cached.raw = data;
-
-    console.log('successfully returning value from get ton price: ' + numericPrice)
 
     return numericPrice;
 }
@@ -539,9 +520,6 @@ app.get('/api/tonprice', async (req, res) => {
 
         // adjust rounding to your preferred precision
         const tonNeededRounded = Number(tonNeeded.toFixed(8)); // 8 decimals
-
-        console.log('1 successfully returning the initial response from client with values: price usd per ton: ' + tonPriceUsd)
-        console.log('2 successfully returning the initial response from client with values: ton_needed: ' + tonNeededRounded)
 
         return res.json({
             price_usd_per_ton: tonPriceUsd,
