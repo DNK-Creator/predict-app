@@ -7,10 +7,17 @@ if (!SECRET) {
     console.warn('GIFT_WORKER_SECRET is not set — giftHandle endpoint will be insecure until configured.');
 }
 
-// deterministic canonicalize must match worker's implementation:
 function canonicalize(obj) {
-    if (obj === null || typeof obj !== 'object') return JSON.stringify(obj);
-    if (Array.isArray(obj)) return '[' + obj.map(canonicalize).join(',') + ']';
+    if (obj === null || typeof obj !== 'object') {
+        if (typeof obj === 'bigint') return JSON.stringify(String(obj));
+        return JSON.stringify(obj);
+    }
+    if (obj && typeof obj === 'object' && 'value' in obj && typeof obj.value === 'bigint') {
+        return JSON.stringify(String(obj.value));
+    }
+    if (Array.isArray(obj)) {
+        return '[' + obj.map(canonicalize).join(',') + ']';
+    }
     const keys = Object.keys(obj).sort();
     return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
 }

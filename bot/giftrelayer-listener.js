@@ -32,16 +32,23 @@ function log(...args) {
     if (DEBUG) console.log('[giftrelayer]', ...args);
 }
 
-// deterministic canonical JSON stringifier
 function canonicalize(obj) {
+    // handle null/primitive including BigInt
     if (obj === null || typeof obj !== 'object') {
-        // primitives: JSON.stringify produces stable representation
+        // BigInt is typeof 'bigint' and JSON.stringify will throw — convert to string
+        if (typeof obj === 'bigint') return JSON.stringify(String(obj));
         return JSON.stringify(obj);
     }
+
+    // If GramJS Integer-like wrapper: { value: 123n } -> serialize the inner value
+    if (obj && typeof obj === 'object' && 'value' in obj && typeof obj.value === 'bigint') {
+        return JSON.stringify(String(obj.value));
+    }
+
     if (Array.isArray(obj)) {
         return '[' + obj.map(canonicalize).join(',') + ']';
     }
-    // object: sort keys
+
     const keys = Object.keys(obj).sort();
     return '{' + keys.map(k => JSON.stringify(k) + ':' + canonicalize(obj[k])).join(',') + '}';
 }
