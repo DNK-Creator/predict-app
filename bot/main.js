@@ -138,6 +138,51 @@ const corsPublic = cors({
 // Ensure OPTIONS preflight for the public route is handled
 app.options('/api/get-chance', corsPublic);
 
+// Apply per-request CORS: if path === /api/get-chance use public, else restricted
+app.use((req, res, next) => {
+    if (req.path === '/api/get-chance') {
+        return corsPublic(req, res, next);
+    }
+    return corsRestricted(req, res, next);
+});
+
+// If your app runs behind a single trusted proxy (e.g. nginx), set:
+app.set('trust proxy', 1);
+
+app.use((req, res, next) => {
+    try {
+        console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
+
+        if (req.method !== 'GET') {
+            // Prefer parsed req.body (safe), fallback to req.rawBody (string)
+            if (req.body && typeof req.body === 'object') {
+                const keys = Object.keys(req.body);
+                if (keys.length <= 50) {
+                    try {
+                        console.log('[req.body]', JSON.stringify(req.body));
+                    } catch (e) {
+                        console.log('[req.body] (not serializable)');
+                    }
+                } else {
+                    console.log('[req.body] (omitted — too many keys)');
+                }
+            } else if (typeof req.rawBody === 'string' && req.rawBody.length > 0) {
+                // rawBody is the raw string captured by verify
+                console.log('[req.rawBody]', req.rawBody.length > 2000 ? req.rawBody.slice(0, 2000) + '... (truncated)' : req.rawBody);
+            } else {
+                console.log('[req.body] (empty)');
+            }
+        }
+    } catch (e) {
+        // Logging must never break request processing
+        console.warn('[req logger] error', e?.message ?? e);
+    } finally {
+        next();
+    }
+});
+
+// START THE SECTION VALIDATION FOR RAW DATA SESSION
+
 // Endpoint: validate initData
 // Accepts { initData: '...' } (POST)
 app.post('/api/telegram/validate', async (req, res) => {
@@ -227,57 +272,12 @@ app.post('/api/telegram/validate', async (req, res) => {
     }
 });
 
-// Apply per-request CORS: if path === /api/get-chance use public, else restricted
-app.use((req, res, next) => {
-    if (req.path === '/api/get-chance') {
-        return corsPublic(req, res, next);
-    }
-    return corsRestricted(req, res, next);
-});
-
-// If your app runs behind a single trusted proxy (e.g. nginx), set:
-app.set('trust proxy', 1);
-
-app.use((req, res, next) => {
-    try {
-        console.log(`[req] ${req.ip} ${req.method} ${req.path} origin=${req.headers.origin || '-'}`);
-
-        if (req.method !== 'GET') {
-            // Prefer parsed req.body (safe), fallback to req.rawBody (string)
-            if (req.body && typeof req.body === 'object') {
-                const keys = Object.keys(req.body);
-                if (keys.length <= 50) {
-                    try {
-                        console.log('[req.body]', JSON.stringify(req.body));
-                    } catch (e) {
-                        console.log('[req.body] (not serializable)');
-                    }
-                } else {
-                    console.log('[req.body] (omitted — too many keys)');
-                }
-            } else if (typeof req.rawBody === 'string' && req.rawBody.length > 0) {
-                // rawBody is the raw string captured by verify
-                console.log('[req.rawBody]', req.rawBody.length > 2000 ? req.rawBody.slice(0, 2000) + '... (truncated)' : req.rawBody);
-            } else {
-                console.log('[req.body] (empty)');
-            }
-        }
-    } catch (e) {
-        // Logging must never break request processing
-        console.warn('[req logger] error', e?.message ?? e);
-    } finally {
-        next();
-    }
-});
-
 const apiLimiter = rateLimit({
     windowMs: 15 * 1000, // 15 seconds window
     max: 30, // limit each IP to 30 requests per windowMs
     standardHeaders: true,
     legacyHeaders: false
 })
-
-// START THE SECTION VALIDATION FOR RAW DATA SESSION
 
 // --- Apply requireTelegramSession to most /api routes but allow public endpoints ---
 const PUBLIC_API_PATHS = [
@@ -295,38 +295,6 @@ const PUBLIC_API_PATHS = [
     '/giftHandle',
     '/giftFailed'
 ]
-
-function parseInitData(raw) {
-    if (typeof raw !== 'string') return {};
-    const out = {};
-    // split on '&' and decode keys/values (preserve decoded textual representation)
-    const pairs = raw.split('&');
-    for (const pair of pairs) {
-        if (!pair) continue;
-        const idx = pair.indexOf('=');
-        if (idx === -1) {
-            try { out[decodeURIComponent(pair)] = ''; } catch (e) { out[pair] = ''; }
-            continue;
-        }
-        const kRaw = pair.slice(0, idx);
-        const vRaw = pair.slice(idx + 1);
-        try {
-            const k = decodeURIComponent(kRaw);
-            const v = decodeURIComponent(vRaw);
-            out[k] = v;
-        } catch (e) {
-            // fallback: keep raw slices
-            out[kRaw] = vRaw;
-        }
-    }
-    return out;
-}
-
-function buildDataCheckString(params) {
-    // use the decoded strings as-is (do NOT JSON.stringify params.user)
-    const keys = Object.keys(params).filter(k => k !== 'hash' && k !== 'signature').sort();
-    return keys.map(k => `${k}=${params[k]}`).join('\n');
-}
 
 // secure equal, safe against timing attacks
 function safeEq(a, b) {
