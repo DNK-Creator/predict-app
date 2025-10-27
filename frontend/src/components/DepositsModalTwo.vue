@@ -679,17 +679,23 @@ async function fetchTonPriceFromServer({ force = false } = {}) {
         // adjust endpoint if your server uses a different path
         const resp = await fetchWithTimeout(TON_PRICE_TIMEOUT_MS)
 
-        if (!resp.ok) {
-            const txt = await resp.text().catch(() => '')
-            throw new Error(`status ${resp.status} ${txt ? `- ${txt}` : ''}`)
+        if (!resp || !resp.ok) {
+            // Handle HTTP errors (4xx, 5xx)
+            const err = new Error(`Balance endpoint error ${resp?.status || 'NETWORK_ERROR'}`)
+            err.status = resp?.status || 0
+            err.body = resp?.data || 'Network error'
+            throw err
         }
 
-        const data = await resp.json()
+        const json = await resp.data
+
+        if (!json || (typeof json !== 'object')) {
+            throw new Error('Invalid stars pricing response format')
+        }
 
         let price = null
-        if (data == null) throw new Error('empty response')
 
-        price = data.ton_needed
+        price = json.ton_needed
 
         if (price == null || !isFinite(price)) {
             throw new Error('unexpected response format or null price')
