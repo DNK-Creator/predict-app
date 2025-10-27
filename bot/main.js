@@ -91,6 +91,12 @@ async function fetchWithRetry(url, opts = {}, retries = 3, backoff = 500) {
     throw lastErr;
 }
 
+function parseIntOrNull(v) {
+    if (v == null) return null
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+}
+
 const effectIdTwo = "5046509860389126442"
 
 // --- add near the top of main.js ---

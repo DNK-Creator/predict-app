@@ -513,12 +513,33 @@ async function onDepositStars(amount) {
     }
 }
 
+async function cancelDepositIntentOnServer(txId) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    try {
+        const resp = await cancelDepositIntent(controller, txId)
+        clearTimeout(timeout);
 
-/**
- * Optional: notify server that the user cancelled the wallet prompt
- * POST /api/deposit-cancel { uuid }
- * server should set status = 'Отмененное пополнение' for that uuid
- */
+        // FIXED: Use resp.data directly, no need for separate text variable
+        if (!resp.ok) {
+            // Use the data from the response for error message
+            const errorData = resp.data;
+            const errMsg = (errorData && errorData.error) ? errorData.error : `HTTP ${resp.status}`;
+            throw new Error(errMsg);
+        }
+
+        // return parsed JSON data
+        return resp.data ?? {};
+    } catch (err) {
+        if (err.name === 'AbortError') {
+            console.error('[client] cancelDepositIntentOnServer: request timed out');
+            throw new Error('timeout');
+        }
+        console.error('[client] cancelDepositIntentOnServer error', err);
+        throw err;
+    }
+}
+
 async function createDepositIntentOnServer(amount) {
     if (!user) return
     const controller = new AbortController();
@@ -529,68 +550,24 @@ async function createDepositIntentOnServer(amount) {
     }
     try {
         const resp = await createDepositIntent(controller, amount, userParsedAddr)
-
         clearTimeout(timeout);
 
-        let text;
-        try {
-            text = resp.data
-
-            if (!resp.ok) {
-                // bubble readable message to caller
-                const errMsg = (json && json.error) ? json.error : text || `HTTP ${resp.status}`;
-                throw new Error(errMsg);
-            }
-
-            // return parsed JSON
-            return json ?? {};
-        } catch (readErr) {
-            // body read/parse error
-            console.error('[client] failed to read/parse response body', readErr);
-            throw new Error('Invalid server response');
+        // FIXED: Use resp.data directly, no need for separate text variable
+        if (!resp.ok) {
+            // Use the data from the response for error message
+            const errorData = resp.data;
+            const errMsg = (errorData && errorData.error) ? errorData.error : `HTTP ${resp.status}`;
+            throw new Error(errMsg);
         }
+
+        // return parsed JSON data
+        return resp.data ?? {};
     } catch (err) {
         if (err.name === 'AbortError') {
             console.error('[client] createDepositIntentOnServer: request timed out');
             throw new Error('timeout');
         }
         console.error('[client] createDepositIntentOnServer error', err);
-        throw err;
-    }
-}
-
-async function cancelDepositIntentOnServer(txId) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 10_000);
-    try {
-
-        const resp = await cancelDepositIntent(controller, txId)
-
-        clearTimeout(timeout);
-
-        let text;
-        try {
-            text = resp.data
-
-            if (!resp.ok) {
-                // bubble readable message to caller
-                const errMsg = (json && json.error) ? json.error : text || `HTTP ${resp.status}`;
-                throw new Error(errMsg);
-            }
-
-            // return parsed JSON
-            return json ?? {};
-        } catch (readErr) {
-            // body read/parse error
-            console.error('[client] failed to read/parse response body', readErr);
-            throw new Error('Invalid server response');
-        }
-    } catch (err) {
-        if (err.name === 'AbortError') {
-            console.error('[client] cancelDepositIntentOnServer: request timed out');
-            throw new Error('timeout');
-        }
-        console.error('[client] cancelDepositIntentOnServer error', err);
         throw err;
     }
 }

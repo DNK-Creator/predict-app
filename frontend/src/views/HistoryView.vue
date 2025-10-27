@@ -436,11 +436,15 @@ watch(spinnerShow, async (spinnerIsVisible) => {
 
 .empty-title {
     margin: 0;
-    font-weight: 600
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    color: white;
 }
 
 .empty-desc {
     margin: 0;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
     color: #888
 }
 </style>
