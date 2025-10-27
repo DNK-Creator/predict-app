@@ -635,24 +635,16 @@ async function fetchTonBalance(address, { timeoutMs = 10000 } = {}) {
         const resp = await fetchUsersBalanceWalletTon(address, { timeoutMs })
 
         // network-level failure (fetch returned null) — treat as error
-        if (!resp) return null
-
-        const text = await resp.text().catch(() => null)
-        let json = null
-        try { json = text ? JSON.parse(text) : null } catch (_) { json = null }
-
-        if (!resp.ok) {
-            // Attach server body to an Error for easier debugging in UI
-            const err = new Error(`Balance endpoint error ${resp.status}`)
-            err.status = resp.status
-            err.body = json ?? text
-            throw err
+        if (!resp || !resp.ok) {
+            // Handle HTTP errors (4xx, 5xx)
+            const err = new Error(`Balance endpoint error ${resp?.status || 'NETWORK_ERROR'}`)
+            err.status = resp?.status || 0
+            err.body = resp?.data || 'Network error'
+            console.error(err)
+            return null
         }
 
-        // OK — server returned JSON. Accept either
-        // - { balance: number } OR
-        // - { balance: "123456789012345" } (string nanotons) OR
-        // - { balance_ton: "0.123456789" } (string TON) — be flexible
+        const json = resp.data
 
         if (!json || (typeof json !== 'object')) {
             throw new Error('Invalid balance response format')
@@ -742,20 +734,6 @@ onUnmounted(() => {
     }
 })
 
-// onActivated(async () => {
-//     if (ton.value?.connected && appStoreObj.walletAddress) {
-//         let freshBal
-//         try {
-//             freshBal = await fetchTonBalance(appStoreObj.walletAddress)
-//         } catch (err) {
-//             console.log('Backend not reachable or server error while fetchign TON : ' + err)
-//             return
-//         }
-//         if (freshBal === undefined || freshBal === null) return
-//         walletBalance.value = +freshBal.toFixed(2)
-//     }
-// })
-
 let isTonConnectSetup = false
 
 function setupTonConnectListener() {
@@ -817,7 +795,7 @@ watch(
             try {
                 freshBal = await fetchTonBalance(addr, { timeoutMs: 8_000 })
             } catch (err) {
-                console.error('Backend not reachable or server error while fetchign TON : ' + err)
+                console.error('Backend not reachable or server error while fetching TON : ' + err)
                 return
             }
             if (freshBal === undefined || freshBal === null) return
