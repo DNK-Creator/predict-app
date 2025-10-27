@@ -162,7 +162,7 @@ async function onWithdraw(amount) {
     const amount_cut = amount - 0.01
     if (amount_cut <= 0.05) return
     if (app.points < amount) {
-        let errorText = app.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+        let errorText = app.language === 'ru' ? 'Недостаточно средств.' : 'Insufficient funds.'
         toast.error(errorText);
         return;
     }
@@ -183,28 +183,28 @@ async function onWithdraw(amount) {
         return
     }
 
-    // Try to parse JSON, but tolerate non-JSON responses
-    try {
-        data = await resp.data;
-    } catch (parseErr) {
-        data = { raw: null };
-    }
+    data = resp?.data ?? null;
 
-    if (!resp.ok) {
+    const serverSaysSuccess = resp?.ok && (data?.success === true || data?.tx_uuid);
+
+    if (!serverSaysSuccess) {
         // tolerant extraction of error code
-        const errCode = (data && (data.error || data.code || data.error_code)) ? String(data.error || data.code || data.error_code) : null;
+        const errCode = data && (data.error || data.code || data.error_code) ? String(data.error || data.code || data.error_code) : null;
 
         // map known error codes to human messages (localized)
         const errorMap = {
             insufficient_funds: {
-                ru: 'Недостаточно средств',
-                en: 'Insufficient funds'
+                ru: 'Недостаточно средств для этого вывода.',
+                en: 'Insufficient funds for that withdrawal.'
             },
             stars_deposit: {
-                ru: 'Вы недавно пополняли звёздами — вывод недоступен (21 день)',
-                en: 'Recent stars deposit — withdrawal unavailable for 21 days'
+                ru: 'Вы недавно пополняли звёздами — вывод недоступен 21 день от пополнения.',
+                en: 'Recent stars deposit — withdrawal unavailable for 21 days from the deposit.'
             },
-            // add other server error codes here...
+            internal_error: {
+                ru: 'Ошибка на стороне сервера. Пожалуйста, попробуйте позже..',
+                en: 'Server-side error. Please try again later.'
+            },
         };
 
         if (errCode && errorMap[errCode]) {
@@ -225,8 +225,8 @@ async function onWithdraw(amount) {
     toast.success(successText);
 
     try {
-        let botMessageText = app.language === 'ru' ? `💎 Запрос на вывод ${Number(amount_cut).toFixed(2)} TON сохранён.\nТекущий баланс: ${app.points} TON` :
-            `💎 Request to withdraw ${Number(amount_cut).toFixed(2)} TON is saved.\nCurrent balance: ${app.points} TON`
+        let botMessageText = app.language === 'ru' ? `💎 Запрос на вывод ${Number(amount).toFixed(2)} TON сохранён.\nТекущий баланс: ${app.points} TON` :
+            `💎 Request to withdraw ${Number(amount).toFixed(2)} TON is saved.\nCurrent balance: ${app.points} TON`
         fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)

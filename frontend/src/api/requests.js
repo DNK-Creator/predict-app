@@ -200,19 +200,17 @@ export async function withdrawUserTon(amount, amount_cut, parsedAddress, idempot
     try {
         const { status, data } = await apiFetch('/api/withdraw', {
             method: 'POST',
-            body: {
-                amount,
-                amount_cut,
-                address: parsedAddress,
-                idempotencyKey
-            }
+            body: { amount, amount_cut, address: parsedAddress, idempotencyKey }
         });
-        return { ok: true, status, data };
+
+        const ok = (typeof status === 'number') ? (status >= 200 && status < 300) : !!data?.success;
+        return { ok, status, data };
     } catch (err) {
         console.error('withdrawUserTon error', err);
         return { ok: false, error: err };
     }
 }
+
 
 export async function getUsersReferrals() {
     try {

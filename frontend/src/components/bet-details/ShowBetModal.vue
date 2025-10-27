@@ -987,8 +987,27 @@ async function placeBet() {
             selectedGifts.value = backupSelectedGifts
             selectedOrder.value = backupSelectedOrder
         }
-        const messageText = app.language === 'ru' ? 'Не удалось поставить ставку.' : 'Unable to place bet.'
-        toast.error(err?.message || messageText)
+        let messageText = app.language === 'ru' ? 'Не удалось поставить ставку.' : 'Unable to place bet.'
+        if (err?.message) {
+            if (err?.message === 'both_sides') {
+                messageText = app.language === 'ru' ? 'Нельзя ставить на обе стороны одного события.' : 'Cannot place on both sides of one event.'
+            } else if (err?.message === 'stake_not_positive') {
+                messageText = app.language === 'ru' ? 'Ставка должна быть положительным числом.' : 'Bet amount has to be a positive number.'
+            } else if (err?.message === 'invalid_side') {
+                messageText = app.language === 'ru' ? 'Выбрана недопустимая сторона.' : 'Invalid side chosen.'
+            } else if (err?.message === 'bet_id_not_found') {
+                messageText = app.language === 'ru' ? 'Выбранное событие недоступно.' : 'Chosen event is not available.'
+            } else if (err?.message === 'bets_closed') {
+                messageText = app.language === 'ru' ? 'Закончился период ставок.' : 'Betting close time was reached.'
+            } else if (err?.message === 'user_not_found') {
+                messageText = app.language === 'ru' ? 'Неверная авторизация, попробуйте перезагрузить приложение.' : 'Invalid authorization, try reloading the app.'
+            } else if (err?.message === 'gifts_missing') {
+                messageText = app.language === 'ru' ? 'В инвентаре отсутствуют некоторые поставленные подарки.' : 'Some placed gifts are missing from your inventory.'
+            } else if (err?.message === 'not_enough_stake') {
+                messageText = app.language === 'ru' ? 'Недостаточно TON, чтобы поставить выбранный объём ставки.' : 'Not enough TON to bet the chosen amount.'
+            }
+        }
+        toast.error(messageText)
     } finally {
         loading.value = false
         await app.fetchPoints()

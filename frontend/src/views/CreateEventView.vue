@@ -604,12 +604,14 @@ async function onCreate() {
         const resp = await requestCreateBet(payload, { timeoutMs: 12000 })
 
         if (resp.ok) {
-            toast.success(app.language === 'ru' ? 'Событие отправлено на модерацию' : 'Event submitted for moderation')
+            toast.success(app.language === 'ru' ? 'Событие отправлено на модерацию.' : 'Event submitted for moderation.')
             if (resp.data?.user?.points !== undefined) {
                 app.points = Number(resp.data.user.points).toFixed(2);
             }
 
-            openHistoryCreated()
+            setTimeout(() => {
+                openHistoryCreated()
+            }, 800);
 
             return
         }
@@ -617,12 +619,17 @@ async function onCreate() {
         // Not ok -> determine message to show
         let message
         if (resp.error === 'validation_error' || resp.status === 400) {
-            message = app.language === 'ru' ? 'Проверьте данные и попробуйте снова' : 'Please check the input and try again'
+            message = app.language === 'ru' ? 'Проверьте введённую информацию, ставку, подарки и попробуйте снова.' : 'Please check the input, initial bet and gifts and try again.'
         } else if (resp.error === 'insufficient_funds') {
-            message = app.language === 'ru' ? 'Недостаточно средств для создания события' : 'Not enough points to create the event'
+            message = app.language === 'ru' ? 'Недостаточно средств для создания события.' : 'Not enough points to create the event.'
+        } else if (resp.error === 'invalid_gifts') {
+            message = app.language === 'ru' ? 'Некоторые из поставленных подарков отсутствуют в инвентаре.' : 'Some of the placed gifts are missing from your inventory.'
+        } else if (resp.error === 'db_error') {
+            message = app.language === 'ru' ? 'Ошибка в базе данных. Не удалось создать новое событие или обновить пользователя.' : 'Error from database. Could not create a new event row or update the user.'
         } else if (resp.error === 'telegram_error') {
-            message = app.language === 'ru' ? 'Не удалось уведомить команду поддержки, но событие создано' : 'Event created but notification to support failed'
+            message = app.language === 'ru' ? 'Событие успешно создано, но команда поддержки не получила уведомление.' : 'Event created success, but notifying support team went wrong.'
             toast.success(message)
+            isCreating.value = false
             return
         } else if (resp.error === 'timeout') {
             message = app.language === 'ru' ? 'Сервер не отвечает, попробуйте позже' : 'Server timed out, try again later'

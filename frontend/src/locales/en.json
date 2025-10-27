@@ -144,7 +144,7 @@
     "official-events": "Main",
     "prediction": "Prediction",
     "deal": "Deal",
-    "create-hint-policy": "The initial bet has to be more than 1 TON. You will receive 10% of the commission from all winnings. Profanity is prohibited. Only English or Russian languages are allowed.",
+    "create-hint-policy": "The initial bet has to be more than 1 TON. You will receive 15% of the commission from all winnings. Profanity is prohibited. Only English or Russian languages are allowed.",
     "event-name": "Enter the name of the event",
     "description": "Enter a detailed description, conditions",
     "description-period": "Enter the start and end time period for the event",

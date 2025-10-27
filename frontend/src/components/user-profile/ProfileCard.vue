@@ -257,7 +257,7 @@ async function onWithdraw(amount) {
     const amount_cut = amount - 0.01
     if (amount_cut <= 0.05) return
     if (appStoreObj.points < amount) {
-        let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств' : 'Insufficient funds'
+        let errorText = appStoreObj.language === 'ru' ? 'Недостаточно средств.' : 'Insufficient funds.'
         toast.error(errorText);
         return;
     }
@@ -272,34 +272,34 @@ async function onWithdraw(amount) {
         resp = await withdrawUserTon(amount, amount_cut, parsedAddress, idempotencyKey)
     } catch (err) {
         // network-level error (DNS, offline, CORS, etc.)
-        console.error('Network error while calling withdraw:', networkErr);
-        const netMsg = appStoreObj.language === 'ru' ? 'Сетевая ошибка' : 'Network error';
-        toast.error(`${netMsg}: ${networkErr.message || 'unknown'}`);
-        return;
+        console.error('Something went wrong while withdrawing.')
+        const netMsg = appStoreObj.language === 'ru' ? 'Ошибка при попытке соединения для вывода.' : 'Network error while trying to withdraw.'
+        toast.error(netMsg)
+        return
     }
 
-    // Try to parse JSON, but tolerate non-JSON responses
-    try {
-        data = resp.data;
-    } catch (parseErr) {
-        data = { raw: null };
-    }
+    data = resp?.data ?? null;
 
-    if (!resp.ok) {
+    const serverSaysSuccess = resp?.ok && (data?.success === true || data?.tx_uuid);
+
+    if (!serverSaysSuccess) {
         // tolerant extraction of error code
         const errCode = (data && (data.error || data.code || data.error_code)) ? String(data.error || data.code || data.error_code) : null;
 
         // map known error codes to human messages (localized)
         const errorMap = {
             insufficient_funds: {
-                ru: 'Недостаточно средств',
-                en: 'Insufficient funds'
+                ru: 'Недостаточно средств для этого вывода.',
+                en: 'Insufficient funds for that withdrawal.'
             },
             stars_deposit: {
-                ru: 'Вы недавно пополняли звёздами — вывод недоступен (21 день)',
-                en: 'Recent stars deposit — withdrawal unavailable for 21 days'
+                ru: 'Вы недавно пополняли звёздами — вывод недоступен 21 день от пополнения.',
+                en: 'Recent stars deposit — withdrawal unavailable for 21 days from the deposit.'
             },
-            // add other server error codes here...
+            internal_error: {
+                ru: 'Ошибка на стороне сервера. Пожалуйста, попробуйте позже..',
+                en: 'Server-side error. Please try again later.'
+            },
         };
 
         if (errCode && errorMap[errCode]) {
@@ -320,8 +320,8 @@ async function onWithdraw(amount) {
     toast.success(successText);
 
     try {
-        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${Number(amount_cut).toFixed(2)} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
-            `💎 Request to withdraw ${Number(amount_cut).toFixed(2)} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
+        let botMessageText = appStoreObj.language === 'ru' ? `💎 Запрос на вывод ${Number(amount).toFixed(2)} TON сохранён.\nТекущий баланс: ${appStoreObj.points} TON` :
+            `💎 Request to withdraw ${Number(amount).toFixed(2)} TON is saved.\nCurrent balance: ${appStoreObj.points} TON`
         fetchBotMessageTransaction(botMessageText)
     } catch (err) {
         console.warn('Failed to send bot message for user. Error: ' + err)
@@ -421,24 +421,6 @@ async function onDeposit(amount) {
         }]
     };
 
-    // --- detect wallet network ---
-    // const walletObj = ton.value?.wallet || null;
-    // const walletInfo = ton.value?.walletInfo || null;
-
-    // const walletNetwork =
-    //     walletObj?.items?.[0]?.network ??
-    //     walletObj?.network ??
-    //     walletInfo?.network ??
-    //     null;
-
-    // if (walletNetwork) {
-    //     baseReq.network = walletNetwork;
-    // } else {
-    //     baseReq.network = 'mainnet'
-    // }
-
-    // baseReq.network = 'mainnet'
-
     try {
         await ton.value.sendTransaction(baseReq)
         let messageText = appStoreObj.language === 'ru' ? 'Транзакция отправлена. Ожидайте подтверждения.' : 'Transaction was sent. Wait for approval.'
@@ -497,7 +479,10 @@ async function onDepositStars(amount) {
                         await appStoreObj.fetchPoints()
                     } catch (e) { /* ignore */ }
                 } else {
-                    // other statuses: 'cancelled' etc., do nothing
+                    // other statuses: 'cancelled' etc.
+                    let messageToast = appStoreObj.language === 'ru' ? 'Пополнение отменено.' : 'Deposit was cancelled.'
+                    // cancel or fail
+                    toast.warn(messageToast)
                     console.debug('invoice status', status)
                 }
             } catch (innerErr) {
