@@ -568,7 +568,7 @@ app.post('/api/bet-placed', async (req, res) => {
             // requireTelegramSession should normally prevent this; 401 is appropriate
             return res.status(401).json({ error: 'unauthenticated' });
         }
-        const chat_id = 'myoracle_chat'
+        const chat_id = '@myoracle_chat'
 
         const { bet_id, side, stake, placed_gifts } = req.body || {};
         if (!bet_id || !side || (stake === undefined || stake === null)) {
