@@ -217,8 +217,7 @@ export async function getUserBetAmount(betId) {
     }
 }
 
-export async function getUserLastCommentTime(userTelegramId) {
-    if (!userTelegramId) return null
+export async function getUserLastCommentTime() {
     try {
         const resp = await apiFetch(`/api/user/last-comment`, { method: 'GET' })
         return resp.data?.last_commented_at ?? null

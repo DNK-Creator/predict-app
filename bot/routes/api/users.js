@@ -69,7 +69,7 @@ router.get('/user/first-time', async (req, res) => {
 
 /**
  * POST /api/user/get-or-create
- * body: { telegram: number, language: string | null }
+ * body: { language: string | null }
  * calls rpc get_or_create_user
  */
 router.post('/user/get-or-create', async (req, res) => {
@@ -85,7 +85,7 @@ router.post('/user/get-or-create', async (req, res) => {
         if (validationError) return res.status(400).json({ error: validationError.message })
 
         const { language } = value
-        const rpcParams = { p_telegram: Number(telegram), p_language: language ?? null }
+        const rpcParams = { p_telegram: telegram, p_language: language ?? null }
         const { data, error } = await supabaseAdmin.rpc('get_or_create_user', rpcParams)
 
         if (error) {

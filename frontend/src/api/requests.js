@@ -126,7 +126,7 @@ export async function userFirstTimeOpening() {
 
 export async function getOrCreateUser(languageCode = null) {
     try {
-        const body = { telegram: Number(user?.id), language: languageCode ?? null }
+        const body = { language: languageCode ?? null }
         const { data } = await apiFetch('/api/user/get-or-create', { method: 'POST', body })
         // server returns the user row or null
         return data?.user ?? null
@@ -155,7 +155,7 @@ export async function registerRef(inviterTelegram) {
 
 export async function getUsersPoints() {
     try {
-        const resp = await apiFetch(`/api/user/points?telegram=${encodeURIComponent(user?.id)}`)
+        const resp = await apiFetch('/api/user/points')
         return { data: resp.data?.row ?? null, error: null }
     } catch (err) {
         console.error('getUsersPoints error', err)
@@ -166,7 +166,7 @@ export async function getUsersPoints() {
 export async function getUsersBetsSummary() {
     if (!MY_ID) return { countBets: 0, totalVolume: 0 }
     try {
-        const resp = await apiFetch(`/api/user/bets-summary?telegram=${encodeURIComponent(MY_ID)}`)
+        const resp = await apiFetch('/api/user/bets-summary')
         const { countBets = 0, totalVolume = 0 } = resp.data ?? {}
         return { countBets, totalVolume }
     } catch (err) {
@@ -178,7 +178,7 @@ export async function getUsersBetsSummary() {
 export async function getUsersWonBetsCount() {
     if (!MY_ID) return 0
     try {
-        const resp = await apiFetch(`/api/user/won-bets-count?telegram=${encodeURIComponent(MY_ID)}`)
+        const resp = await apiFetch('/api/user/won-bets-count')
         return resp.data?.bets_won ?? 0
     } catch (err) {
         console.error('getUsersWonBetsCount error', err)
@@ -187,9 +187,8 @@ export async function getUsersWonBetsCount() {
 }
 
 export async function getUsersWalletAddress() {
-    if (!MY_ID) return null
     try {
-        const resp = await apiFetch(`/api/user/wallet-address?telegram=${encodeURIComponent(MY_ID)}`)
+        const resp = await apiFetch('/api/user/wallet-address')
         return resp.data?.wallet_address ?? null
     } catch (err) {
         console.error('getUsersWalletAddress error', err)
@@ -202,7 +201,6 @@ export async function withdrawUserTon(amount, amount_cut, parsedAddress, idempot
         const { status, data } = await apiFetch('/api/withdraw', {
             method: 'POST',
             body: {
-                // optional: no telegram here, consider omitting this and use req.user on server
                 amount,
                 amount_cut,
                 address: parsedAddress,
@@ -230,7 +228,7 @@ export async function updateUsersWallet(wallet_to_update) {
     try {
         await apiFetch('/api/user/update-wallet', {
             method: 'POST',
-            body: { telegram: user?.id, wallet_address: wallet_to_update }
+            body: { wallet_address: wallet_to_update }
         })
     } catch (err) {
         console.error('updateUsersWallet error: ', err)
@@ -250,7 +248,7 @@ export async function getGiftsPrices() {
 export async function getUsersInventory() {
     if (!user?.id) return []
     try {
-        const resp = await apiFetch(`/api/user/inventory?telegram=${encodeURIComponent(user?.id)}`)
+        const resp = await apiFetch('/api/user/inventory')
         return resp.data?.inventory ?? []
     } catch (err) {
         console.error('getUsersInventory error: ', err)
@@ -272,7 +270,7 @@ export async function updateUsername(name) {
     try {
         const resp = await apiFetch('/api/user/update-username', {
             method: 'POST',
-            body: { telegram: user?.id, username: name }
+            body: { username: name }
         })
         return resp.data?.ok ? null : new Error('update failed')
     } catch (err) {
@@ -283,7 +281,7 @@ export async function updateUsername(name) {
 
 export async function getUsersLanguage() {
     try {
-        const resp = await apiFetch(`/api/user/language?telegram=${encodeURIComponent(user?.id)}`)
+        const resp = await apiFetch('/api/user/language')
         return { data: resp.data?.language ?? null, error: null }
     } catch (err) {
         console.error('getUsersLanguage error', err)
@@ -293,7 +291,7 @@ export async function getUsersLanguage() {
 
 export async function changeUsersLanguage(code) {
     try {
-        const resp = await apiFetch('/api/user/change-language', { method: 'POST', body: { telegram: user?.id, language: code } })
+        const resp = await apiFetch('/api/user/change-language', { method: 'POST', body: { language: code } })
         return { error: resp.data?.error ?? null }
     } catch (err) {
         console.error('changeUsersLanguage error', err)
@@ -303,7 +301,7 @@ export async function changeUsersLanguage(code) {
 
 export async function fetchUserReferrals() {
     try {
-        const resp = await apiFetch(`/api/user/referrals?telegram=${encodeURIComponent(user?.id)}`)
+        const resp = await apiFetch('/api/user/referrals', { method: 'GET' })
         return { data: resp.data?.rows ?? [], error: null }
     } catch (err) {
         console.error('fetchUserReferrals error', err)
@@ -333,7 +331,7 @@ export async function fetchAllHolidays() {
 
 export async function fetchUsersTransactions(appObj) {
     try {
-        const resp = await apiFetch(`/api/user/transactions?telegram=${encodeURIComponent(user?.id)}`)
+        const resp = await apiFetch('/api/user/transactions')
         appObj.transactions = resp.data?.rows ?? []
     } catch (err) {
         console.error('fetchUsersTransactions error: ' + err)

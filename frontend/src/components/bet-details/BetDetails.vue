@@ -654,7 +654,7 @@ function startCooldownFromTimestamp(lastIso) {
 async function refreshUserLastCommentTime() {
     if (!user) return
     try {
-        const last = await getUserLastCommentTime(user?.id)
+        const last = await getUserLastCommentTime()
         lastCommentAt.value = last ?? null
         startCooldownFromTimestamp(lastCommentAt.value)
     } catch (err) {
