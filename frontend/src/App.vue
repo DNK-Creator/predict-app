@@ -563,16 +563,16 @@ onMounted(async () => {
         return;
       }
 
-      const validateResp = await validateDataOnServer(initDataRaw);
+      const response = await validateDataOnServer(initDataRaw);
 
-      if (!validateResp.ok) {
-        console.error('Telegram initData validation failed', await validateResp.text());
+      if (!response.ok) {
+        console.error('Telegram initData validation failed', await response.text());
         outsideTelegram.value = true;
         overlayVisible.value = true;
         return;
       }
 
-      const payload = await validateResp.json();
+      const payload = await response.data;
       if (!payload?.token || !payload?.user) {
         console.error('Telegram validate returned invalid payload', payload);
         outsideTelegram.value = true;
