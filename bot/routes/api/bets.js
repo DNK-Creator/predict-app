@@ -262,10 +262,8 @@ router.post('/bets/place', requireTelegramSession, async (req, res) => {
         // Build RPC payload by inserting server-validated telegram
         const payload = {
             p_telegram: telegram,
-            // ensure numeric id for rpc
             p_bet_id: Number(value.p_bet_id),
             p_side: value.p_side,
-            // keep stake as provided (string or number), or null
             p_stake: value.p_stake ?? null,
             p_photo_url: sessionPhotoUrl,
             p_username: sessionUsername,
