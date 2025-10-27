@@ -187,6 +187,376 @@ app.use((req, res, next) => {
     }
 });
 
+// POST /api/giftFailed
+// body: { owner_telegram: number|string, gift: { uuid, telegram_message_id, gift_id_long, saved_id, slug, name, model, number, value }, reason?: string, attempted_at?: string }
+app.post("/api/giftFailed", verifyGiftWorkerSignature, async (req, res) => {
+    console.log("[BACKEND HIT] /api/giftFailed");
+    try {
+        const body = req.body ?? {};
+        const ownerTelegramRaw = body.owner_telegram ?? body.requester_telegram ?? body.owner ?? null;
+        const ownerTelegram = ownerTelegramRaw ? Number(ownerTelegramRaw) : null;
+        const gift = body.gift ?? null;
+        const reason = body.reason ?? null;
+        const attemptedAt = body.attempted_at ?? body.attemptedAt ?? new Date().toISOString();
+
+        if (!ownerTelegram || Number.isNaN(ownerTelegram)) {
+            return res.status(400).json({ ok: false, error: "missing_owner_telegram" });
+        }
+        if (!gift || typeof gift !== "object") {
+            return res.status(400).json({ ok: false, error: "missing_gift_object" });
+        }
+
+        // canonical id key for lookup (prefer uuid, then telegram_message_id, then gift_id_long)
+        const giftKey = gift.uuid ?? gift.telegram_message_id ?? gift.gift_id_long ?? null;
+        if (!giftKey) {
+            return res.status(400).json({ ok: false, error: "gift_missing_identifier" });
+        }
+
+        // Fetch current user row (we will use updated_at for CAS)
+        const { data: userRow, error: userErr } = await supabaseAdmin
+            .from("users")
+            .select("id, telegram, inventory, updated_at, language")
+            .eq("telegram", ownerTelegram)
+            .maybeSingle();
+
+        if (userErr) {
+            console.error("giftFailed: db error selecting user:", userErr);
+            return res.status(500).json({ ok: false, error: "db_error_read_user", details: userErr.message || userErr });
+        }
+        if (!userRow) {
+            return res.status(404).json({ ok: false, error: "user_not_found" });
+        }
+
+        // Prepare the gift object to insert (normalize fields)
+        const giftToInsert = {
+            uuid: gift.uuid ?? null,
+            telegram_message_id: gift.telegram_message_id ?? null,
+            gift_id_long: gift.gift_id_long ?? null,
+            saved_id: (gift.saved_id && String(gift.saved_id) !== "null") ? gift.saved_id : null,
+            slug: gift.slug ?? null,
+            name: gift.name ?? gift.collection_name ?? null,
+            model: gift.model ?? null,
+            number: gift.number ?? gift.num ?? null,
+            value: gift.value ?? null,
+            // extra metadata for troubleshooting
+            failed_reason: reason ?? null,
+            failed_at: attemptedAt,
+            returned_at: new Date().toISOString()
+        };
+
+        // CAS retry loop
+        const MAX_RETRIES = 3;
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            // refresh user row each attempt (first iteration we already have userRow)
+            let freshUser = userRow;
+            if (attempt > 0) {
+                const { data: refetch, error: refetchErr } = await supabaseAdmin
+                    .from("users")
+                    .select("id, telegram, inventory, updated_at")
+                    .eq("id", userRow.id)
+                    .maybeSingle();
+                if (refetchErr) {
+                    console.error("giftFailed: error re-fetching user on retry:", refetchErr);
+                    return res.status(500).json({ ok: false, error: "db_error_recheck", details: refetchErr.message || refetchErr });
+                }
+                if (!refetch) {
+                    return res.status(404).json({ ok: false, error: "user_not_found_during_retry" });
+                }
+                freshUser = refetch;
+            }
+
+            const currentInv = Array.isArray(freshUser.inventory) ? freshUser.inventory : [];
+
+            // Idempotency: if gift already present (match by uuid/msgid/gift_id_long) => report already present
+            const exists = currentInv.some(i => {
+                const a = String(i.uuid ?? i.telegram_message_id ?? i.gift_id_long ?? "");
+                const b = String(giftToInsert.uuid ?? giftToInsert.telegram_message_id ?? giftToInsert.gift_id_long ?? "");
+                return a && b && a === b;
+            });
+            if (exists) {
+                return res.json({ ok: true, readded: false, reason: "already_present" });
+            }
+
+            // Prepend giftToInsert to inventory (keeps newest first)
+            const newInv = [giftToInsert, ...currentInv];
+
+            // Attempt conditional update using updated_at
+            const { data: upd, error: updErr } = await supabaseAdmin
+                .from("users")
+                .update({ inventory: newInv })
+                .eq("id", freshUser.id)
+                .eq("updated_at", freshUser.updated_at)
+                .select("id, telegram, inventory, language, updated_at")
+                .single();
+
+            if (updErr) {
+                // If CAS failure due to concurrent update, loop and retry
+                console.warn(`giftFailed: CAS attempt ${attempt + 1} failed:`, updErr.message || updErr);
+                // try next iteration (re-fetch happens at loop top)
+                if (attempt === MAX_RETRIES - 1) {
+                    console.error("giftFailed: exceeded CAS retries, failed to re-add gift", giftToInsert);
+                    return res.status(500).json({ ok: false, error: "failed_to_readd_gift", details: updErr.message || updErr });
+                }
+                continue;
+            }
+
+            // success
+            console.log("[giftFailed] re-added gift to inventory for", ownerTelegram, "giftKey:", giftKey);
+
+            // send message using your Telegraf bot instance (don't block endpoint on failure)
+            try {
+                const chatId = ownerTelegram;
+                // prefer language from freshUser if available, otherwise fallback to initial userRow.language
+                const lang = (typeof freshUser?.language !== 'undefined') ? freshUser.language : (userRow.language ?? 'en');
+                // safe slug/name
+                const slugSafe = String(gift.slug ?? giftToInsert.slug ?? giftToInsert.name ?? 'gift').replace(/[\r\n]+/g, ' ').trim();
+
+                // message text (plain text to avoid HTML injection)
+                const messageBotText = (lang === 'ru')
+                    ? `Не удалось вывести подарок: ${slugSafe}. ❌ Подарок возвращён в инвентарь. 📥`
+                    : `Could not withdraw the gift: ${slugSafe}. ❌ The gift has been returned to your inventory. 📥`;
+
+                if (!chatId) {
+                    console.warn('giftFailed: no chat id to notify (ownerTelegram missing)');
+                } else if (typeof bot === 'undefined' || !bot?.telegram?.sendMessage) {
+                    console.warn('giftFailed: bot instance unavailable, skipping Telegram notification');
+                } else {
+                    // fire-and-forget but await so we can log failures — doesn't affect response to caller
+                    try {
+                        await bot.telegram.sendMessage(chatId, messageBotText, {
+                            disable_web_page_preview: true
+                        });
+                        console.log(`giftFailed: telegram notification sent to ${chatId}`);
+                    } catch (tgErr) {
+                        console.warn('giftFailed: telegram send error', tgErr?.message ?? tgErr);
+                        // intentionally ignore — we don't want to fail the endpoint because of notification errors
+                    }
+                }
+            } catch (notifyErr) {
+                console.warn('giftFailed: unexpected error while notifying user', notifyErr?.message ?? notifyErr);
+                // ignore and continue
+            }
+
+            return res.json({ ok: true, readded: true, item: giftToInsert });
+        }
+
+        // fallback (shouldn't reach here)
+        return res.status(500).json({ ok: false, error: "failed_to_readd_gift_unknown" });
+    } catch (err) {
+        console.error("giftFailed: unexpected error", err);
+        return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
+    }
+});
+
+// POST /api/giftHandle
+app.post("/api/giftHandle", verifyGiftWorkerSignature, async (req, res) => {
+    console.log("[BACKEND HIT] /api/giftHandle");
+    try {
+        const rec = req.body ?? {};
+        // Basic validation
+        if (!rec || Object.keys(rec).length === 0) {
+            return res.status(400).json({ error: "empty payload" });
+        }
+
+        // 1) Determine the collection key to lookup
+        const collectionKey = String(rec.collection_name || rec.collection || "").trim();
+        if (!collectionKey) {
+            console.warn("giftHandle: no collection key provided", rec);
+            return res.status(400).json({ error: "no_collection_key" });
+        }
+
+        // 2) Validate telegram sender id from payload (the depositor)
+        const telegramSenderRaw = rec.telegram_sender_id ?? rec.sender ?? null;
+        if (!telegramSenderRaw) {
+            console.warn("giftHandle: no sender telegram id in payload", rec);
+            return res.status(400).json({ error: "no_sender_telegram_id" });
+        }
+        const telegramSender = Number(telegramSenderRaw);
+        if (Number.isNaN(telegramSender)) {
+            console.warn("giftHandle: invalid sender telegram id", telegramSenderRaw);
+            return res.status(400).json({ error: "invalid_sender_telegram_id" });
+        }
+
+        // 3) If the relayer itself deposited (i.e. relayer -> user transfer), you may treat differently.
+        //    Keep your existing guard if you have a constant GIFT_RELAYER_TELEGRAM_ID in scope.
+        if (typeof GIFT_RELAYER_TELEGRAM_ID !== 'undefined' && telegramSender === GIFT_RELAYER_TELEGRAM_ID) {
+            // This indicates the relayer sent the gift (not a deposit); nothing to credit here.
+            return res.json({ ok: true, processed: true });
+        }
+
+        // 4) Fetch current up-to-date price for this collection from Supabase.
+        let priceTon = null;
+        try {
+            // Using maybeSingle() usually returns one object or null; handle that.
+            const { data: gpData, error: gpErr } = await supabaseAdmin
+                .from("gift_prices")
+                .select("*")
+                .ilike("collection_name", collectionKey)
+                .maybeSingle();
+
+            if (gpErr) {
+                console.error("giftHandle: gift_prices query error (maybe table missing) -", gpErr.message || gpErr);
+                // Treat as missing mapping (allow fallback below or return)
+            } else if (gpData) {
+                // Found a row; extract price
+                const row = gpData;
+                priceTon = (row && row.price_ton !== undefined && row.price_ton !== null) ? Number(row.price_ton) : null;
+                console.log("giftHandle: found price in gift_prices table", { collection: collectionKey, priceTon });
+            }
+        } catch (err) {
+            console.error("giftHandle: error while fetching prices", err);
+        }
+
+        // If price not found, return reasonable error so you can add mapping in DB.
+        if (priceTon == null || Number.isNaN(priceTon)) {
+            console.warn("giftHandle: price not found for collection", collectionKey);
+            return res.status(404).json({ error: "gift_not_unique", collection: collectionKey });
+        }
+
+        // 5) Build the gift object we will append to inventory using fields from rec.
+        //    We'll follow your original inventory shape (lowercase keys) and add Telegram-specific metadata.
+        const giftUuid = uuidv4();
+
+        // Normalize/derive fields from worker's record (rec)
+        const numberField = (rec.num ?? rec.number ?? rec.Number ?? null);
+        const modelField = (rec.model ?? rec.modelName ?? rec.Model ?? null);
+        const telegramMessageId = rec.telegram_message_id ?? rec.telegramMessageId ?? rec.telegram_message ?? null;
+        const giftIdLong = rec.gift_id_long ?? rec.gift_id ?? rec.giftId ?? null;
+        const savedId = rec.saved_id ?? rec.savedId ?? null;
+        const slug = rec.gift_slug ?? rec.slug ?? null;
+        const depositedAt = rec.created_at ?? new Date().toISOString();
+
+        const newGift = {
+            // basic fields (compatible with your inventory sample)
+            name: collectionKey,
+            uuid: giftUuid,
+            model: modelField ? String(modelField) : null,
+            value: Number.isFinite(priceTon) ? Number(priceTon) : 0,
+            number: (numberField !== undefined && numberField !== null) ? Number(numberField) : null,
+
+            // telegram-specific metadata (helpful for future transfers)
+            telegram_message_id: telegramMessageId !== undefined ? (telegramMessageId === null ? null : Number(telegramMessageId)) : null,
+            gift_id_long: giftIdLong !== undefined ? String(giftIdLong) : null,
+            saved_id: savedId !== undefined ? String(savedId) : null,
+            slug: slug ?? null,
+            deposited_at: depositedAt
+        };
+
+        // 6) Find user by telegram and append the gift to inventory (or create new user)
+        let user = null;
+        try {
+            const { data: existingUser, error: userErr } = await supabaseAdmin
+                .from("users")
+                .select("id, inventory, telegram")
+                .eq("telegram", telegramSender)
+                .maybeSingle();
+
+            if (userErr) {
+                console.error("giftHandle: users select error", userErr);
+                return res.status(500).json({ error: "db_error_read_user", details: userErr.message || userErr });
+            }
+
+            if (existingUser) {
+                const oldInventory = Array.isArray(existingUser.inventory) ? existingUser.inventory : [];
+                // Prepend to list (you used this previously) — or push depending on ordering preference
+                const newInventory = [newGift, ...oldInventory];
+
+                const { data: updUser, error: updErr } = await supabaseAdmin
+                    .from("users")
+                    .update({ inventory: newInventory })
+                    .eq("id", existingUser.id)
+                    .select()
+                    .single();
+
+                if (updErr) {
+                    console.error("giftHandle: users update error", updErr);
+                    return res.status(500).json({ error: "db_error_update_user", details: updErr.message || updErr });
+                }
+                user = updUser;
+            } else {
+                // Insert a minimal user row. Ensure your users table allows null other fields.
+                const { data: insUser, error: insErr } = await supabaseAdmin
+                    .from("users")
+                    .insert({ telegram: telegramSender, inventory: [newGift] })
+                    .select()
+                    .single();
+
+                if (insErr) {
+                    console.error("giftHandle: users insert error", insErr);
+                    return res.status(500).json({ error: "db_error_create_user", details: insErr.message || insErr });
+                }
+                user = insUser;
+            }
+        } catch (err) {
+            console.error("giftHandle: user upsert error", err);
+            return res.status(500).json({ error: "internal_error", details: err.message });
+        }
+
+        // telegram notif
+        try {
+            const chatId = telegramSender;
+            const messageText = `Gift: ${slug} was added to your inventory!`
+            if (!chatId) {
+                console.error('gift handle: no chat id configured');
+            }
+
+            const sent = await bot.telegram.sendMessage(chatId, messageText, {
+                parse_mode: 'HTML',
+                disable_web_page_preview: true
+            });
+        } catch (tgErr) {
+            console.error('gift handle: telegram send error', tgErr);
+        }
+
+        const giftThumbUrl = `https://nft.fragment.com/gift/${slug}.small.jpg`
+
+        // 7) Insert transaction row (record the deposit)
+        try {
+            const now = new Date().toISOString();
+            const txUuid = uuidv4();
+            const txRow = {
+                uuid: txUuid,
+                user_id: user?.telegram ?? telegramSender,
+                amount: Number(priceTon),
+                status: "Пополнение подарком",
+                created_at: now,
+                withdrawal_pending: false,
+                withdrawal_address: null,
+                deposit_address: null,
+                type: "Gift",
+                gift_url: giftThumbUrl,
+                handled: true,
+                processed_at: now,
+                onchain_hash: null,
+                onchain_amount: null,
+                sender_wallet: null
+            };
+
+            const { data: txData, error: txErr } = await supabaseAdmin
+                .from("transactions")
+                .insert(txRow)
+                .select()
+                .single();
+
+            if (txErr) {
+                console.error("giftHandle: transactions insert error", txErr);
+                return res.status(500).json({ error: "db_error_insert_transaction", details: txErr.message || txErr });
+            }
+
+            console.log("giftHandle: processed gift COMPLETE - DONE!");
+
+            return res.json({ ok: true, processed: true, user_id: user.telegram, amount: priceTon, transaction_uuid: txUuid });
+        } catch (err) {
+            console.error("giftHandle: transaction insertion internal error", err);
+            return res.status(500).json({ error: "internal_error", details: err.message });
+        }
+
+    } catch (err) {
+        console.error("giftHandle: unexpected error", err);
+        return res.status(500).json({ error: "unexpected_error", details: err.message });
+    }
+});
+
 // START THE SECTION VALIDATION FOR RAW DATA SESSION
 
 // Endpoint: validate initData
@@ -1173,167 +1543,6 @@ export async function createInvoiceLink(amount) {
     );
 }
 
-// POST /api/giftFailed
-// body: { owner_telegram: number|string, gift: { uuid, telegram_message_id, gift_id_long, saved_id, slug, name, model, number, value }, reason?: string, attempted_at?: string }
-app.post("/api/giftFailed", verifyGiftWorkerSignature, async (req, res) => {
-    console.log("[BACKEND HIT] /api/giftFailed");
-    try {
-        const body = req.body ?? {};
-        const ownerTelegramRaw = body.owner_telegram ?? body.requester_telegram ?? body.owner ?? null;
-        const ownerTelegram = ownerTelegramRaw ? Number(ownerTelegramRaw) : null;
-        const gift = body.gift ?? null;
-        const reason = body.reason ?? null;
-        const attemptedAt = body.attempted_at ?? body.attemptedAt ?? new Date().toISOString();
-
-        if (!ownerTelegram || Number.isNaN(ownerTelegram)) {
-            return res.status(400).json({ ok: false, error: "missing_owner_telegram" });
-        }
-        if (!gift || typeof gift !== "object") {
-            return res.status(400).json({ ok: false, error: "missing_gift_object" });
-        }
-
-        // canonical id key for lookup (prefer uuid, then telegram_message_id, then gift_id_long)
-        const giftKey = gift.uuid ?? gift.telegram_message_id ?? gift.gift_id_long ?? null;
-        if (!giftKey) {
-            return res.status(400).json({ ok: false, error: "gift_missing_identifier" });
-        }
-
-        // Fetch current user row (we will use updated_at for CAS)
-        const { data: userRow, error: userErr } = await supabaseAdmin
-            .from("users")
-            .select("id, telegram, inventory, updated_at, language")
-            .eq("telegram", ownerTelegram)
-            .maybeSingle();
-
-        if (userErr) {
-            console.error("giftFailed: db error selecting user:", userErr);
-            return res.status(500).json({ ok: false, error: "db_error_read_user", details: userErr.message || userErr });
-        }
-        if (!userRow) {
-            return res.status(404).json({ ok: false, error: "user_not_found" });
-        }
-
-        // Prepare the gift object to insert (normalize fields)
-        const giftToInsert = {
-            uuid: gift.uuid ?? null,
-            telegram_message_id: gift.telegram_message_id ?? null,
-            gift_id_long: gift.gift_id_long ?? null,
-            saved_id: (gift.saved_id && String(gift.saved_id) !== "null") ? gift.saved_id : null,
-            slug: gift.slug ?? null,
-            name: gift.name ?? gift.collection_name ?? null,
-            model: gift.model ?? null,
-            number: gift.number ?? gift.num ?? null,
-            value: gift.value ?? null,
-            // extra metadata for troubleshooting
-            failed_reason: reason ?? null,
-            failed_at: attemptedAt,
-            returned_at: new Date().toISOString()
-        };
-
-        // CAS retry loop
-        const MAX_RETRIES = 3;
-        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
-            // refresh user row each attempt (first iteration we already have userRow)
-            let freshUser = userRow;
-            if (attempt > 0) {
-                const { data: refetch, error: refetchErr } = await supabaseAdmin
-                    .from("users")
-                    .select("id, telegram, inventory, updated_at")
-                    .eq("id", userRow.id)
-                    .maybeSingle();
-                if (refetchErr) {
-                    console.error("giftFailed: error re-fetching user on retry:", refetchErr);
-                    return res.status(500).json({ ok: false, error: "db_error_recheck", details: refetchErr.message || refetchErr });
-                }
-                if (!refetch) {
-                    return res.status(404).json({ ok: false, error: "user_not_found_during_retry" });
-                }
-                freshUser = refetch;
-            }
-
-            const currentInv = Array.isArray(freshUser.inventory) ? freshUser.inventory : [];
-
-            // Idempotency: if gift already present (match by uuid/msgid/gift_id_long) => report already present
-            const exists = currentInv.some(i => {
-                const a = String(i.uuid ?? i.telegram_message_id ?? i.gift_id_long ?? "");
-                const b = String(giftToInsert.uuid ?? giftToInsert.telegram_message_id ?? giftToInsert.gift_id_long ?? "");
-                return a && b && a === b;
-            });
-            if (exists) {
-                return res.json({ ok: true, readded: false, reason: "already_present" });
-            }
-
-            // Prepend giftToInsert to inventory (keeps newest first)
-            const newInv = [giftToInsert, ...currentInv];
-
-            // Attempt conditional update using updated_at
-            const { data: upd, error: updErr } = await supabaseAdmin
-                .from("users")
-                .update({ inventory: newInv })
-                .eq("id", freshUser.id)
-                .eq("updated_at", freshUser.updated_at)
-                .select("id, telegram, inventory, language, updated_at")
-                .single();
-
-            if (updErr) {
-                // If CAS failure due to concurrent update, loop and retry
-                console.warn(`giftFailed: CAS attempt ${attempt + 1} failed:`, updErr.message || updErr);
-                // try next iteration (re-fetch happens at loop top)
-                if (attempt === MAX_RETRIES - 1) {
-                    console.error("giftFailed: exceeded CAS retries, failed to re-add gift", giftToInsert);
-                    return res.status(500).json({ ok: false, error: "failed_to_readd_gift", details: updErr.message || updErr });
-                }
-                continue;
-            }
-
-            // success
-            console.log("[giftFailed] re-added gift to inventory for", ownerTelegram, "giftKey:", giftKey);
-
-            // send message using your Telegraf bot instance (don't block endpoint on failure)
-            try {
-                const chatId = ownerTelegram;
-                // prefer language from freshUser if available, otherwise fallback to initial userRow.language
-                const lang = (typeof freshUser?.language !== 'undefined') ? freshUser.language : (userRow.language ?? 'en');
-                // safe slug/name
-                const slugSafe = String(gift.slug ?? giftToInsert.slug ?? giftToInsert.name ?? 'gift').replace(/[\r\n]+/g, ' ').trim();
-
-                // message text (plain text to avoid HTML injection)
-                const messageBotText = (lang === 'ru')
-                    ? `Не удалось вывести подарок: ${slugSafe}. ❌ Подарок возвращён в инвентарь. 📥`
-                    : `Could not withdraw the gift: ${slugSafe}. ❌ The gift has been returned to your inventory. 📥`;
-
-                if (!chatId) {
-                    console.warn('giftFailed: no chat id to notify (ownerTelegram missing)');
-                } else if (typeof bot === 'undefined' || !bot?.telegram?.sendMessage) {
-                    console.warn('giftFailed: bot instance unavailable, skipping Telegram notification');
-                } else {
-                    // fire-and-forget but await so we can log failures — doesn't affect response to caller
-                    try {
-                        await bot.telegram.sendMessage(chatId, messageBotText, {
-                            disable_web_page_preview: true
-                        });
-                        console.log(`giftFailed: telegram notification sent to ${chatId}`);
-                    } catch (tgErr) {
-                        console.warn('giftFailed: telegram send error', tgErr?.message ?? tgErr);
-                        // intentionally ignore — we don't want to fail the endpoint because of notification errors
-                    }
-                }
-            } catch (notifyErr) {
-                console.warn('giftFailed: unexpected error while notifying user', notifyErr?.message ?? notifyErr);
-                // ignore and continue
-            }
-
-            return res.json({ ok: true, readded: true, item: giftToInsert });
-        }
-
-        // fallback (shouldn't reach here)
-        return res.status(500).json({ ok: false, error: "failed_to_readd_gift_unknown" });
-    } catch (err) {
-        console.error("giftFailed: unexpected error", err);
-        return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
-    }
-});
-
 app.post("/api/pay-withdraw", async (req, res) => {
     console.log('Hit /api/pay-withdraw')
     const { gifts, amountStars } = req.body;
@@ -1721,215 +1930,6 @@ app.post("/api/withdraw-gifts", async (req, res) => {
     } catch (err) {
         console.error("[withdraw-gifts] unexpected error:", err);
         return res.status(500).json({ ok: false, error: "unexpected_error", details: err.message ?? String(err) });
-    }
-});
-
-// POST /api/giftHandle
-app.post("/api/giftHandle", verifyGiftWorkerSignature, async (req, res) => {
-    console.log("[BACKEND HIT] /api/giftHandle");
-    try {
-        const rec = req.body ?? {};
-        // Basic validation
-        if (!rec || Object.keys(rec).length === 0) {
-            return res.status(400).json({ error: "empty payload" });
-        }
-
-        // 1) Determine the collection key to lookup
-        const collectionKey = String(rec.collection_name || rec.collection || "").trim();
-        if (!collectionKey) {
-            console.warn("giftHandle: no collection key provided", rec);
-            return res.status(400).json({ error: "no_collection_key" });
-        }
-
-        // 2) Validate telegram sender id from payload (the depositor)
-        const telegramSenderRaw = rec.telegram_sender_id ?? rec.sender ?? null;
-        if (!telegramSenderRaw) {
-            console.warn("giftHandle: no sender telegram id in payload", rec);
-            return res.status(400).json({ error: "no_sender_telegram_id" });
-        }
-        const telegramSender = Number(telegramSenderRaw);
-        if (Number.isNaN(telegramSender)) {
-            console.warn("giftHandle: invalid sender telegram id", telegramSenderRaw);
-            return res.status(400).json({ error: "invalid_sender_telegram_id" });
-        }
-
-        // 3) If the relayer itself deposited (i.e. relayer -> user transfer), you may treat differently.
-        //    Keep your existing guard if you have a constant GIFT_RELAYER_TELEGRAM_ID in scope.
-        if (typeof GIFT_RELAYER_TELEGRAM_ID !== 'undefined' && telegramSender === GIFT_RELAYER_TELEGRAM_ID) {
-            // This indicates the relayer sent the gift (not a deposit); nothing to credit here.
-            return res.json({ ok: true, processed: true });
-        }
-
-        // 4) Fetch current up-to-date price for this collection from Supabase.
-        let priceTon = null;
-        try {
-            // Using maybeSingle() usually returns one object or null; handle that.
-            const { data: gpData, error: gpErr } = await supabaseAdmin
-                .from("gift_prices")
-                .select("*")
-                .ilike("collection_name", collectionKey)
-                .maybeSingle();
-
-            if (gpErr) {
-                console.error("giftHandle: gift_prices query error (maybe table missing) -", gpErr.message || gpErr);
-                // Treat as missing mapping (allow fallback below or return)
-            } else if (gpData) {
-                // Found a row; extract price
-                const row = gpData;
-                priceTon = (row && row.price_ton !== undefined && row.price_ton !== null) ? Number(row.price_ton) : null;
-                console.log("giftHandle: found price in gift_prices table", { collection: collectionKey, priceTon });
-            }
-        } catch (err) {
-            console.error("giftHandle: error while fetching prices", err);
-        }
-
-        // If price not found, return reasonable error so you can add mapping in DB.
-        if (priceTon == null || Number.isNaN(priceTon)) {
-            console.warn("giftHandle: price not found for collection", collectionKey);
-            return res.status(404).json({ error: "gift_not_unique", collection: collectionKey });
-        }
-
-        // 5) Build the gift object we will append to inventory using fields from rec.
-        //    We'll follow your original inventory shape (lowercase keys) and add Telegram-specific metadata.
-        const giftUuid = uuidv4();
-
-        // Normalize/derive fields from worker's record (rec)
-        const numberField = (rec.num ?? rec.number ?? rec.Number ?? null);
-        const modelField = (rec.model ?? rec.modelName ?? rec.Model ?? null);
-        const telegramMessageId = rec.telegram_message_id ?? rec.telegramMessageId ?? rec.telegram_message ?? null;
-        const giftIdLong = rec.gift_id_long ?? rec.gift_id ?? rec.giftId ?? null;
-        const savedId = rec.saved_id ?? rec.savedId ?? null;
-        const slug = rec.gift_slug ?? rec.slug ?? null;
-        const depositedAt = rec.created_at ?? new Date().toISOString();
-
-        const newGift = {
-            // basic fields (compatible with your inventory sample)
-            name: collectionKey,
-            uuid: giftUuid,
-            model: modelField ? String(modelField) : null,
-            value: Number.isFinite(priceTon) ? Number(priceTon) : 0,
-            number: (numberField !== undefined && numberField !== null) ? Number(numberField) : null,
-
-            // telegram-specific metadata (helpful for future transfers)
-            telegram_message_id: telegramMessageId !== undefined ? (telegramMessageId === null ? null : Number(telegramMessageId)) : null,
-            gift_id_long: giftIdLong !== undefined ? String(giftIdLong) : null,
-            saved_id: savedId !== undefined ? String(savedId) : null,
-            slug: slug ?? null,
-            deposited_at: depositedAt
-        };
-
-        // 6) Find user by telegram and append the gift to inventory (or create new user)
-        let user = null;
-        try {
-            const { data: existingUser, error: userErr } = await supabaseAdmin
-                .from("users")
-                .select("id, inventory, telegram")
-                .eq("telegram", telegramSender)
-                .maybeSingle();
-
-            if (userErr) {
-                console.error("giftHandle: users select error", userErr);
-                return res.status(500).json({ error: "db_error_read_user", details: userErr.message || userErr });
-            }
-
-            if (existingUser) {
-                const oldInventory = Array.isArray(existingUser.inventory) ? existingUser.inventory : [];
-                // Prepend to list (you used this previously) — or push depending on ordering preference
-                const newInventory = [newGift, ...oldInventory];
-
-                const { data: updUser, error: updErr } = await supabaseAdmin
-                    .from("users")
-                    .update({ inventory: newInventory })
-                    .eq("id", existingUser.id)
-                    .select()
-                    .single();
-
-                if (updErr) {
-                    console.error("giftHandle: users update error", updErr);
-                    return res.status(500).json({ error: "db_error_update_user", details: updErr.message || updErr });
-                }
-                user = updUser;
-            } else {
-                // Insert a minimal user row. Ensure your users table allows null other fields.
-                const { data: insUser, error: insErr } = await supabaseAdmin
-                    .from("users")
-                    .insert({ telegram: telegramSender, inventory: [newGift] })
-                    .select()
-                    .single();
-
-                if (insErr) {
-                    console.error("giftHandle: users insert error", insErr);
-                    return res.status(500).json({ error: "db_error_create_user", details: insErr.message || insErr });
-                }
-                user = insUser;
-            }
-        } catch (err) {
-            console.error("giftHandle: user upsert error", err);
-            return res.status(500).json({ error: "internal_error", details: err.message });
-        }
-
-        // telegram notif
-        try {
-            const chatId = telegramSender;
-            const messageText = `Gift: ${slug} was added to your inventory!`
-            if (!chatId) {
-                console.error('gift handle: no chat id configured');
-            }
-
-            const sent = await bot.telegram.sendMessage(chatId, messageText, {
-                parse_mode: 'HTML',
-                disable_web_page_preview: true
-            });
-        } catch (tgErr) {
-            console.error('gift handle: telegram send error', tgErr);
-        }
-
-        const giftThumbUrl = `https://nft.fragment.com/gift/${slug}.small.jpg`
-
-        // 7) Insert transaction row (record the deposit)
-        try {
-            const now = new Date().toISOString();
-            const txUuid = uuidv4();
-            const txRow = {
-                uuid: txUuid,
-                user_id: user?.telegram ?? telegramSender,
-                amount: Number(priceTon),
-                status: "Пополнение подарком",
-                created_at: now,
-                withdrawal_pending: false,
-                withdrawal_address: null,
-                deposit_address: null,
-                type: "Gift",
-                gift_url: giftThumbUrl,
-                handled: true,
-                processed_at: now,
-                onchain_hash: null,
-                onchain_amount: null,
-                sender_wallet: null
-            };
-
-            const { data: txData, error: txErr } = await supabaseAdmin
-                .from("transactions")
-                .insert(txRow)
-                .select()
-                .single();
-
-            if (txErr) {
-                console.error("giftHandle: transactions insert error", txErr);
-                return res.status(500).json({ error: "db_error_insert_transaction", details: txErr.message || txErr });
-            }
-
-            console.log("giftHandle: processed gift COMPLETE - DONE!");
-
-            return res.json({ ok: true, processed: true, user_id: user.telegram, amount: priceTon, transaction_uuid: txUuid });
-        } catch (err) {
-            console.error("giftHandle: transaction insertion internal error", err);
-            return res.status(500).json({ error: "internal_error", details: err.message });
-        }
-
-    } catch (err) {
-        console.error("giftHandle: unexpected error", err);
-        return res.status(500).json({ error: "unexpected_error", details: err.message });
     }
 });
 
