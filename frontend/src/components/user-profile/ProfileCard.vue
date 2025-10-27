@@ -280,15 +280,9 @@ async function onWithdraw(amount) {
 
     // Try to parse JSON, but tolerate non-JSON responses
     try {
-        data = await resp.json();
+        data = resp.data;
     } catch (parseErr) {
-        // response wasn't JSON — try to read text fallback
-        try {
-            const txt = await resp.text();
-            data = { raw: txt };
-        } catch (e) {
-            data = { raw: null };
-        }
+        data = { raw: null };
     }
 
     if (!resp.ok) {
@@ -484,13 +478,16 @@ async function onDepositStars(amount) {
 
                     const resp = await depositUserStars(amountStarsRounded)
 
-                    const json = await resp.json().catch(() => null)
-                    if (!resp.ok) {
-                        console.error('stars-payment failed', resp.status, json)
+                    if (!resp || !resp.ok) {
+                        // Handle HTTP errors (4xx, 5xx)
+                        const err = new Error(`Create stars pay error: ${resp?.status || 'NETWORK_ERROR'}`)
+                        err.status = resp?.status || 0
+                        err.body = resp?.data || 'Network error'
                         let messageToast = appStoreObj.language === 'ru' ? 'Не удалось обработать оплату. Свяжитесь с поддержкой.' : 'Unable to process payment. Please contact support.'
                         toast.error(messageToast)
                         return
                     }
+
                     let messageToast = appStoreObj.language === 'ru' ? 'Пополнение успешно! Баланс обновлён.' : 'Top-up successful! Balance updated.'
                     // success
                     toast.success(messageToast)
@@ -537,11 +534,7 @@ async function createDepositIntentOnServer(amount) {
 
         let text;
         try {
-            text = await resp.text(); // read raw body first
-            // try parse JSON, but fall back to raw text for logging
-            const json = (() => {
-                try { return JSON.parse(text); } catch (e) { return null; }
-            })();
+            text = resp.data
 
             if (!resp.ok) {
                 // bubble readable message to caller
@@ -577,11 +570,7 @@ async function cancelDepositIntentOnServer(txId) {
 
         let text;
         try {
-            text = await resp.text(); // read raw body first
-            // try parse JSON, but fall back to raw text for logging
-            const json = (() => {
-                try { return JSON.parse(text); } catch (e) { return null; }
-            })();
+            text = resp.data
 
             if (!resp.ok) {
                 // bubble readable message to caller

@@ -205,7 +205,7 @@ async function withdrawGifts() {
         const resp = await payStarsForWithdrawal(payStarsPayload)
 
         if (!resp.ok) {
-            const text = await resp.text().catch(() => null);
+            const text = await resp.data
             toast.error((app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: ") + (text || `Status ${resp.status}`));
             timerCleanup = setTimeout(() => {
                 isWithdrawing.value = false
@@ -216,7 +216,8 @@ async function withdrawGifts() {
             return;
         }
 
-        const body = await resp.json().catch(() => null);
+        const body = await resp.data;
+
         if (!body || !body.link) {
             toast.error(app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server.");
             timerCleanup = setTimeout(() => {
@@ -239,34 +240,35 @@ async function withdrawGifts() {
                     try {
                         const resp = await withdrawUsersGifts(payload)
 
-                        if (!resp.ok) {
-                            // try parse error body
-                            const text = await resp.text().catch(() => null)
-                            const msg = text || `Server returned ${resp.status}`
-                            const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
-                            toast.error(serverText + msg)
+                        if (!resp || !resp.ok) {
+                            // Handle HTTP errors (4xx, 5xx)
+                            const err = new Error(`Withdraw Gifts Error: ${resp?.status || 'NETWORK_ERROR'}`)
+                            err.status = resp?.status || 0
+                            err.body = resp?.data || 'Network error'
+                            console.error(err)
                             return
                         }
 
-                        const body = await resp.json().catch(() => null)
+                        const body = await resp.data
+
                         if (!body) {
                             const invalidText = app.language === 'ru' ? "Некорректный ответ от сервера." : "Invalid response from server."
                             toast.error(invalidText)
                             return
                         }
 
-                        if (body.ok) {
+                        if (resp.ok) {
                             // success — show success toast and clear selection
                             const successText = app.language === 'ru' ? "Гифты успешно выведены." : "Gifts were withdrawn successfully."
                             toast.success(successText)
                             // emit result so parent can update inventory (remove transferred gifts)
-                            emit('withdraw-complete', { payload, result: body.result ?? body })
+                            emit('withdraw-complete', { payload, result: resp.result ?? body })
                             // clear local selections
                             selectedOrder.value = []
                             selectedGifts.value = []
                         } else {
                             // server returned ok=false
-                            const err = (body.error || (body.result && body.result.error) || JSON.stringify(body))
+                            const err = (resp.error || (resp.result && resp.result.error) || JSON.stringify(resp))
                             const serverText = app.language === 'ru' ? "Ошибка на сервере: " : "Error on server: "
                             toast.error(serverText + err)
                         }

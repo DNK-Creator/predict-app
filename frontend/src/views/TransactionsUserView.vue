@@ -185,15 +185,9 @@ async function onWithdraw(amount) {
 
     // Try to parse JSON, but tolerate non-JSON responses
     try {
-        data = await resp.json();
+        data = await resp.data;
     } catch (parseErr) {
-        // response wasn't JSON — try to read text fallback
-        try {
-            const txt = await resp.text();
-            data = { raw: txt };
-        } catch (e) {
-            data = { raw: null };
-        }
+        data = { raw: null };
     }
 
     if (!resp.ok) {

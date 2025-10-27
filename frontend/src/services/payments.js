@@ -4,8 +4,14 @@ import { createStarsDepositLink, sendBotMessage } from "@/api/requests";
 export async function fetchInvoiceLink(amount) {
     const resp = await createStarsDepositLink(amount)
 
-    if (!resp.ok) throw new Error("invoice creation failed");
-    const { link } = await resp.json();
+    if (!resp || !resp.ok) {
+        // Handle HTTP errors (4xx, 5xx)
+        const err = new Error(`Create stars pay error: ${resp?.status || 'NETWORK_ERROR'}`)
+        err.status = resp?.status || 0
+        err.body = resp?.data || 'Network error'
+        throw err
+    }
+    const { link } = await resp.data;
     return link;
 }
 
@@ -14,11 +20,14 @@ export async function fetchBotMessageTransaction(messageText) {
     try {
         const resp = await sendBotMessage(messageText)
 
-        if (!resp.ok) {
-            const err = await resp.json().catch(() => null);
-            console.warn('botmessage endpoint returned non-OK', resp.status, err);
-            return false;
+        if (!resp || !resp.ok) {
+            // Handle HTTP errors (4xx, 5xx)
+            const err = new Error(`Send a bot message error: ${resp?.status || 'NETWORK_ERROR'}`)
+            err.status = resp?.status || 0
+            err.body = resp?.data || 'Network error'
+            throw err
         }
+
         return true;
     } catch (e) {
         console.error('fetchBotMessageTransaction error', e);
