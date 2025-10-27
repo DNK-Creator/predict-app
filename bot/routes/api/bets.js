@@ -259,7 +259,7 @@ router.post('/bets/place', requireTelegramSession, async (req, res) => {
         const { error: valErr, value } = schema.validate(req.body || {});
         if (valErr) return res.status(400).json({ error: valErr.message });
 
-        // Build RPC payload by inserting server-validated telegram
+        // Build RPC payload (keep it simple)
         const payload = {
             p_telegram: telegram,
             p_bet_id: Number(value.p_bet_id),
@@ -270,15 +270,19 @@ router.post('/bets/place', requireTelegramSession, async (req, res) => {
             p_placed_gifts: value.p_placed_gifts ?? null
         };
 
-        // If p_placed_gifts is an object/array, stringify it so RPC receiving JSONB works reliably
-        if (payload.p_placed_gifts != null && typeof payload.p_placed_gifts !== 'string') {
-            try {
-                payload.p_placed_gifts = JSON.stringify(payload.p_placed_gifts);
-            } catch (e) {
-                // fallback: remove placed_gifts to avoid RPC error
-                console.warn('Failed to stringify p_placed_gifts, dropping it', e);
-                payload.p_placed_gifts = null;
+        // REMOVE the JSON.stringify step — instead normalize if it's a string:
+        if (payload.p_placed_gifts != null) {
+            // If it's a string, try to parse it (maybe client already stringified)
+            if (typeof payload.p_placed_gifts === 'string') {
+                try {
+                    payload.p_placed_gifts = JSON.parse(payload.p_placed_gifts);
+                } catch (e) {
+                    // Not valid JSON -> drop it (or set to null) to avoid RPC errors
+                    console.warn('Invalid JSON for p_placed_gifts, dropping it:', e);
+                    payload.p_placed_gifts = null;
+                }
             }
+            // if it's already an object/array, leave as-is (good)
         }
 
         // Call RPC
