@@ -88,7 +88,7 @@
         <h3 class="card-title-follow">
             {{ $t('follow-promo') }}
         </h3>
-        <button class="follow-button">@myoracle_news</button>
+        <button class="follow-button">@n1kodev</button>
     </div>
 </template>
 
@@ -114,7 +114,7 @@ const referralsBodyRef = ref(null)
 const isScrollable = ref(false)
 const scrolledTop = ref(true)   // true when at top (no top-fade)
 const scrolledBottom = ref(true) // true when at bottom (no bottom-fade)
-const starterUrl = ref('https://t.me/myoracle_news')
+const starterUrl = ref('https://t.me/n1kodev')
 
 const showNudge = ref(false)            // controls DOM presence of nudge
 const nudgeActive = ref(false)          // triggers CSS class to highlight scrollbar

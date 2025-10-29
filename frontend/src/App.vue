@@ -36,7 +36,7 @@
     :subtitles="tutorialSubtitles" :tgsFiles="tutorialTgsFiles" @close="closeTutorial" @finished="onTutorialFinished" />
 
 
-  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@myoracle_news"
+  <ChannelFollowModal v-if="!outsideTelegram" :show="showChannelFollowModal" channel="@n1kodev"
     @close="closeChannelModal" @subscribe="onSubscribeToChannel" />
 
 </template>
@@ -223,10 +223,10 @@ async function onSubscribeToChannel() {
   try {
     // try to open channel: prefer tg native (if available)
     try {
-      tg.openTelegramLink('https://t.me/myoracle_news')
+      tg.openTelegramLink('https://t.me/n1kodev')
     } catch (e) {
       // fallback
-      window.open('https://t.me/myoracle_news', '_blank')
+      window.open('https://t.me/n1kodev', '_blank')
     }
 
     showChannelFollowModal.value = false
@@ -482,7 +482,7 @@ function updateBackButtonForRoute(route) {
   }
 }
 
-const testingLocally = ref(false)
+const testingLocally = ref(true)
 
 onMounted(async () => {
   // --- Immediately block if we don't have a Telegram user object ---

@@ -30,6 +30,11 @@
                             aria-label="Promo code" />
                     </div>
 
+                    <div class="subscribe-container">
+                        <h1 class="subscribe-description">{{ $t('have-to-sub') }} <span
+                                class="subcribe-link">@n1kodev</span> </h1>
+                    </div>
+
                     <div class="items-group">
                         <div class="buttons-group">
                             <!-- Left: Close -->
@@ -347,6 +352,23 @@ onBeforeUnmount(() => {
     margin: 1.25rem auto 0;
 }
 
+.subscribe-container {
+    width: 90%;
+    margin: 0.5rem auto 0;
+}
+
+.subscribe-description {
+    text-align: center;
+    text-justify: center;
+    font-size: 0.95rem;
+    color: rgb(194, 194, 194);
+}
+
+.subcribe-link {
+    font-size: 0.95rem;
+    color: rgb(73, 158, 242);
+}
+
 /* Buttons group: equal-width buttons, centered, small gap */
 .buttons-group {
     display: flex;
@@ -391,7 +413,7 @@ onBeforeUnmount(() => {
 /* disabled visual style when deposit is blocked */
 .action-btn-right.disabled,
 .action-btn-right[disabled] {
-   opacity: 0.5;
+    opacity: 0.5;
 }
 
 /* transitions */

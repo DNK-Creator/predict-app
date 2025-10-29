@@ -192,7 +192,9 @@ async function tryPromocode(val) {
                 toast.error(appStoreObj.language === 'ru' ? 'Пользователь не найден.' : 'User not found.')
             } else if (reason === 'missing_data') {
                 toast.error(appStoreObj.language === 'ru' ? 'Отсутствуют необходимые параметры для проверки промокода.' : 'Missing required data when validating request.')
-            } else {
+            } else if (reason === 'not_in_channel') {
+                toast.error(appStoreObj.language === 'ru' ? 'Необходимо подписаться на канал разработчика.' : 'You have to subscribe to the developers channel.')
+            }else {
                 toast.error(appStoreObj.language === 'ru' ? 'Не удалось активировать промокод.' : 'Failed to activate promo code.')
             }
             console.error('validate-promocode failed (payload)', payload)

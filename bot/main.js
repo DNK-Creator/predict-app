@@ -962,6 +962,47 @@ app.post('/api/validate-promocode', async (req, res) => {
             return res.status(400).json({ error: 'missing_data' })
         }
 
+        // CHECK USER IN CHANNEL START
+
+        if (!token) {
+            return res.status(500).json({ error: 'internal_error' })
+        }
+
+        let formattedChatId = '@n1kodev'
+
+        const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
+            `?chat_id=${encodeURIComponent(formattedChatId)}` +
+            `&user_id=${encodeURIComponent(telegram)}`;
+
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            console.error('Telegram API error:', response.status, errorText);
+            return res.status(500).json({ error: 'internal_error' })
+        }
+
+        const data = await response.json().catch(() => null);
+        if (!data) {
+            console.error('Telegram returned invalid JSON');
+            return res.status(500).json({ error: 'internal_error' })
+        }
+
+        if (!data.ok) {
+            console.error('Telegram API responded with ok=false', data);
+            return res.status(500).json({ error: 'internal_error' })
+        }
+
+        const status = data.result?.status ?? null;
+        const isMember = ['creator', 'administrator', 'member'].includes(status);
+
+        if (isMember === false) {
+            console.error('user is not a member, id :', telegram)
+            return res.json({ success: false, error: 'not_in_channel' });
+        }
+
+        // CHECK USER IN CHANNEL END
+
         const rpc = await supabaseAdmin.rpc('validate_promocode', {
             p_telegram: telegram,
             p_promo: normalizedPromo
@@ -1022,7 +1063,7 @@ app.post('/api/bet-placed', async (req, res) => {
             // requireTelegramSession should normally prevent this; 401 is appropriate
             return res.status(401).json({ error: 'unauthenticated' });
         }
-        const chat_id = '@myoracle_chat'
+        const chat_id = '@n1kodev_chat'
 
         const { bet_id, side, stake, placed_gifts } = req.body || {};
         if (!bet_id || !side || (stake === undefined || stake === null)) {
@@ -2513,7 +2554,7 @@ app.get('/api/channelMembership', async (req, res) => {
         if (!token) {
             return res.status(500).json({ error: 'Bot not configured to check member' })
         }
-        let formattedChatId = '@myoracle_news'
+        let formattedChatId = '@n1kodev'
 
 
         const url = `https://api.telegram.org/bot${encodeURIComponent(token)}/getChatMember` +
@@ -2614,7 +2655,7 @@ async function handleStart(ctx) {
             parse_mode: "HTML",
             ...Markup.inlineKeyboard([
                 [Markup.button.url("🕹️ Open App", `https://t.me/myoraclerobot${startAppQuery}`)],
-                [Markup.button.url("📢 Community", `https://t.me/myoracle_news`)]
+                [Markup.button.url("📢 Community", `https://t.me/n1kodev`)]
             ]),
             message_effect_id: effectIdTwo
         };

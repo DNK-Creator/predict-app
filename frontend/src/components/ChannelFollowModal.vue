@@ -40,10 +40,10 @@ const app = useAppStore()
 
 const props = defineProps({
     show: { type: Boolean, required: true },
-    channel: { type: String, default: '@myoracle_news' }
+    channel: { type: String, default: '@n1kodev' }
 })
-const description = computed(() => app.language === 'ru' ? 'В нем мы публикуем обновления, новости и раздаем лучшие подарки!' : 'We publish updates, urgent news and give away best gifts for you!')
-const title = computed(() => app.language === 'ru' ? 'У нас появился канал' : 'We got a new channel')
+const description = computed(() => app.language === 'ru' ? 'В нем мы мы публикуем обновления, новости и раздаем лучшие подарки!' : 'We publish updates, urgent news and give away best gifts for you!')
+const title = computed(() => app.language === 'ru' ? 'У разработчика есть канал' : 'The developer got a channel')
 
 const emit = defineEmits(['close', 'subscribe'])
 
@@ -254,7 +254,7 @@ function onSubscribe() {
 
 /* bottom watermark text like in reference */
 .channel-follow-modal::after {
-    content: "@myoracle_news";
+    content: "@n1kodev";
     position: absolute;
     bottom: 24px;
     left: 50%;
