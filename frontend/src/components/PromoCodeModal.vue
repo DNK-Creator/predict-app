@@ -31,8 +31,8 @@
                     </div>
 
                     <div class="subscribe-container">
-                        <h1 class="subscribe-description">{{ $t('have-to-sub') }} <span
-                                class="subcribe-link">@n1kodev</span> </h1>
+                        <h1 class="subscribe-description">{{ $t('have-to-sub') }} <span class="subcribe-link"
+                                @click="openChannel">@n1kodev</span> </h1>
                     </div>
 
                     <div class="items-group">
@@ -60,6 +60,13 @@
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useAppStore } from '@/stores/appStore'
 import StarsIcon from '@/assets/icons/Stars_Icon.png'
+import { useTelegram } from '@/services/telegram'
+
+const { tg } = useTelegram()
+
+function openChannel() {
+    tg.openTelegramLink('https://t.me/n1kodev')
+}
 
 const props = defineProps({
     show: Boolean,
