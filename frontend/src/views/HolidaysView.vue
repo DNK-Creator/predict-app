@@ -17,15 +17,7 @@
         <div v-if="isEmpty && !spinnerShow" class="empty-state" role="status" aria-live="polite">
             <div class="empty-icon">🎉</div>
             <h3 class="empty-title">
-                {{ $t('empty-now') || (selectedTab === 'upcoming' ? 'No upcoming holidays' : 'No past holidays') }}</h3>
-            <p class="empty-desc">
-                {{ $t('no-holidays-here') || (selectedTab === 'upcoming' ? 'There are no upcoming holidays yet.' :
-                    'There are no past holidays to show.') }}
-            </p>
-            <div class="empty-actions">
-                <button class="catalog-btn" @click="switchTab('upcoming')">{{ $t('upcoming') || 'Upcoming' }}</button>
-                <button class="catalog-btn" @click="switchTab('past')">{{ $t('past') || 'Past' }}</button>
-            </div>
+                {{ $t('empty-now') }}</h3>
         </div>
 
         <TransitionGroup :key="listKey" name="card" tag="div" class="holiday-list" v-if="!isEmpty && showDisplayed"

@@ -178,26 +178,28 @@ async function tryPromocode(val) {
 
     try {
         const resp = await validateUserPromocode(val.trim())
-
-        // apiFetch returned successfully — check RPC/server payload
-        // resp.data is the parsed JSON from server
         const payload = resp?.data ?? {}
 
         if (!payload?.success) {
-            // server responded OK (HTTP 200) but reported business-level failure
             const reason = payload?.error || 'invalid_promocode'
             if (reason === 'invalid_promocode' || reason === 'not_found') {
                 toast.error(appStoreObj.language === 'ru' ? 'Промокод не найден или недействителен.' : 'Promo code not found or invalid.')
             } else if (reason === 'insufficient_amount') {
                 toast.error(appStoreObj.language === 'ru' ? 'Промокод уже исчерпан.' : 'Promo code has no remaining uses.')
+            } else if (reason === 'user_already_used') {
+                toast.error(appStoreObj.language === 'ru' ? 'Вы уже активировали этот промокод.' : 'You have already used this promo code.')
+            } else if (reason === 'user_not_found') {
+                toast.error(appStoreObj.language === 'ru' ? 'Пользователь не найден.' : 'User not found.')
+            } else if (reason === 'missing_data') {
+                toast.error(appStoreObj.language === 'ru' ? 'Отсутствуют необходимые параметры для проверки промокода.' : 'Missing required data when validating request.')
             } else {
                 toast.error(appStoreObj.language === 'ru' ? 'Не удалось активировать промокод.' : 'Failed to activate promo code.')
             }
-            console.error('validate-promocode failed', payload)
+            console.error('validate-promocode failed (payload)', payload)
             return
         }
 
-        // success: payload.bonus holds numeric bonus (server returned)
+        // success
         const bonus = Number(payload.bonus || 0)
         appStoreObj.points = (appStoreObj.points || 0) + bonus
 
@@ -210,42 +212,62 @@ async function tryPromocode(val) {
 
         toast.success(successMsg)
 
-        // close modal after a short delay
         setTimeout(() => {
             closePromocodeModal()
         }, 850)
     } catch (err) {
-        // apiFetch throws for HTTP errors, AbortError, or our client-side rate limit
         console.error('tryPromocode catch', err)
 
-        // client-side rate limit (thrown by validateUserPromocode)
+        // client-side rate limit thrown by validateUserPromocode
         if (err && err.name === 'ClientRateLimited') {
             const wait = err.retryAfter || 3
             toast.error(appStoreObj.language === 'ru' ? `Пожалуйста, подождите ${wait} сек.` : `Please wait ${wait} seconds before retrying.`)
             return
         }
 
-        // server-side rate limit (HTTP 429)
+        // HTTP 429
         if (err && err.status === 429) {
             const wait = (err.body && err.body.retry_after) || 3
             toast.error(appStoreObj.language === 'ru' ? `Слишком частые запросы — попробуйте через ${wait} сек.` : `Too many requests — try again in ${wait} seconds.`)
             return
         }
 
-        // well-known business errors from server encoded inside err.body or err.message
-        const body = err.body ?? (err?.message ? { error: err.message } : null)
-        const errorCode = body?.error ?? null
+        // Attempt to parse server-provided JSON error payload (if any)
+        let serverPayload = null
+        if (err && err.body) {
+            if (typeof err.body === 'string') {
+                try {
+                    serverPayload = JSON.parse(err.body)
+                } catch (_) {
+                    serverPayload = { error: err.body }
+                }
+            } else {
+                serverPayload = err.body
+            }
+        }
+
+        const errorCode = serverPayload?.error ?? (err?.message || null)
 
         if (errorCode === 'missing_data') {
-            const msgTxt = appStoreObj.language === 'ru' ? 'Отсутствуют необходимые параметры для проверки промокода.' : 'Missing required data when validating request.'
-            toast.error(msgTxt)
-            console.error(body)
+            toast.error(appStoreObj.language === 'ru' ? 'Отсутствуют необходимые параметры для проверки промокода.' : 'Missing required data when validating request.')
+            console.error(serverPayload || err)
+            return
+        } else if (errorCode === 'invalid_promocode' || errorCode === 'not_found') {
+            toast.error(appStoreObj.language === 'ru' ? 'Промокод не найден или недействителен.' : 'Promo code not found or invalid.')
+            return
+        } else if (errorCode === 'insufficient_amount') {
+            toast.error(appStoreObj.language === 'ru' ? 'Промокод уже исчерпан.' : 'Promo code has no remaining uses.')
+            return
+        } else if (errorCode === 'user_already_used') {
+            toast.error(appStoreObj.language === 'ru' ? 'Вы уже активировали этот промокод.' : 'You have already used this promo code.')
+            return
+        } else if (errorCode === 'user_not_found') {
+            toast.error(appStoreObj.language === 'ru' ? 'Пользователь не найден.' : 'User not found.')
             return
         }
 
-        // default fallback
-        const msgTxt = appStoreObj.language === 'ru' ? 'Ошибка сети при попытке проверить промокод. Попробуйте позже.' : 'Server error when trying to validate promo code. Try again later.'
-        toast.error(msgTxt)
+        // fallback
+        toast.error(appStoreObj.language === 'ru' ? 'Ошибка сети при попытке проверить промокод. Попробуйте позже.' : 'Server error when trying to validate promo code. Try again later.')
     }
 }
 
