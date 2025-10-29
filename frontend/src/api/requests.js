@@ -3,7 +3,6 @@ import { useTelegram } from '@/services/telegram'
 
 const { user } = useTelegram()
 
-const MY_ID = user?.id
 const BACKEND_URL = 'https://api.myoracleapp.com'
 
 // helper: read token saved by App.vue
@@ -164,7 +163,7 @@ export async function getUsersPoints() {
 }
 
 export async function getUsersBetsSummary() {
-    if (!MY_ID) return { countBets: 0, totalVolume: 0 }
+    if (!user?.id) return { countBets: 0, totalVolume: 0 }
     try {
         const resp = await apiFetch('/api/user/bets-summary')
         const { countBets = 0, totalVolume = 0 } = resp.data ?? {}
@@ -176,7 +175,7 @@ export async function getUsersBetsSummary() {
 }
 
 export async function getUsersWonBetsCount() {
-    if (!MY_ID) return 0
+    if (!user?.id) return 0
     try {
         const resp = await apiFetch('/api/user/won-bets-count')
         return resp.data?.bets_won ?? 0
@@ -508,5 +507,45 @@ export async function validateDataOnServer(initDataRaw) {
     } catch (err) {
         console.error('validateDataOnServer error', err);
         throw err;
+    }
+}
+
+const lastPromoAttempt = new Map()
+const PROMO_RATE_LIMIT_MS = 3000
+export async function validateUserPromocode(promo) {
+    // lightweight client-side guard to avoid spamming the server
+    const key = user?.id ? `tg:${user?.id}` : `ip:anon`
+
+    const now = Date.now()
+    const last = lastPromoAttempt.get(key) || 0
+    const elapsed = now - last
+    if (elapsed < PROMO_RATE_LIMIT_MS) {
+        const retryAfterSec = Math.ceil((PROMO_RATE_LIMIT_MS - elapsed) / 1000)
+        const err = new Error('Client rate-limited')
+        err.name = 'ClientRateLimited'
+        err.retryAfter = retryAfterSec
+        throw err
+    }
+
+    // set attempt timestamp immediately (prevents races/bursts)
+    lastPromoAttempt.set(key, now)
+
+    try {
+        // POST { promocode } to backend — server will read telegram from session (req.user)
+        const resp = await apiFetch('/api/validate-promocode', {
+            method: 'POST',
+            body: { promocode: promo }
+        })
+
+        // resp here is { ok:true, status, data, rawText }
+        return resp
+    } catch (err) {
+        // if server responded 429 with a retry hint, surface it
+        // many fetch wrappers include err.status and err.body
+        // rethrow so callers can handle
+        throw err
+    } finally {
+        // NOTE: keep the timestamp set — the 3s window is enforced from last attempt,
+        // not cleared on failure, which is typical for rate limiting.
     }
 }

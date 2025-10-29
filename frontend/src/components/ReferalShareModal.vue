@@ -132,7 +132,7 @@ watch(props.show, (v) => {
     left: 0;
     right: 0;
     bottom: 0;
-    height: min(72vh, 460px);
+    height: min(72vh, 500px);
     background: #292a2a;
     color: White;
     border-top-left-radius: 20px;

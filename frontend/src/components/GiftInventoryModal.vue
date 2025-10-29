@@ -104,17 +104,17 @@ async function getTelegramGift() {
 
     const slug = `${urlSafeName}-${props.gift.number}`
 
-    const resp = getGiftInfo(slug)
+    const resp = await getGiftInfo(slug)
 
     if (!resp || !resp.ok) {
         // Handle HTTP errors (4xx, 5xx)
-        const err = new Error(`Create stars pay error: ${resp?.status || 'NETWORK_ERROR'}`)
+        const err = new Error(`Fetch gift attributes returned error: ${resp?.status || 'NETWORK_ERROR'}`)
         err.status = resp?.status || 0
         err.body = resp?.data || 'Network error'
         throw err
     }
 
-    return await resp.data
+    return resp.data
 }
 
 /* ----- mapping gift_id -> tgs asset ----- */

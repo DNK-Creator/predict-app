@@ -482,7 +482,7 @@ function updateBackButtonForRoute(route) {
   }
 }
 
-const testingLocally = ref(false)
+const testingLocally = ref(true)
 
 onMounted(async () => {
   // --- Immediately block if we don't have a Telegram user object ---

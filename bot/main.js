@@ -930,6 +930,96 @@ app.get('/api/telegram/nft/:slug', async (req, res) => {
     }
 })
 
+const PROMO_RATE_LIMIT_MS = 3000
+const promoRateLimit = new Map()
+app.post('/api/validate-promocode', async (req, res) => {
+    try {
+        // canonical telegram id comes from validated session (middleware)
+        const telegram = Number(req.user?.id)
+        const { promocode } = req.body
+
+        if (!telegram) {
+            return res.status(401).json({ error: 'unauthenticated' })
+        }
+
+        if (!promocode || typeof promocode !== 'string') {
+            return res.status(400).json({ error: 'missing_data' })
+        }
+
+        // server-side rate-limit per telegram id; fallback to IP if telegram not available
+        const key = `tg:${telegram}` || `ip:${req.ip || req.connection?.remoteAddress || 'unknown'}`
+        const now = Date.now()
+        const last = promoRateLimit.get(key) || 0
+        const elapsed = now - last
+        if (elapsed < PROMO_RATE_LIMIT_MS) {
+            const retryAfter = Math.ceil((PROMO_RATE_LIMIT_MS - elapsed) / 1000)
+            return res.status(429).json({ error: 'rate_limited', retry_after: retryAfter })
+        }
+        // mark attempt
+        promoRateLimit.set(key, now)
+
+        // Normalize promo on server as an extra safety layer
+        // keep only letters (English + Russian), digits; remove spaces/symbols; lowercase
+        const normalizedPromo = String(promocode || '')
+            .replace(/[^A-Za-z0-9А-Яа-яЁё]/g, '')
+            .toLowerCase()
+            .trim()
+
+        if (!normalizedPromo) {
+            return res.status(400).json({ error: 'missing_data' })
+        }
+
+        // call Supabase RPC that performs atomic check/decrement and points update
+        const rpc = await supabaseAdmin.rpc('validate_promocode', {
+            p_telegram: telegram,
+            p_promo: normalizedPromo
+        })
+
+        // supabaseAdmin.rpc returns { data, error, status }
+        if (rpc.error) {
+            // map DB errors to HTTP errors where appropriate
+            const errMsg = (rpc.error && rpc.error.message) || ''
+            console.error('validate_promocode rpc.error', rpc.error)
+
+            // If the function raised a business exception, we might inspect message
+            if (errMsg.includes('invalid_or_empty') || errMsg.includes('not_found')) {
+                return res.status(400).json({ success: false, error: 'invalid_promocode' })
+            }
+            if (errMsg.includes('amount_left') || errMsg.includes('insufficient_amount')) {
+                return res.status(400).json({ success: false, error: 'insufficient_amount' })
+            }
+            if (errMsg.includes('user_not_found')) {
+                return res.status(400).json({ success: false, error: 'user_not_found' })
+            }
+
+            return res.status(500).json({ error: 'internal_error' })
+        }
+
+        // rpc.data is usually an array of rows returned by the function
+        const row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data
+
+        if (!row) {
+            return res.status(400).json({ success: false, error: 'not_found' })
+        }
+
+        // example expected returned columns: success boolean, bonus numeric, promocode_id, remaining
+        if (row.success === true) {
+            return res.json({ success: true, bonus: Number(row.bonus || 0), promocode_id: row.promocode_id, remaining: Number(row.remaining || 0) })
+        } else {
+            // explicit negative result
+            return res.status(400).json({ success: false, error: 'invalid_promocode' })
+        }
+    } catch (err) {
+        console.error('validate-promocode endpoint err', err)
+        // If this is a thrown Error from our RPC with a message like 'insufficient_amount'
+        const msg = String(err?.message || '')
+        if (msg.includes('insufficient_amount') || msg.includes('amount_left')) {
+            return res.status(400).json({ error: 'insufficient_amount' })
+        }
+        return res.status(500).json({ error: 'internal_error' })
+    }
+})
+
 // POST /api/bet-placed
 app.post('/api/bet-placed', async (req, res) => {
     try {

@@ -13,6 +13,14 @@
     <YourWalletModal :show="showWalletInfo" :balance="walletBalance" :address="parsedWalletAddress"
         @reconnect-wallet="reconnectWallet" @close="closeWalletInfo" />
 
+    <PromoCodeModal :show="showPromocodeModal" @close="closePromocodeModal" @enter-promo="tryPromocode" />
+
+    <div class="promocode-container">
+        <div class="promocode-field" @click="openPromocodeModal">
+            <img :src="promoIcon" class="promo-img">
+            <h1 class="promo-text">{{ $t('promocode') }}?</h1>
+        </div>
+    </div>
     <div class="profile-card">
         <img v-if="user?.photo_url" :src="user.photo_url" alt="Profile" class="profile-pic" />
         <div v-else class="profile-avatar">
@@ -86,8 +94,10 @@ import tonWhiteIcon from '@/assets/icons/TON_White_Icon.png'
 import betIcon from '@/assets/icons/Bet_Icon.png'
 import wonIcon from '@/assets/icons/Won_Icon.png'
 import arrowIcon from '@/assets/icons/Arrow_Up.png'
+import promoIcon from '@/assets/icons/Promo_Icon.png'
 import withdrawIcon from '@/assets/icons/Wallet_Icon_Gray.png'
-import { cancelDepositIntent, createDepositIntent, depositUserStars, fetchUsersBalanceWalletTon, updateUsersWallet, withdrawUserTon } from '@/api/requests'
+import { cancelDepositIntent, createDepositIntent, depositUserStars, fetchUsersBalanceWalletTon, updateUsersWallet, validateUserPromocode, withdrawUserTon } from '@/api/requests'
+import PromoCodeModal from '../PromoCodeModal.vue'
 
 const { user, tg } = useTelegram()
 
@@ -119,6 +129,8 @@ const spinnerShow = ref(true)
 
 const showWalletInfo = ref(false)
 
+const showPromocodeModal = ref(false)
+
 const emit = defineEmits(['view-previous-bets', 'view-won-bets'])
 
 function viewPreviousBets() {
@@ -148,6 +160,93 @@ function closeDepositsWindow() {
     if (modalAnimating.value) return
     showDepositModal.value = false
     // no setTimeout
+}
+
+function openPromocodeModal() {
+    showPromocodeModal.value = true
+}
+
+function closePromocodeModal() {
+    showPromocodeModal.value = false
+}
+
+async function tryPromocode(val) {
+    if (!val || !val.trim()) {
+        toast.error(appStoreObj.language === 'ru' ? 'Введите промокод.' : 'Please enter a promo code.')
+        return
+    }
+
+    try {
+        const resp = await validateUserPromocode(val.trim())
+
+        // apiFetch returned successfully — check RPC/server payload
+        // resp.data is the parsed JSON from server
+        const payload = resp?.data ?? {}
+
+        if (!payload?.success) {
+            // server responded OK (HTTP 200) but reported business-level failure
+            const reason = payload?.error || 'invalid_promocode'
+            if (reason === 'invalid_promocode' || reason === 'not_found') {
+                toast.error(appStoreObj.language === 'ru' ? 'Промокод не найден или недействителен.' : 'Promo code not found or invalid.')
+            } else if (reason === 'insufficient_amount') {
+                toast.error(appStoreObj.language === 'ru' ? 'Промокод уже исчерпан.' : 'Promo code has no remaining uses.')
+            } else {
+                toast.error(appStoreObj.language === 'ru' ? 'Не удалось активировать промокод.' : 'Failed to activate promo code.')
+            }
+            console.error('validate-promocode failed', payload)
+            return
+        }
+
+        // success: payload.bonus holds numeric bonus (server returned)
+        const bonus = Number(payload.bonus || 0)
+        appStoreObj.points = (appStoreObj.points || 0) + bonus
+
+        const bonusNum = Number.isFinite(bonus) ? bonus : 0
+        const bonusStr = Number.isInteger(bonusNum) ? String(bonusNum) : bonusNum.toFixed(2)
+
+        const successMsg = appStoreObj.language === 'ru'
+            ? `Поздравляем, вам начислено ${bonusStr} TON! Желаем удачных ставок.`
+            : `Congratulations, you received ${bonusStr} TON! Wish you lucky bets.`
+
+        toast.success(successMsg)
+
+        // close modal after a short delay
+        setTimeout(() => {
+            closePromocodeModal()
+        }, 850)
+    } catch (err) {
+        // apiFetch throws for HTTP errors, AbortError, or our client-side rate limit
+        console.error('tryPromocode catch', err)
+
+        // client-side rate limit (thrown by validateUserPromocode)
+        if (err && err.name === 'ClientRateLimited') {
+            const wait = err.retryAfter || 3
+            toast.error(appStoreObj.language === 'ru' ? `Пожалуйста, подождите ${wait} сек.` : `Please wait ${wait} seconds before retrying.`)
+            return
+        }
+
+        // server-side rate limit (HTTP 429)
+        if (err && err.status === 429) {
+            const wait = (err.body && err.body.retry_after) || 3
+            toast.error(appStoreObj.language === 'ru' ? `Слишком частые запросы — попробуйте через ${wait} сек.` : `Too many requests — try again in ${wait} seconds.`)
+            return
+        }
+
+        // well-known business errors from server encoded inside err.body or err.message
+        const body = err.body ?? (err?.message ? { error: err.message } : null)
+        const errorCode = body?.error ?? null
+
+        if (errorCode === 'missing_data') {
+            const msgTxt = appStoreObj.language === 'ru' ? 'Отсутствуют необходимые параметры для проверки промокода.' : 'Missing required data when validating request.'
+            toast.error(msgTxt)
+            console.error(body)
+            return
+        }
+
+        // default fallback
+        const msgTxt = appStoreObj.language === 'ru' ? 'Ошибка сети при попытке проверить промокод. Попробуйте позже.' : 'Server error when trying to validate promo code. Try again later.'
+        toast.error(msgTxt)
+    }
 }
 
 const parsedWalletAddress = computed(() => {
@@ -761,12 +860,50 @@ watch(
 </script>
 
 <style scoped>
+.promocode-container {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding: 0 16px;
+    height: 28px;
+    color: #ffffff;
+    user-select: none;
+}
+
+.promocode-field {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 100%;
+    padding: 2px 4px;
+    min-width: 128px;
+    font-family: "Inter", sans-serif;
+    font-weight: 600;
+    font-size: 0.4rem;
+    background-color: #1E2337;
+    border-radius: 24px;
+    cursor: pointer;
+    color: white;
+}
+
+.promo-text {
+    opacity: 0.75;
+}
+
+.promo-img {
+    height: 20px;
+    width: 20px;
+    opacity: 0.75;
+}
+
 .profile-card {
     max-width: 480px;
     width: 85vw;
     margin: 0 auto;
     padding: 24px;
     padding-bottom: 0px;
+    padding-top: 12px;
     border-radius: 12px;
     text-align: center;
     color: #ffffff;

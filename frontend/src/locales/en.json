@@ -187,5 +187,9 @@
     "max-withdraw-gifts": "Limit of 10 gifts per withdraw.",
     "withdrawing-wait": "Withdrawing..",
     "deposit-reject": "Can not deposit with the chosen method right now.",
-    "withdrawal-min": "Withdraw above 0.1 TON."
+    "withdrawal-min": "Withdraw above 0.1 TON.",
+    "promocode": "Promo code",
+    "apply-promo": "Apply promo code",
+    "get-bonus": "and get an exclusive bonus",
+    "apply": "Apply"
 }

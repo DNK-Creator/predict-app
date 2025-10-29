@@ -186,5 +186,9 @@
     "max-withdraw-gifts": "Максимум 10 подарков за вывод.",
     "withdrawing-wait": "Выводим..",
     "deposit-reject": "Пополнение выбранным способом сейчас недоступно.",
-    "withdrawal-min": "Вывод от 0.1 TON."
+    "withdrawal-min": "Вывод от 0.1 TON.",
+    "promocode": "Промокод",
+    "apply-promo": "Примени промокод",
+    "get-bonus": "и получи эксклюзивный бонус",
+    "apply": "Применить"
 }
