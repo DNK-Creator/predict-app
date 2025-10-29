@@ -967,17 +967,35 @@ app.post('/api/validate-promocode', async (req, res) => {
             p_promo: normalizedPromo
         })
 
+        console.debug('validate_promocode rpc result', {
+            rpcError: rpc.error || null,
+            rpcDataLength: Array.isArray(rpc.data) ? rpc.data.length : (rpc.data ? 1 : 0)
+        });
+
+
         if (rpc.error) {
             console.error('validate_promocode rpc error:', rpc.error)
             // unexpected DB/RPC error -> treat as 500
             return res.status(500).json({ error: 'internal_error' })
         }
 
-        const row = Array.isArray(rpc.data) ? rpc.data[0] : rpc.data
+        let row = null;
+        if (Array.isArray(rpc.data)) {
+            if (rpc.data.length === 0) {
+                // nothing returned
+                return res.json({ success: false, error: 'invalid_promocode' });
+            }
+            if (rpc.data.length > 1) {
+                console.warn('validate_promocode rpc returned multiple rows — using last row', { count: rpc.data.length, rpcData: rpc.data });
+            }
+            // choose the last row (final state)
+            row = rpc.data[rpc.data.length - 1];
+        } else {
+            row = rpc.data;
+        }
 
         if (!row) {
-            // safety fallback
-            return res.json({ success: false, error: 'invalid_promocode' })
+            return res.json({ success: false, error: 'invalid_promocode' });
         }
 
         // row has structure { success, error, bonus, promocode_id, remaining }
